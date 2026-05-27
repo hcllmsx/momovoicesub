@@ -1,0 +1,19 @@
+{
+  "name": "momovoicesub-resolve-plugin",
+  "version": "0.10.11",
+  "description": "默默配音助手 for DaVinci Resolve Studio",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "davinci-resolve",
+    "workflow-integration",
+    "tts",
+    "azure-speech"
+  ],
+  "author": "momo",
+  "license": "GPL-3.0"
+}

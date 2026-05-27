@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>默默配音助手</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>
+          <img class="app-logo" src="momovoicesub-logo.png" alt="">
+          <span>默默配音助手</span>
+          <span id="appVersion" class="version-badge"></span>
+        </h1>
+        <p id="resolveStatus">正在连接 DaVinci Resolve...</p>
+      </div>
+      <div class="topbar-actions">
+        <span id="refreshHint" class="refresh-hint"></span>
+        <button id="refreshState" class="icon-button" title="刷新 Resolve 状态" aria-label="刷新 Resolve 状态">↻</button>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="功能">
+      <button class="tab active" data-tab="subtitles">字幕自动配音</button>
+      <button class="tab" data-tab="manual">手动配音</button>
+      <button class="tab" data-tab="settings">设置</button>
+    </nav>
+
+    <section id="subtitles" class="tab-panel active">
+      <div class="toolbar">
+        <label>
+          字幕轨
+          <select id="subtitleTrack"></select>
+        </label>
+        <label>
+          目标音频轨
+          <select id="subtitleAudioTrack"></select>
+        </label>
+        <label>
+          覆盖策略
+          <select id="subtitleOverwrite">
+            <option value="skip">跳过已存在</option>
+            <option value="replace">重新生成并替换</option>
+            <option value="allowDuplicate">允许重复插入</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="toolbar">
+        <label>
+          音色
+          <select id="subtitleVoice"></select>
+        </label>
+        <label>
+          风格
+          <select id="subtitleStyle"></select>
+        </label>
+        <label>
+          语速
+          <input id="subtitleRate" type="range" min="-50" max="50" step="5" value="0">
+          <span id="subtitleRateValue">0%</span>
+        </label>
+        <label>
+          音调
+          <input id="subtitlePitch" type="range" min="-50" max="50" step="5" value="0">
+          <span id="subtitlePitchValue">0%</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="generateSubtitles" class="primary">生成字幕配音</button>
+      </div>
+
+      <div id="subtitleResult" class="result"></div>
+    </section>
+
+    <section id="manual" class="tab-panel">
+      <div class="manual-grid">
+        <label class="text-field">
+          文本
+          <textarea id="manualText" rows="10" placeholder="输入要生成配音的文字"></textarea>
+        </label>
+        <div class="side-controls">
+          <label>
+            目标音频轨
+            <select id="manualAudioTrack"></select>
+          </label>
+          <label>
+            音色
+            <select id="manualVoice"></select>
+          </label>
+          <label>
+            风格
+            <select id="manualStyle"></select>
+          </label>
+          <label>
+            语速
+            <input id="manualRate" type="range" min="-50" max="50" step="5" value="0">
+            <span id="manualRateValue">0%</span>
+          </label>
+          <label>
+            音调
+            <input id="manualPitch" type="range" min="-50" max="50" step="5" value="0">
+            <span id="manualPitchValue">0%</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="insertManual" class="primary">生成并插入到播放头</button>
+      </div>
+
+      <div id="manualResult" class="result"></div>
+    </section>
+
+    <section id="settings" class="tab-panel">
+      <div class="settings-grid">
+        <label>
+          Azure 区域
+          <input id="azureRegion" type="text" placeholder="eastasia">
+        </label>
+        <label>
+          Azure Endpoint
+          <input id="azureEndpoint" type="text" placeholder="可留空，或填写资源 endpoint">
+        </label>
+        <label>
+          Azure Speech Key
+          <input id="azureKey" type="password" placeholder="留空表示不修改已保存密钥">
+        </label>
+        <label class="checkbox-row">
+          <input id="rememberKey" type="checkbox">
+          保存密钥到本机加密存储
+        </label>
+        <label>
+          默认音色
+          <select id="defaultVoice"></select>
+        </label>
+        <label>
+          缓存目录
+          <input id="cacheDir" type="text" readonly>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="saveSettings">保存设置</button>
+        <button id="testAzure">测试连接</button>
+        <button id="refreshVoices">刷新音色</button>
+        <button id="openDevTools">打开开发者工具</button>
+      </div>
+
+      <div class="cache-tools">
+        <div>
+          <h2>缓存清理</h2>
+          <p>谨慎使用本功能</p>
+        </div>
+        <div class="actions compact">
+          <button id="deleteUnusedCache">删除未使用的缓存</button>
+          <button id="deleteCurrentProjectCache">删除当前项目所有缓存</button>
+          <button id="deleteAllProjectCache" class="danger">删除所有项目缓存</button>
+        </div>
+      </div>
+
+      <div id="settingsResult" class="result"></div>
+    </section>
+
+    <footer class="log-panel">
+      <div class="log-header">
+        <span>运行日志</span>
+        <div class="log-actions">
+          <button id="copyLog" title="复制运行日志">复制</button>
+          <button id="exportLog" title="导出运行日志">导出</button>
+        </div>
+      </div>
+      <pre id="logOutput"></pre>
+    </footer>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

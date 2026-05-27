@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.momo.voicesub</Id>
+        <Name>默默配音助手</Name>
+        <Version>0.10.8</Version>
+        <Description>Generate Azure TTS voiceover from subtitles or text and insert it into the current DaVinci Resolve timeline.</Description>
+        <Icon>momovoicesub-logo.png</Icon>
+        <FilePath>main.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>

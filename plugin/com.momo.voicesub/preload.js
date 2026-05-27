@@ -1,0 +1,30 @@
+'use strict';
+
+const { contextBridge, ipcRenderer } = require('electron/renderer');
+
+contextBridge.exposeInMainWorld('momoVoiceSub', {
+  getState: () => ipcRenderer.invoke('app:getState'),
+  loadSettings: () => ipcRenderer.invoke('settings:load'),
+  saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  listVoices: (settings) => ipcRenderer.invoke('tts:listVoices', settings),
+  testConnection: (settings) => ipcRenderer.invoke('tts:testConnection', settings),
+  getSummary: () => ipcRenderer.invoke('resolve:getSummary'),
+  listSubtitleTracks: () => ipcRenderer.invoke('resolve:listSubtitleTracks'),
+  listAudioTracks: () => ipcRenderer.invoke('resolve:listAudioTracks'),
+  generateFromSubtitles: (payload) => ipcRenderer.invoke('job:generateFromSubtitles', payload),
+  insertManual: (payload) => ipcRenderer.invoke('job:insertManual', payload),
+  deleteUnusedCurrentProjectCache: () => ipcRenderer.invoke('cache:deleteUnusedCurrentProject'),
+  deleteCurrentProjectCache: () => ipcRenderer.invoke('cache:deleteCurrentProject'),
+  deleteAllProjectCache: () => ipcRenderer.invoke('cache:deleteAllProjects'),
+  openDevTools: () => ipcRenderer.invoke('debug:openDevTools'),
+  copyLog: (logText) => ipcRenderer.invoke('debug:copyLog', logText),
+  exportLog: (logText) => ipcRenderer.invoke('debug:exportLog', logText),
+  confirm: (options) => ipcRenderer.invoke('app:confirm', options),
+  cleanupResolveInterface: () => ipcRenderer.invoke('resolve:cleanupResolveInterface'),
+  onLog: (callback) => {
+    ipcRenderer.on('app:log', (_event, payload) => callback(payload));
+  },
+  onToggleLog: (callback) => {
+    ipcRenderer.on('app:toggleLog', () => callback());
+  }
+});
