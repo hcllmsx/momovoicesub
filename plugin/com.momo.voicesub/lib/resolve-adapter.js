@@ -278,10 +278,11 @@ class ResolveAdapter {
     return { used, unresolved };
   }
 
-  async listCacheFiles(rootDir) {
+  async listCacheFiles(rootDir, skipPreview = true) {
     const files = [];
 
     async function visit(dir) {
+      if (skipPreview && path.basename(dir) === 'preview') return;
       let entries;
       try {
         entries = await fs.readdir(dir, { withFileTypes: true });
@@ -430,25 +431,63 @@ class ResolveAdapter {
   async deleteCurrentProjectCache() {
     const { project } = await this.getProjectContext();
     const projectCacheDir = await this.getCurrentProjectCacheDir(project);
-    const cacheFiles = await this.listCacheFiles(projectCacheDir);
-    await fs.rm(projectCacheDir, { recursive: true, force: true });
-    this.importedAudioItems.clear();
+    const cacheFiles = await this.listCacheFiles(projectCacheDir, false);
+
+    const previewDir = path.join(projectCacheDir, 'preview');
+
+    const toDelete = [];
+    for (const entry of await fs.readdir(projectCacheDir, { withFileTypes: true })) {
+      if (entry.name === 'preview') continue;
+      const fullPath = path.join(projectCacheDir, entry.name);
+      toDelete.push(fullPath);
+    }
+
+    for (const filePath of toDelete) {
+      await fs.rm(filePath, { recursive: true, force: true });
+    }
+
+    const remaining = await fs.readdir(projectCacheDir).catch(() => []);
+    if (remaining.length === 0) {
+      await fs.rm(projectCacheDir, { recursive: true, force: true });
+    }
+
+    const nonPreviewFiles = cacheFiles.filter((f) => !f.startsWith(previewDir));
+    this.forgetImportedAudioItems(nonPreviewFiles);
     return {
       scope: 'current-project',
       projectCacheDir,
-      deleted: cacheFiles.length
+      deleted: nonPreviewFiles.length
     };
   }
 
   async deleteAllProjectCache() {
     const cacheDir = await this.getBaseCacheDir();
-    const cacheFiles = await this.listCacheFiles(cacheDir);
-    await fs.rm(cacheDir, { recursive: true, force: true });
+    const cacheFiles = await this.listCacheFiles(cacheDir, false);
+
+    const previewDir = path.join(cacheDir, 'preview');
+
+    const toDelete = [];
+    for (const entry of await fs.readdir(cacheDir, { withFileTypes: true })) {
+      if (entry.name === 'preview') continue;
+      const fullPath = path.join(cacheDir, entry.name);
+      toDelete.push(fullPath);
+    }
+
+    for (const filePath of toDelete) {
+      await fs.rm(filePath, { recursive: true, force: true });
+    }
+
+    const remaining = await fs.readdir(cacheDir).catch(() => []);
+    if (remaining.length === 0) {
+      await fs.rm(cacheDir, { recursive: true, force: true });
+    }
+
+    const nonPreviewFiles = cacheFiles.filter((f) => !f.startsWith(previewDir));
     this.importedAudioItems.clear();
     return {
       scope: 'all-projects',
       cacheDir,
-      deleted: cacheFiles.length
+      deleted: nonPreviewFiles.length
     };
   }
 
@@ -554,47 +593,92 @@ class ResolveAdapter {
     return { status: 'inserted', recordFrame, durationFrames: sourceFrames };
   }
 
-  async generateFromSubtitleTrack({ subtitleTrackIndex, audioTrackIndex = 'auto', voiceSettings = {}, overwriteMode = 'skip' }) {
+  async getSubtitleItems(trackIndex) {
+    const { timeline } = await this.getContext();
+    const items = await timeline.GetItemListInTrack('subtitle', Number(trackIndex)) || [];
+    const result = [];
+    for (const item of items) {
+      const text = String(await item.GetName() || '').trim();
+      const start = Math.round(Number(await item.GetStart(false)));
+      const end = Math.round(Number(await item.GetEnd(false)));
+      result.push({
+        index: result.length,
+        text,
+        startFrame: start,
+        endFrame: end,
+        durationFrames: Math.max(1, end - start),
+        annotations: []
+      });
+    }
+    return result;
+  }
+
+  async generateFromSubtitleTrack({ subtitleTrackIndex, audioTrackIndex = 'auto', voiceSettings = {}, overwriteMode = 'skip', subtitleItems }) {
     const { project, timeline } = await this.getContext();
     const targetTrack = await this.ensureTargetAudioTrack(audioTrackIndex);
-    const subtitles = await timeline.GetItemListInTrack('subtitle', Number(subtitleTrackIndex)) || [];
     const fps = await this.getTimelineFps(project);
     const cacheDir = await this.getProjectTimelineCacheDir(project, timeline);
-    const results = [];
 
-    for (const item of subtitles) {
-      const text = String(await item.GetName() || '').trim();
+    let subtitles;
+    if (subtitleItems && subtitleItems.length) {
+      subtitles = subtitleItems;
+    } else {
+      const raw = await timeline.GetItemListInTrack('subtitle', Number(subtitleTrackIndex)) || [];
+      const items = [];
+      for (const item of raw) {
+        items.push({
+          text: String(await item.GetName() || '').trim(),
+          startFrame: Math.round(Number(await item.GetStart(false))),
+          endFrame: Math.round(Number(await item.GetEnd(false))),
+          durationFrames: Math.max(1, Math.round(Number(await item.GetEnd(false))) - Math.round(Number(await item.GetStart(false)))),
+          annotations: []
+        });
+      }
+      subtitles = items;
+    }
+
+    const polyphonicDict = voiceSettings.polyphonicDict;
+    const enablePoly = voiceSettings.enablePolyphonic !== false;
+
+    const results = [];
+    for (const sub of subtitles) {
+      const text = String(sub.text || '').trim();
       if (!text) {
         results.push({ status: 'skipped', reason: 'empty-subtitle' });
         continue;
       }
 
-      const start = Math.round(Number(await item.GetStart(false)));
-      const end = Math.round(Number(await item.GetEnd(false)));
-      const maxFrames = Math.max(1, end - start);
-      const cacheKey = sha1(JSON.stringify({ mode: 'subtitle', text, voiceSettings }));
+      const maxFrames = sub.durationFrames;
+      const cacheKey = sha1(JSON.stringify({ mode: 'subtitle', text, voiceSettings, annotations: sub.annotations }));
       const speakerName = await voiceDisplayName(this.settingsStore, voiceSettings.voice);
-      const clipName = `${start}_${sanitizeName(textPreview(text))}_${speakerName}_momo`;
+      const clipName = `${sub.startFrame}_${sanitizeName(textPreview(text))}_${speakerName}_momo`;
 
-      const audio = await this.ttsProvider.synthesize({
+      const synthOptions = {
         ...voiceSettings,
         text,
         cacheKey,
         timelineFps: fps,
         cacheDir
-      });
+      };
+
+      if (enablePoly) {
+        if (sub.annotations && sub.annotations.length) synthOptions.annotations = sub.annotations;
+        if (polyphonicDict && polyphonicDict.length) synthOptions.polyphonicDict = polyphonicDict;
+      }
+
+      const audio = await this.ttsProvider.synthesize(synthOptions);
 
       const durationFrames = Math.min(audio.durationFrames, maxFrames);
       const insert = await this.insertAudioFile({
         filePath: audio.filePath,
         audioTrackIndex: targetTrack,
-        recordFrame: start,
+        recordFrame: sub.startFrame,
         durationFrames,
         clipName,
         overwriteMode,
         forceReimport: audio.cacheHit === false
       });
-      results.push({ text, start, end, audio, ...insert });
+      results.push({ text, start: sub.startFrame, end: sub.endFrame, audio, ...insert });
     }
 
     return {
@@ -638,13 +722,21 @@ class ResolveAdapter {
     const cacheKey = sha1(JSON.stringify({ manual: true, text, voiceSettings }));
     const speakerName = await voiceDisplayName(this.settingsStore, voiceSettings.voice);
     const clipName = `${recordFrame}_${sanitizeName(textPreview(text))}_${speakerName}_momo`;
-    const audio = await this.ttsProvider.synthesize({
+
+    const synthOptions = {
       ...voiceSettings,
       text,
       cacheKey,
       timelineFps: fps,
       cacheDir
-    });
+    };
+    const enablePoly = voiceSettings.enablePolyphonic !== false;
+    if (enablePoly) {
+      if (voiceSettings.annotations) synthOptions.annotations = voiceSettings.annotations;
+      if (voiceSettings.polyphonicDict) synthOptions.polyphonicDict = voiceSettings.polyphonicDict;
+    }
+
+    const audio = await this.ttsProvider.synthesize(synthOptions);
 
     const insert = await this.insertAudioFile({
       filePath: audio.filePath,

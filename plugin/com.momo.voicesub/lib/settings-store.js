@@ -9,19 +9,27 @@ const DEFAULT_SETTINGS = {
   endpoint: '',
   defaultVoice: 'zh-CN-XiaoxiaoNeural',
   defaultStyle: '',
+  defaultStyledegree: '1.0',
+  defaultRole: '',
+  defaultVolume: '100%',
   defaultRate: '0%',
   defaultPitch: '0%',
   overwriteMode: 'skip',
   rememberKey: false,
   voices: [],
-  cacheDir: ''
+  favoriteVoices: [],
+  cacheDir: '',
+  polyphonicDict: []
 };
+
+const POLYPHONIC_USER_DICT_FILE = 'polyphonic-user-dict.json';
 
 class SettingsStore {
   constructor({ appDataDir, safeStorage }) {
     this.appDataDir = appDataDir;
     this.safeStorage = safeStorage;
     this.settingsPath = path.join(appDataDir, 'settings.json');
+    this.polyDictPath = path.join(appDataDir, POLYPHONIC_USER_DICT_FILE);
     this.sessionAzureKey = '';
   }
 
@@ -34,21 +42,40 @@ class SettingsStore {
   }
 
   loadSync() {
+    let settings = {};
     try {
       const raw = fs.readFileSync(this.settingsPath, 'utf8');
-      return this.ensureDefaults(JSON.parse(raw));
-    } catch {
-      return this.ensureDefaults();
-    }
+      settings = JSON.parse(raw);
+    } catch {}
+    
+    // 同步读取并合并独立的多音字词典
+    try {
+      const rawPoly = fs.readFileSync(this.polyDictPath, 'utf8');
+      const parsed = JSON.parse(rawPoly);
+      if (Array.isArray(parsed)) {
+        settings.polyphonicDict = parsed;
+      }
+    } catch {}
+
+    return this.ensureDefaults(settings);
   }
 
   async load() {
+    let settings = {};
     try {
       const raw = await fsp.readFile(this.settingsPath, 'utf8');
-      return this.ensureDefaults(JSON.parse(raw));
-    } catch {
-      return this.ensureDefaults();
-    }
+      settings = JSON.parse(raw);
+    } catch {}
+
+    // 异步读取并合并独立的多音字词典
+    try {
+      const parsed = await this.loadPolyDict();
+      if (Array.isArray(parsed)) {
+        settings.polyphonicDict = parsed;
+      }
+    } catch {}
+
+    return this.ensureDefaults(settings);
   }
 
   async save(nextSettings) {
@@ -67,9 +94,32 @@ class SettingsStore {
       }
     }
 
+    // 保存用户自定义多音字词典到独立 JSON 文件，方便维护
+    const polyDict = settings.polyphonicDict;
+    if (polyDict && Array.isArray(polyDict)) {
+      await this.savePolyDict(polyDict);
+    }
+
     await fsp.mkdir(this.appDataDir, { recursive: true });
     await fsp.writeFile(this.settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
     return this.redact(settings);
+  }
+
+  async savePolyDict(entries) {
+    await fsp.mkdir(this.appDataDir, { recursive: true });
+    await fsp.writeFile(this.polyDictPath, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+  }
+
+  async loadPolyDict() {
+    try {
+      const raw = await fsp.readFile(this.polyDictPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+      return [];
+    } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
   }
 
   async getAzureKey() {
@@ -104,5 +154,6 @@ class SettingsStore {
 
 module.exports = {
   SettingsStore,
-  DEFAULT_SETTINGS
+  DEFAULT_SETTINGS,
+  POLYPHONIC_USER_DICT_FILE
 };

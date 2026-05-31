@@ -1,8 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, safeStorage, Menu, clipboard, dialog } = require('electron');
-const fs = require('fs/promises');
 const path = require('path');
+const fs = require('fs/promises');
+const { app, BrowserWindow, ipcMain, safeStorage, Menu, clipboard, dialog, shell } = require('electron');
 const WorkflowIntegration = require('./WorkflowIntegration.node');
 const { SettingsStore } = require('./lib/settings-store');
 const { AzureTtsProvider } = require('./lib/azure-tts');
@@ -108,12 +108,19 @@ function initServices() {
 }
 
 function normalizeVoiceSettings(input = {}) {
-  return {
+  const result = {
     voice: input.voice || undefined,
     style: input.style || undefined,
+    styledegree: input.styledegree || undefined,
+    role: input.role || undefined,
     rate: input.rate || '0%',
-    pitch: input.pitch || '0%'
+    pitch: input.pitch || '0%',
+    volume: input.volume || '100%'
   };
+  if (input.annotations) result.annotations = input.annotations;
+  if (input.polyphonicDict) result.polyphonicDict = input.polyphonicDict;
+  if (input.enablePolyphonic !== undefined) result.enablePolyphonic = input.enablePolyphonic;
+  return result;
 }
 
 function registerIpcHandlers() {
@@ -147,17 +154,57 @@ function registerIpcHandlers() {
     };
   });
 
+  registerLoggedHandler('tts:previewVoice', async (_event, shortName) => {
+    if (!shortName) throw new Error('shortName is required');
+
+    const settings = await settingsStore.load();
+    const voice = (settings.voices || []).find((v) => v.shortName === shortName);
+    const cacheDir = settings.cacheDir || path.join(app.getPath('appData'), 'momovoicesub', 'cache');
+
+    const result = await ttsProvider.synthesizePreview({
+      shortName,
+      localName: voice?.localName,
+      displayName: voice?.displayName,
+      locale: voice?.locale,
+      previewDir: cacheDir
+    });
+
+    const base64 = result.wavBuffer.toString('base64');
+    return `data:audio/wav;base64,${base64}`;
+  });
+
+  registerLoggedHandler('settings:toggleFavorite', async (_event, shortName) => {
+    if (!shortName) throw new Error('shortName is required');
+    const settings = await settingsStore.load();
+    const favorites = [...(settings.favoriteVoices || [])];
+    const idx = favorites.indexOf(shortName);
+    if (idx >= 0) {
+      favorites.splice(idx, 1);
+    } else {
+      favorites.push(shortName);
+    }
+    await settingsStore.save({ favoriteVoices: favorites });
+    return favorites;
+  });
+
   registerLoggedHandler('resolve:getSummary', async () => resolveAdapter.getSummary());
   registerLoggedHandler('resolve:listSubtitleTracks', async () => resolveAdapter.listSubtitleTracks());
   registerLoggedHandler('resolve:listAudioTracks', async () => resolveAdapter.listAudioTracks());
+  registerLoggedHandler('resolve:getSubtitleItems', async (_event, trackIndex) => {
+    return resolveAdapter.getSubtitleItems(trackIndex);
+  });
 
   registerLoggedHandler('job:generateFromSubtitles', async (_event, payload) => {
     sendLog('开始字幕批量配音');
+    const voiceSettings = normalizeVoiceSettings(payload.voiceSettings);
+    if (payload.voiceSettings?.polyphonicDict) voiceSettings.polyphonicDict = payload.voiceSettings.polyphonicDict;
+    if (payload.voiceSettings?.enablePolyphonic !== undefined) voiceSettings.enablePolyphonic = payload.voiceSettings.enablePolyphonic;
     const result = await resolveAdapter.generateFromSubtitleTrack({
       subtitleTrackIndex: Number(payload.subtitleTrackIndex),
       audioTrackIndex: payload.audioTrackIndex || 'auto',
-      voiceSettings: normalizeVoiceSettings(payload.voiceSettings),
-      overwriteMode: payload.overwriteMode || 'skip'
+      voiceSettings,
+      overwriteMode: payload.overwriteMode || 'skip',
+      subtitleItems: payload.subtitleItems
     });
     sendLog(`字幕配音完成：插入 ${result.inserted}，跳过 ${result.skipped}`);
     return result;
@@ -165,10 +212,14 @@ function registerIpcHandlers() {
 
   registerLoggedHandler('job:insertManual', async (_event, payload) => {
     sendLog('开始生成手动配音');
+    const voiceSettings = normalizeVoiceSettings(payload.voiceSettings);
+    if (payload.voiceSettings?.annotations) voiceSettings.annotations = payload.voiceSettings.annotations;
+    if (payload.voiceSettings?.polyphonicDict) voiceSettings.polyphonicDict = payload.voiceSettings.polyphonicDict;
+    if (payload.voiceSettings?.enablePolyphonic !== undefined) voiceSettings.enablePolyphonic = payload.voiceSettings.enablePolyphonic;
     const result = await resolveAdapter.insertTextAtPlayhead({
       text: payload.text,
       audioTrackIndex: payload.audioTrackIndex || 'auto',
-      voiceSettings: normalizeVoiceSettings(payload.voiceSettings),
+      voiceSettings,
       overwriteMode: payload.overwriteMode || 'allowDuplicate'
     });
     sendLog(`手动配音已插入到帧 ${result.recordFrame}`);
@@ -243,6 +294,14 @@ function registerIpcHandlers() {
   });
 
   registerLoggedHandler('resolve:cleanupResolveInterface', cleanupResolveInterface);
+
+  registerLoggedHandler('app:openExternal', async (_event, url) => {
+    if (url) {
+      await shell.openExternal(url);
+      return true;
+    }
+    return false;
+  });
 }
 
 function isAllowedShortcut(input) {
@@ -271,13 +330,12 @@ function registerShortcutGate(window) {
 function createWindow() {
   Menu.setApplicationMenu(null);
   mainWindow = new BrowserWindow({
-    width: 960,
-    height: 640,
+    width: 1200,
+    height: 760,
     minWidth: 960,
-    maxWidth: 960,
-    minHeight: 640,
+    minHeight: 600,
     resizable: true,
-    maximizable: false,
+    maximizable: true,
     useContentSize: true,
     title: '默默配音助手',
     icon: LOGO_PATH,

@@ -4,6 +4,8 @@
 
 当前版本优先支持 Windows + DaVinci Resolve Studio。TTS 使用 Azure Speech REST API，用户需要在插件设置里填写自己的 Azure Speech Key 和区域或 Endpoint。
 
+![project-intro](plugin/com.momo.voicesub/docs/momovoicesub.webp)
+
 ## 功能
 
 - 读取当前时间线的字幕轨，批量生成配音。

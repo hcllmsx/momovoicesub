@@ -6,8 +6,11 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   getState: () => ipcRenderer.invoke('app:getState'),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  toggleFavorite: (shortName) => ipcRenderer.invoke('settings:toggleFavorite', shortName),
   listVoices: (settings) => ipcRenderer.invoke('tts:listVoices', settings),
   testConnection: (settings) => ipcRenderer.invoke('tts:testConnection', settings),
+  previewVoice: (shortName) => ipcRenderer.invoke('tts:previewVoice', shortName),
+  getSubtitleItems: (trackIndex) => ipcRenderer.invoke('resolve:getSubtitleItems', trackIndex),
   getSummary: () => ipcRenderer.invoke('resolve:getSummary'),
   listSubtitleTracks: () => ipcRenderer.invoke('resolve:listSubtitleTracks'),
   listAudioTracks: () => ipcRenderer.invoke('resolve:listAudioTracks'),
@@ -21,6 +24,7 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   exportLog: (logText) => ipcRenderer.invoke('debug:exportLog', logText),
   confirm: (options) => ipcRenderer.invoke('app:confirm', options),
   cleanupResolveInterface: () => ipcRenderer.invoke('resolve:cleanupResolveInterface'),
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   onLog: (callback) => {
     ipcRenderer.on('app:log', (_event, payload) => callback(payload));
   },

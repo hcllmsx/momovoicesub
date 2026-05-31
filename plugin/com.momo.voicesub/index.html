@@ -1,183 +1,416 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" spellcheck="false">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>默默配音助手</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
-<body>
+<body spellcheck="false">
   <main class="app-shell">
-    <header class="topbar">
-      <div>
-        <h1>
-          <img class="app-logo" src="momovoicesub-logo.png" alt="">
-          <span>默默配音助手</span>
-          <span id="appVersion" class="version-badge"></span>
-        </h1>
-        <p id="resolveStatus">正在连接 DaVinci Resolve...</p>
+    <!-- ═══ Sidebar Navigation ═══ -->
+    <aside class="sidebar">
+      <img class="sidebar-logo" src="momovoicesub-logo.png" alt="">
+
+      <nav class="sidebar-nav" aria-label="功能导航">
+        <button class="nav-btn active" data-tab="subtitles" title="字幕自动配音">
+          📄
+          <span class="nav-btn-label">字幕自动配音</span>
+        </button>
+        <button class="nav-btn" data-tab="manual" title="手动配音">
+          ✏️
+          <span class="nav-btn-label">手动配音</span>
+        </button>
+        <button class="nav-btn" data-tab="settings" title="设置">
+          ⚙
+          <span class="nav-btn-label">设置</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <button id="sidebarStatusBtn" class="sidebar-status-btn">
+          <span id="resolveDot" class="dot"></span>
+          <span id="resolveStatusText" class="nav-btn-label">正在连接...</span>
+        </button>
+        <button id="githubBtn" class="sidebar-github-btn" title="GitHub 开源仓库">
+          <img src="img/github.png" alt="GitHub">
+        </button>
       </div>
-      <div class="topbar-actions">
-        <span id="refreshHint" class="refresh-hint"></span>
-        <button id="refreshState" class="icon-button" title="刷新 Resolve 状态" aria-label="刷新 Resolve 状态">↻</button>
-      </div>
-    </header>
+    </aside>
 
-    <nav class="tabs" aria-label="功能">
-      <button class="tab active" data-tab="subtitles">字幕自动配音</button>
-      <button class="tab" data-tab="manual">手动配音</button>
-      <button class="tab" data-tab="settings">设置</button>
-    </nav>
+    <!-- ═══ Content Area ═══ -->
+    <div class="content-area">
+      <header id="projectHeader" class="project-header">
+        <span id="projectHeaderText">正在连接达芬奇...</span>
+      </header>
+      <div id="toastArea" class="toast-area"></div>
 
-    <section id="subtitles" class="tab-panel active">
-      <div class="toolbar">
-        <label>
-          字幕轨
-          <select id="subtitleTrack"></select>
-        </label>
-        <label>
-          目标音频轨
-          <select id="subtitleAudioTrack"></select>
-        </label>
-        <label>
-          覆盖策略
-          <select id="subtitleOverwrite">
-            <option value="skip">跳过已存在</option>
-            <option value="replace">重新生成并替换</option>
-            <option value="allowDuplicate">允许重复插入</option>
-          </select>
-        </label>
-      </div>
+      <!-- ─── 字幕自动配音 ─── -->
+      <section id="subtitles" class="tab-panel active">
+        <div class="tab-scroll-content">
+          <div class="track-bar">
+            <div class="track-group">
+              <label class="track-label">字幕轨</label>
+              <div id="subtitleTrackTags" class="tag-list"></div>
+            </div>
+            <div class="track-group">
+              <label class="track-label">音频轨</label>
+              <div id="subtitleAudioTrackTags" class="tag-list"></div>
+            </div>
+            <div class="track-group">
+              <label class="track-label">策略</label>
+              <div id="subtitleOverwriteTags" class="tag-list"></div>
+            </div>
+          </div>
 
-      <div class="toolbar">
-        <label>
-          音色
-          <select id="subtitleVoice"></select>
-        </label>
-        <label>
-          风格
-          <select id="subtitleStyle"></select>
-        </label>
-        <label>
-          语速
-          <input id="subtitleRate" type="range" min="-50" max="50" step="5" value="0">
-          <span id="subtitleRateValue">0%</span>
-        </label>
-        <label>
-          音调
-          <input id="subtitlePitch" type="range" min="-50" max="50" step="5" value="0">
-          <span id="subtitlePitchValue">0%</span>
-        </label>
-      </div>
-
-      <div class="actions">
-        <button id="generateSubtitles" class="primary">生成字幕配音</button>
-      </div>
-
-      <div id="subtitleResult" class="result"></div>
-    </section>
-
-    <section id="manual" class="tab-panel">
-      <div class="manual-grid">
-        <label class="text-field">
-          文本
-          <textarea id="manualText" rows="10" placeholder="输入要生成配音的文字"></textarea>
-        </label>
-        <div class="side-controls">
-          <label>
-            目标音频轨
-            <select id="manualAudioTrack"></select>
-          </label>
-          <label>
-            音色
-            <select id="manualVoice"></select>
-          </label>
-          <label>
-            风格
-            <select id="manualStyle"></select>
-          </label>
-          <label>
-            语速
-            <input id="manualRate" type="range" min="-50" max="50" step="5" value="0">
-            <span id="manualRateValue">0%</span>
-          </label>
-          <label>
-            音调
-            <input id="manualPitch" type="range" min="-50" max="50" step="5" value="0">
-            <span id="manualPitchValue">0%</span>
-          </label>
+          <div class="content-split">
+            <div class="content-main">
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-icon">📄</span>
+                  <span>字幕列表</span>
+                  <div class="card-actions">
+                    <button id="subtitleSingleCorrect" class="btn btn-xs btn-ghost">🔤 单字纠音</button>
+                    <button id="subtitleBatchCorrect" class="btn btn-xs btn-ghost">🔤 批量纠音</button>
+                    <button id="subtitleInsertPause" class="btn btn-xs btn-ghost">⏸ 设定停顿</button>
+                  </div>
+                </div>
+                <div id="subtitleTable" class="subtitle-table-wrap">
+                  <div class="table-placeholder">选择字幕轨以加载列表</div>
+                </div>
+              </div>
+            </div>
+            <div class="content-side">
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-icon">🎙</span>
+                  <span>配音参数</span>
+                  <label class="toggle-row" title="控制“是否启用多音字纠音词典自动匹配替换”的开关">
+                    <input type="checkbox" id="subtitlePolyToggle" checked>
+                    <span class="toggle-text">自定义纠音</span>
+                  </label>
+                </div>
+                <div class="param-body">
+                  <div class="preset-bar">
+                    <select id="subtitlePresetSelect" class="preset-select">
+                      <option value="">-- 选择参数预设 --</option>
+                    </select>
+                    <button id="saveSubtitlePreset" class="btn btn-xs btn-ghost preset-save-btn" title="将当前面板所有参数（音色、语调等）保存为新预设">💾 保存</button>
+                  </div>
+                  <div id="subtitleVoiceContainer" class="voice-picker-compact"></div>
+                  <label class="param-label">风格</label>
+                  <div id="subtitleStyleTags" class="tag-list"></div>
+                  <div id="subtitleRoleArea" class="hidden">
+                    <label class="param-label">角色</label>
+                    <div id="subtitleRoleTags" class="tag-list"></div>
+                  </div>
+                  <div id="subtitleStyledegreeArea" class="hidden">
+                    <label class="param-label">风格程度</label>
+                    <div class="range-row">
+                      <input id="subtitleStyledegree" type="range" min="0" max="200" step="10" value="100">
+                      <span id="subtitleStyledegreeValue" class="range-val">100%</span>
+                    </div>
+                  </div>
+                  <label class="param-label">语速</label>
+                  <div class="range-row">
+                    <input id="subtitleRate" type="range" min="-50" max="50" step="5" value="0">
+                    <span id="subtitleRateValue" class="range-val">0%</span>
+                  </div>
+                  <label class="param-label">音调</label>
+                  <div class="range-row">
+                    <input id="subtitlePitch" type="range" min="-50" max="50" step="5" value="0">
+                    <span id="subtitlePitchValue" class="range-val">0%</span>
+                  </div>
+                  <label class="param-label">音量</label>
+                  <div class="range-row">
+                    <input id="subtitleVolume" type="range" min="0" max="200" step="10" value="100">
+                    <span id="subtitleVolumeValue" class="range-val">100%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div class="actions">
-        <button id="insertManual" class="primary">生成并插入到播放头</button>
-      </div>
-
-      <div id="manualResult" class="result"></div>
-    </section>
-
-    <section id="settings" class="tab-panel">
-      <div class="settings-grid">
-        <label>
-          Azure 区域
-          <input id="azureRegion" type="text" placeholder="eastasia">
-        </label>
-        <label>
-          Azure Endpoint
-          <input id="azureEndpoint" type="text" placeholder="可留空，或填写资源 endpoint">
-        </label>
-        <label>
-          Azure Speech Key
-          <input id="azureKey" type="password" placeholder="留空表示不修改已保存密钥">
-        </label>
-        <label class="checkbox-row">
-          <input id="rememberKey" type="checkbox">
-          保存密钥到本机加密存储
-        </label>
-        <label>
-          默认音色
-          <select id="defaultVoice"></select>
-        </label>
-        <label>
-          缓存目录
-          <input id="cacheDir" type="text" readonly>
-        </label>
-      </div>
-
-      <div class="actions">
-        <button id="saveSettings">保存设置</button>
-        <button id="testAzure">测试连接</button>
-        <button id="refreshVoices">刷新音色</button>
-        <button id="openDevTools">打开开发者工具</button>
-      </div>
-
-      <div class="cache-tools">
-        <div>
-          <h2>缓存清理</h2>
-          <p>谨慎使用本功能</p>
+        <div class="floating-action-bar">
+          <button id="generateSubtitles" class="btn btn-primary">▶ 生成字幕配音</button>
         </div>
-        <div class="actions compact">
-          <button id="deleteUnusedCache">删除未使用的缓存</button>
-          <button id="deleteCurrentProjectCache">删除当前项目所有缓存</button>
-          <button id="deleteAllProjectCache" class="danger">删除所有项目缓存</button>
-        </div>
-      </div>
+      </section>
 
-      <div id="settingsResult" class="result"></div>
-    </section>
-
-    <footer class="log-panel">
-      <div class="log-header">
-        <span>运行日志</span>
-        <div class="log-actions">
-          <button id="copyLog" title="复制运行日志">复制</button>
-          <button id="exportLog" title="导出运行日志">导出</button>
+      <!-- ─── 手动配音 ─── -->
+      <section id="manual" class="tab-panel">
+        <div class="tab-scroll-content">
+          <div class="content-split">
+            <div class="content-main">
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-icon">✏️</span>
+                  <span>文本编辑</span>
+                  <div class="card-actions">
+                    <button id="manualClearText" class="btn btn-xs btn-ghost text-danger" title="清空文本框所有文字与标注">🧹 一键清空</button>
+                    <button id="manualSingleCorrect" class="btn btn-xs btn-ghost">🔤 单字纠音</button>
+                    <button id="manualBatchCorrect" class="btn btn-xs btn-ghost">🔤 批量纠音</button>
+                    <button id="manualInsertPause" class="btn btn-xs btn-ghost">⏸ 设定停顿</button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="manual-textarea-wrap">
+                    <textarea id="manualText" class="manual-textarea" spellcheck="false" placeholder="输入要生成配音的文字...&#10;选中文字后点击「单字纠音」可标注指定读音"></textarea>
+                  </div>
+                  <div id="manualPreviewTitle" class="manual-preview-title hidden">效果预览（含多音字纠音与停顿标记）：</div>
+                  <div id="manualTextHighlight" class="manual-textarea-highlight hidden"></div>
+                </div>
+              </div>
+            </div>
+            <div class="content-side">
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-icon">🎙</span>
+                  <span>配音参数</span>
+                  <label class="toggle-row" title="控制“是否启用多音字纠音词典自动匹配替换”的开关">
+                    <input type="checkbox" id="manualPolyToggle" checked>
+                    <span class="toggle-text">自定义纠音</span>
+                  </label>
+                </div>
+                <div class="param-body">
+                  <div class="preset-bar">
+                    <select id="manualPresetSelect" class="preset-select">
+                      <option value="">-- 选择参数预设 --</option>
+                    </select>
+                    <button id="saveManualPreset" class="btn btn-xs btn-ghost preset-save-btn" title="将当前面板所有参数（音色、语调等）保存为新预设">💾 保存</button>
+                  </div>
+                  <div id="manualVoiceContainer" class="voice-picker-compact"></div>
+                  <label class="param-label">风格</label>
+                  <div id="manualStyleTags" class="tag-list"></div>
+                  <div id="manualRoleArea" class="hidden">
+                    <label class="param-label">角色</label>
+                    <div id="manualRoleTags" class="tag-list"></div>
+                  </div>
+                  <div id="manualStyledegreeArea" class="hidden">
+                    <label class="param-label">风格程度</label>
+                    <div class="range-row">
+                      <input id="manualStyledegree" type="range" min="0" max="200" step="10" value="100">
+                      <span id="manualStyledegreeValue" class="range-val">100%</span>
+                    </div>
+                  </div>
+                  <label class="param-label">语速</label>
+                  <div class="range-row">
+                    <input id="manualRate" type="range" min="-50" max="50" step="5" value="0">
+                    <span id="manualRateValue" class="range-val">0%</span>
+                  </div>
+                  <label class="param-label">音调</label>
+                  <div class="range-row">
+                    <input id="manualPitch" type="range" min="-50" max="50" step="5" value="0">
+                    <span id="manualPitchValue" class="range-val">0%</span>
+                  </div>
+                  <label class="param-label">音量</label>
+                  <div class="range-row">
+                    <input id="manualVolume" type="range" min="0" max="200" step="10" value="100">
+                    <span id="manualVolumeValue" class="range-val">100%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-      <pre id="logOutput"></pre>
-    </footer>
+
+        <div class="floating-action-bar">
+          <button id="insertManual" class="btn btn-primary">▶ 生成并插入到播放头</button>
+        </div>
+      </section>
+
+      <!-- ─── 设置 ─── -->
+      <section id="settings" class="tab-panel">
+        <div class="settings-layout">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">🔌</span>
+              <span>连接设置</span>
+            </div>
+            <div class="connection-settings-row">
+              <div class="setting-col-region">
+                <label>Azure 区域</label>
+                <input id="azureRegion" type="text" placeholder="eastasia">
+              </div>
+              <div class="setting-col-endpoint">
+                <label>Azure Endpoint</label>
+                <input id="azureEndpoint" type="text" placeholder="可留空">
+              </div>
+              <div class="setting-col-key">
+                <div class="key-header-row">
+                  <label>Azure Speech Key</label>
+                  <label class="checkbox-row key-remember" title="保存密钥到本机加密存储">
+                    <input id="rememberKey" type="checkbox">
+                    <span>记住</span>
+                  </label>
+                </div>
+                <input id="azureKey" type="password" placeholder="留空不修改已保存密钥">
+              </div>
+            </div>
+            <div class="card-footer settings-actions">
+              <button id="testAzure" class="btn btn-secondary">测试连接</button>
+              <button id="refreshVoices" class="btn btn-secondary">刷新音色</button>
+              <button id="saveSettings" class="btn btn-primary">保存设置</button>
+              <span class="btn-separator"></span>
+              <button id="openDevTools" class="btn btn-secondary">DevTools</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">⭐</span>
+              <span>预设管理</span>
+            </div>
+            <div class="default-preset-body">
+              <div id="presetsGrid" class="presets-grid"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">🗄</span>
+              <span>缓存管理</span>
+            </div>
+            <div class="cache-body">
+              <label>缓存目录<input id="cacheDir" type="text" readonly></label>
+              <p class="cache-note">不会删除试听缓存</p>
+              <div class="btn-stack">
+                <button id="deleteUnusedCache" class="btn btn-secondary btn-sm">删除未使用缓存</button>
+                <button id="deleteCurrentProjectCache" class="btn btn-secondary btn-sm">删除当前项目缓存</button>
+                <button id="deleteAllProjectCache" class="btn btn-danger btn-sm">删除全部缓存</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">📖</span>
+              <span>自定义多音字 · 词典管理</span>
+              <button id="addPolyEntry" class="btn btn-xs btn-primary">+ 添加词条</button>
+            </div>
+            <div class="poly-dict-controls">
+              <input id="polyDictSearch" type="text" class="search-input" placeholder="搜索词典...">
+            </div>
+            <div id="polyDictTable" class="poly-dict-table-wrap">
+              <div class="table-placeholder">暂无词条，可添加常用多音字</div>
+            </div>
+          </div>
+          
+
+          <!-- 设置页面底部版本号页脚 -->
+          <div class="settings-footer">
+            <span id="appVersion"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── Log Panel ─── -->
+      <footer class="log-panel">
+        <div class="log-header">
+          <span>运行日志</span>
+          <div class="log-actions">
+            <button id="toggleExpandLog">展开</button>
+            <button id="clearLog">清空</button>
+            <button id="copyLog">复制</button>
+            <button id="exportLog">导出</button>
+          </div>
+        </div>
+        <pre id="logOutput"></pre>
+      </footer>
+    </div>
   </main>
+
+  <audio id="previewAudio"></audio>
+
+  <!-- ═══ Popups ═══ -->
+  <div id="polyPopup" class="popup-overlay hidden">
+    <div class="popup-panel">
+      <div class="popup-header">
+        <span id="polyPopupTitle">选择读音</span>
+        <button id="polyPopupClose" class="popup-close">×</button>
+      </div>
+      <div id="polyPopupBody" class="popup-body"></div>
+      <div class="popup-footer">
+        <label class="checkbox-row">
+          <input type="checkbox" id="polyPopupGlobal">
+          <span>全局应用（当前文本中所有匹配）</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div id="pausePopup" class="popup-overlay hidden">
+    <div class="popup-panel popup-sm">
+      <div class="popup-header">
+        <span>设定停顿</span>
+        <button id="pausePopupClose" class="popup-close">×</button>
+      </div>
+      <div class="popup-body">
+        <div class="pause-options">
+          <button class="btn btn-sm btn-outline" data-pause="none">强制不停顿</button>
+          <button class="btn btn-sm btn-outline" data-pause="50ms">50ms</button>
+          <button class="btn btn-sm btn-outline" data-pause="100ms">100ms</button>
+          <button class="btn btn-sm btn-outline" data-pause="250ms">250ms</button>
+          <button class="btn btn-sm btn-outline" data-pause="500ms">500ms</button>
+          <button class="btn btn-sm btn-outline" data-pause="1s">1秒</button>
+          <button class="btn btn-sm btn-outline" data-pause="2s">2秒</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="polyEntryPopup" class="popup-overlay hidden">
+    <div class="popup-panel popup-poly">
+      <div class="popup-header">
+        <span id="polyEntryTitle">添加词条</span>
+        <button id="polyEntryClose" class="popup-close">×</button>
+      </div>
+      <div class="popup-body">
+        <div class="poly-entry-char-row">
+          <label>汉字<input id="polyEntryChar" type="text" placeholder="输入多音字，如：行" class="popup-input" spellcheck="false"></label>
+        </div>
+        
+        <!-- 动态拼音读音配置列表容器 -->
+        <div id="polyPinyinsContainer" class="poly-pinyins-container"></div>
+      </div>
+      <div class="popup-footer">
+        <button id="polyEntrySave" class="btn btn-primary">保存</button>
+        <button id="polyEntryCancel" class="btn btn-secondary">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirmPopup" class="popup-overlay hidden">
+    <div class="popup-panel popup-sm">
+      <div class="popup-header">
+        <span>操作确认</span>
+        <button id="confirmPopupClose" class="popup-close">×</button>
+      </div>
+      <div class="popup-body">
+        <p id="confirmPopupMessage" class="confirm-message"></p>
+      </div>
+      <div class="popup-footer confirm-footer">
+        <button id="confirmPopupCancel" class="btn btn-secondary">取消</button>
+        <button id="confirmPopupOk" class="btn btn-danger">确定删除</button>
+      </div>
+    </div>
+  </div>
+  
+  <div id="batchCorrectPopup" class="popup-overlay hidden">
+    <div class="popup-panel popup-lg">
+      <div class="popup-header">
+        <span>批量多音字纠音</span>
+        <button id="batchCorrectClose" class="popup-close">×</button>
+      </div>
+      <div class="popup-body">
+        <div id="batchCorrectContent" class="batch-correct-content-area"></div>
+      </div>
+      <div class="popup-footer">
+        <button id="batchCorrectConfirm" class="btn btn-primary">完成纠音</button>
+      </div>
+    </div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>
