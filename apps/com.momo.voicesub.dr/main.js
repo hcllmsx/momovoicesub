@@ -9,7 +9,7 @@ const { AzureTtsProvider } = require('./lib/azure-tts');
 const { ResolveAdapter } = require('./lib/resolve-adapter');
 const packageInfo = require('./package.json');
 
-const PLUGIN_ID = 'com.momo.voicesub';
+const PLUGIN_ID = 'com.momo.voicesub.dr';
 const LOGO_PATH = path.join(__dirname, 'momovoicesub-logo.png');
 
 let mainWindow = null;

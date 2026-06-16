@@ -1,9 +1,9 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$source = Join-Path $repoRoot "plugin\com.momo.voicesub"
+$source = Join-Path $repoRoot "apps\com.momo.voicesub.dr"
 $targetRoot = Join-Path $env:PROGRAMDATA "Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins"
-$target = Join-Path $targetRoot "com.momo.voicesub"
+$target = Join-Path $targetRoot "com.momo.voicesub.dr"
 $officialWorkflowNode = Join-Path $env:PROGRAMDATA "Blackmagic Design\DaVinci Resolve\Support\Developer\Workflow Integrations\Examples\SamplePlugin\WorkflowIntegration.node"
 $sourceWorkflowNode = Join-Path $source "WorkflowIntegration.node"
 $targetWorkflowNode = Join-Path $target "WorkflowIntegration.node"
@@ -51,6 +51,11 @@ if ($versionNode.InnerText -ne $pluginVersion) {
     finally {
         $writer.Close()
     }
+}
+# 清理旧版本的安装目录
+$oldTarget = Join-Path $targetRoot "com.momo.voicesub"
+if (Test-Path -LiteralPath $oldTarget) {
+    Remove-Item -LiteralPath $oldTarget -Recurse -Force | Out-Null
 }
 
 New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
