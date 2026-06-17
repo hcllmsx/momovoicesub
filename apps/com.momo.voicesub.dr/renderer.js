@@ -1313,6 +1313,14 @@ async function toggleFavorite(shortName) {
 function populateTrackTags() {
   const trackContainer = $('subtitleTrackTags');
   if (trackContainer) trackContainer.innerHTML = '';
+
+  if (!state.subtitleTracks.length) {
+    const emptyTag = tag('无字幕轨', 'empty', true);
+    emptyTag.classList.add('tag-disabled');
+    emptyTag.style.pointerEvents = 'none';
+    if (trackContainer) trackContainer.appendChild(emptyTag);
+  }
+
   for (const track of state.subtitleTracks) {
     const t = tag(`${track.name || '字幕轨'} (${track.itemCount}条)`, String(track.index), state.selectedSubtitleTrack === String(track.index));
     t.addEventListener('click', () => {

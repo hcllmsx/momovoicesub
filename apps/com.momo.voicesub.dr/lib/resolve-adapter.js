@@ -7,6 +7,7 @@ const { sha1 } = require('./azure-tts');
 
 const TARGET_TRACK_NAME = 'Momo VoiceSub';
 const CLIP_SUFFIX = '_momo';
+const MEDIAPOOL_FOLDER_NAME = 'momovoicesub';
 const TEXT_PREVIEW_LENGTH = 28;
 
 function sanitizeName(value) {
@@ -518,14 +519,36 @@ class ResolveAdapter {
     return copyPath;
   }
 
+  async ensureMediaPoolFolder(mediaPool) {
+    const rootFolder = mediaPool && typeof mediaPool.GetRootFolder === 'function'
+      ? await mediaPool.GetRootFolder()
+      : null;
+    if (!rootFolder) return null;
+
+    const subFolders = typeof rootFolder.GetSubFolderList === 'function'
+      ? await rootFolder.GetSubFolderList() || []
+      : [];
+    const existing = subFolders.find(
+      (f) => typeof f.GetName === 'function' && (f.GetName() === MEDIAPOOL_FOLDER_NAME)
+    );
+    if (existing) return existing;
+
+    const created = mediaPool.AddSubFolder
+      ? await mediaPool.AddSubFolder(rootFolder, MEDIAPOOL_FOLDER_NAME)
+      : null;
+    return created;
+  }
+
   async importAudio(filePath, clipName, options = {}) {
-    const { mediaStorage } = await this.getProjectContext();
+    const { mediaPool, mediaStorage } = await this.getProjectContext();
     const cached = this.importedAudioItems.get(filePath);
     if (cached && !options.forceReimport) {
       return cached;
     }
 
-    let mediaItems = await mediaStorage.AddItemListToMediaPool([filePath]);
+    const targetFolder = await this.ensureMediaPoolFolder(mediaPool);
+
+    let mediaItems = await mediaStorage.AddItemListToMediaPool([filePath], targetFolder);
     let mediaPoolItem = mediaItems && mediaItems[0];
 
     if (!mediaPoolItem) {
@@ -534,7 +557,7 @@ class ResolveAdapter {
 
     if (!mediaPoolItem) {
       const importCopy = await this.makeImportCopy(filePath, clipName);
-      mediaItems = await mediaStorage.AddItemListToMediaPool([importCopy]);
+      mediaItems = await mediaStorage.AddItemListToMediaPool([importCopy], targetFolder);
       mediaPoolItem = mediaItems && mediaItems[0];
     }
 

@@ -517,6 +517,14 @@ body.app-busy * {
   border-color: var(--accent-hov);
 }
 
+.tag.tag-disabled {
+  background: var(--surface);
+  border-color: transparent;
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.7;
+}
+
 .tag.tag-sm {
   padding: 2px 7px;
   font-size: 10px;
