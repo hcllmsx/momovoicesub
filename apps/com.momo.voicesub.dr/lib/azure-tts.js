@@ -1,7 +1,18 @@
 'use strict';
 
 const crypto = require('crypto');
-const fs = require('fs/promises');
+const fs = (() => {
+  try { return require('fs/promises'); } catch (_) {
+    const _fs = require('fs');
+    const { promisify } = require('util');
+    return {
+      readFile: promisify(_fs.readFile),
+      writeFile: promisify(_fs.writeFile),
+      mkdir: promisify(_fs.mkdir),
+      stat: promisify(_fs.stat),
+    };
+  }
+})();
 const path = require('path');
 const { wavDurationFrames } = require('./wav');
 

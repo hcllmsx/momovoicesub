@@ -1,6 +1,21 @@
 'use strict';
 
-const fs = require('fs/promises');
+const fs = (() => {
+  try { return require('fs/promises'); } catch (_) {
+    const _fs = require('fs');
+    const { promisify } = require('util');
+    return {
+      readFile: promisify(_fs.readFile),
+      writeFile: promisify(_fs.writeFile),
+      mkdir: promisify(_fs.mkdir),
+      readdir: promisify(_fs.readdir),
+      rm: promisify(_fs.rm),
+      rmdir: promisify(_fs.rmdir),
+      copyFile: promisify(_fs.copyFile),
+      stat: promisify(_fs.stat),
+    };
+  }
+})();
 const path = require('path');
 const { currentTimecodeToRecordFrame, parseTimelineFrameRate } = require('./timecode');
 const { sha1 } = require('./azure-tts');

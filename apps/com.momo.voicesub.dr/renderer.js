@@ -527,6 +527,26 @@ function renderAnnotatedRow(text, annotations) {
   return result;
 }
 
+// ─── Node Version Warning ───
+
+function showNodeWarning(warning) {
+  const banner = $('nodeWarningBanner');
+  if (!banner) return;
+
+  if (!warning) {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  const titleEl = $('nodeWarningTitle');
+  const msgEl = $('nodeWarningMessage');
+  const sugEl = $('nodeWarningSuggestion');
+  if (titleEl) titleEl.textContent = warning.title || '';
+  if (msgEl) msgEl.textContent = warning.message || '';
+  if (sugEl) sugEl.textContent = warning.suggestion || '';
+  banner.classList.remove('hidden');
+}
+
 // ─── Toast System ───
 
 function showToast(message, kind) {
@@ -3042,6 +3062,8 @@ async function refreshState() {
     state.polyphonicDict = sanitizePolyphonicDict(appState.settings.polyphonicDict || []);
     $('appVersion').textContent = state.appVersion ? `默默配音助手 v${state.appVersion}` : '';
 
+    showNodeWarning(appState.nodeWarning);
+
     const resolveOk = appState.resolve.ok;
     const dot = $('resolveDot');
     const statusBtn = $('sidebarStatusBtn');
@@ -3392,6 +3414,14 @@ function setupEvents() {
 
 window.addEventListener('DOMContentLoaded', async () => {
   setupEvents();
+
+  const nodeWarningClose = $('nodeWarningClose');
+  if (nodeWarningClose) {
+    nodeWarningClose.addEventListener('click', () => {
+      const banner = $('nodeWarningBanner');
+      if (banner) banner.classList.add('hidden');
+    });
+  }
 
   // 恢复手动配音的上次文本记忆，消除重启自动清空之缺陷
   try {

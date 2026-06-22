@@ -335,6 +335,65 @@ body.app-busy * {
   flex-shrink: 0;
 }
 
+/* ── Warning Banner (Node 版本过旧等) ── */
+.warning-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fff4e5;
+  border-bottom: 1px solid #ffb877;
+  color: #8a4b00;
+  font-size: 12px;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.warning-banner.hidden { display: none; }
+
+.warning-banner-icon {
+  font-size: 16px;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.warning-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.warning-banner-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.warning-banner-message {
+  color: #6b3a00;
+}
+
+.warning-banner-suggestion {
+  color: #6b3a00;
+  margin-top: 2px;
+}
+
+.warning-banner-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #8a4b00;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.warning-banner-close:hover {
+  background: rgba(138, 75, 0, 0.12);
+}
+
 
 
 

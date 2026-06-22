@@ -1,7 +1,17 @@
 'use strict';
 
 const path = require('path');
-const fs = require('fs/promises');
+const fs = (() => {
+  try { return require('fs/promises'); } catch (_) {
+    const _fs = require('fs');
+    const { promisify } = require('util');
+    return {
+      readFile: promisify(_fs.readFile),
+      writeFile: promisify(_fs.writeFile),
+      stat: promisify(_fs.stat),
+    };
+  }
+})();
 const { app, BrowserWindow, ipcMain, safeStorage, Menu, clipboard, dialog, shell } = require('electron');
 const WorkflowIntegration = require('./WorkflowIntegration.node');
 const { SettingsStore } = require('./lib/settings-store');
@@ -11,6 +21,20 @@ const packageInfo = require('./package.json');
 
 const PLUGIN_ID = 'com.momo.voicesub.dr';
 const LOGO_PATH = path.join(__dirname, 'momovoicesub-logo.png');
+
+// 达芬奇内置 Electron 的 Node.js 版本检测。
+// fs/promises 与可选链等语法需要 Node 14+。低于此版本时向用户给出升级提示。
+const NODE_MAJOR = Number(process.versions.node.split('.')[0]) || 0;
+const NODE_TOO_OLD = NODE_MAJOR < 14;
+
+function getNodeWarning() {
+  if (!NODE_TOO_OLD) return null;
+  return {
+    title: '检测到达芬奇版本过旧',
+    message: `当前达芬奇内置的 Node.js 版本为 v${process.versions.node}，本插件至少需要 v14 以上版本。`,
+    suggestion: '请升级达芬奇到较新版本后重试。'
+  };
+}
 
 let mainWindow = null;
 let resolveObj = null;
@@ -127,7 +151,12 @@ function registerIpcHandlers() {
   registerLoggedHandler('app:getState', async () => {
     const settings = await settingsStore.getRedacted();
     const resolveState = await resolveAdapter.getSummary();
-    return { settings, resolve: resolveState, version: packageInfo.version };
+    return {
+      settings,
+      resolve: resolveState,
+      version: packageInfo.version,
+      nodeWarning: getNodeWarning()
+    };
   });
 
   registerLoggedHandler('settings:load', async () => settingsStore.getRedacted());
