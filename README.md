@@ -4,7 +4,7 @@
 
 当前可用版本是 DaVinci Resolve Studio Workflow Integration 插件。Premiere Pro UXP 版本正在适配中。TTS 使用 Azure Speech REST API，用户需要在插件设置里填写自己的 Azure Speech Key 和区域或 Endpoint。
 
-![project-intro](apps/com.momo.voicesub.dr/docs/momovoicesub.webp)
+![默默配音助手-达芬奇版](apps/com.momo.voicesub.dr/docs/momovoicesub-v0.26.74.webp)
 
 ## 项目结构
 
@@ -54,7 +54,7 @@ scripts/
 C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\com.momo.voicesub.dr
 ```
 
-安装脚本还会从当前 Resolve 的官方示例目录复制 `WorkflowIntegration.node`，所以仓库里不需要提交这个文件。
+安装脚本还会从当前 Resolve 的官方示例目录复制 `WorkflowIntegration.node`。
 
 ## 使用
 
@@ -73,34 +73,7 @@ C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Pl
 
 ## Premiere Pro 开发版
 
-Premiere Pro 版位于：
-
-```text
-apps\com.momo.voicesub.pr
-```
-
-当前阶段是 UXP 面板壳和宿主 API 探测版，目标是先验证：
-
-- 插件能在 Premiere Pro 中加载。
-- 能读取当前项目和当前序列。
-- 能检测当前序列的音频轨和字幕轨数量。
-- 能测试 Azure 连接。
-
-开发加载方式：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install-premiere-dev.ps1
-```
-
-然后在 Adobe UXP Developer Tool 中选择脚本输出的 `manifest.json` 路径加载插件。
-
-Premiere Pro 需要先开启：
-
-```text
-Settings > Plugins > Enable developer mode
-```
-
-开启后重启 Premiere Pro。
+还在开发中...
 
 ## 缓存
 
