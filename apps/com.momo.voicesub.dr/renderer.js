@@ -297,13 +297,19 @@ const state = {
   selectedSubtitleTrack: null,
   selectedAudioTrack: 'auto',
   selectedOverwrite: 'skip',
+  selectedManualAudioTrack: 'auto',
+  selectedManualOverwrite: 'allowDuplicate',
+  loadedSubtitleTrack: null,
   appVersion: '',
-  initialized: false
+  initialized: false,
+  disabledFrames: new Set()
 };
 
 const voicePickers = {};
 let polyPopupCallback = null;
 let activeSubtitleFrame = null;
+// 渲染期间抑制 focus 事件触发的行激活，避免右键禁用等操作误触发"第x行"提示
+let suppressActivation = false;
 
 function $(id) { return document.getElementById(id); }
 
@@ -339,7 +345,15 @@ function log(message) {
 
 function toggleLogPanel() {
   const logEl = document.querySelector('.log-panel');
-  if (logEl) logEl.classList.toggle('visible');
+  if (!logEl) return;
+  const wasVisible = logEl.classList.contains('visible');
+  logEl.classList.toggle('visible');
+  // 首次显示时默认展开为大尺寸，无需用户再点"展开"按钮
+  if (!wasVisible) {
+    logEl.classList.add('expanded');
+    const btn = $('toggleExpandLog');
+    if (btn) btn.textContent = '收起';
+  }
 }
 
 function styleCn(style) { return STYLE_CN[style] || style; }
@@ -1386,6 +1400,39 @@ function populateTrackTags() {
     });
     if (overwriteContainer) overwriteContainer.appendChild(t);
   }
+
+  // 手动配音界面：音频轨 + 覆盖策略（与自动配音界面选项一致，仅无字幕轨）
+  const manualAudioContainer = $('manualAudioTrackTags');
+  if (manualAudioContainer) manualAudioContainer.innerHTML = '';
+  const manualAutoTag = tag('自动', 'auto', state.selectedManualAudioTrack === 'auto');
+  manualAutoTag.addEventListener('click', () => {
+    if (manualAudioContainer) manualAudioContainer.querySelectorAll('.tag').forEach(el => el.classList.remove('active'));
+    manualAutoTag.classList.add('active');
+    state.selectedManualAudioTrack = 'auto';
+  });
+  if (manualAudioContainer) manualAudioContainer.appendChild(manualAutoTag);
+  for (const track of state.audioTracks) {
+    const val = String(track.index);
+    const t = tag(`${track.name || 'Audio'}`, val, state.selectedManualAudioTrack === val);
+    t.addEventListener('click', () => {
+      if (manualAudioContainer) manualAudioContainer.querySelectorAll('.tag').forEach(el => el.classList.remove('active'));
+      t.classList.add('active');
+      state.selectedManualAudioTrack = val;
+    });
+    if (manualAudioContainer) manualAudioContainer.appendChild(t);
+  }
+
+  const manualOverwriteContainer = $('manualOverwriteTags');
+  if (manualOverwriteContainer) manualOverwriteContainer.innerHTML = '';
+  for (const opt of OVERWRITE_OPTIONS) {
+    const t = tag(opt.label, opt.value, state.selectedManualOverwrite === opt.value);
+    t.addEventListener('click', () => {
+      if (manualOverwriteContainer) manualOverwriteContainer.querySelectorAll('.tag').forEach(el => el.classList.remove('active'));
+      t.classList.add('active');
+      state.selectedManualOverwrite = t.dataset.value;
+    });
+    if (manualOverwriteContainer) manualOverwriteContainer.appendChild(t);
+  }
 }
 
 // ─── Subtitle Table ───
@@ -1397,8 +1444,14 @@ async function loadSubtitleTable() {
     return;
   }
   try {
+    // 仅在切换字幕轨时重置禁用集合，同一字幕轨的多次加载（如生成完成后刷新）应保留禁用状态
+    const trackChanged = state.loadedSubtitleTrack !== state.selectedSubtitleTrack;
     state.subtitleItems = await window.momoVoiceSub.getSubtitleItems(Number(state.selectedSubtitleTrack));
     state.subtitleAnnotations = new Map();
+    if (trackChanged) {
+      state.disabledFrames = new Set();
+    }
+    state.loadedSubtitleTrack = state.selectedSubtitleTrack;
     for (const item of state.subtitleItems) {
       state.subtitleAnnotations.set(item.startFrame, JSON.parse(JSON.stringify(item.annotations || [])));
     }
@@ -1416,7 +1469,7 @@ function renderSubtitleTable() {
     return;
   }
 
-  // 1. 不再在渲染时强制激活第一行，保留“未选中任何行”的整轨状态
+  // 1. 不再在渲染时强制激活第一行，保留"未选中任何行"的整轨状态
   const hasActive = state.subtitleItems.some(item => item.startFrame === activeSubtitleFrame);
   if (!hasActive) {
     activeSubtitleFrame = null;
@@ -1426,16 +1479,18 @@ function renderSubtitleTable() {
   for (const item of state.subtitleItems) {
     const tc = framesToTimecode(item.startFrame);
     const isActive = activeSubtitleFrame === item.startFrame;
+    const isDisabled = state.disabledFrames.has(item.startFrame);
+    const rowClass = [isActive ? 'is-active-row' : '', isDisabled ? 'is-disabled-row' : ''].filter(Boolean).join(' ');
     
     // 渲染时只将不含中括号等标记的纯净汉字填入 textarea 视图中，确保打字无光标漂移
     const { cleanText } = parseTextAndGenerateAnnotations(item.text);
     
-    html += `<tr data-frame="${item.startFrame}" class="${isActive ? 'is-active-row' : ''}">
+    html += `<tr data-frame="${item.startFrame}" class="${rowClass}">
        <td class="subtitle-index">${item.index + 1}</td>
        <td class="subtitle-timecode">${tc}</td>
        <td class="subtitle-text">
          <div class="sub-textarea-wrap">
-           <textarea class="subtitle-text-input" spellcheck="false" data-frame="${item.startFrame}">${escapeHtml(cleanText)}</textarea>
+           <textarea class="subtitle-text-input" spellcheck="false" data-frame="${item.startFrame}"${isDisabled ? ' disabled' : ''}>${escapeHtml(cleanText)}</textarea>
          </div>
          <!-- 字幕行内效果效果预览卡片，默认隐藏，只有需要它显示时才按需显示 -->
          <div class="subtitle-preview-box hidden" data-frame="${item.startFrame}"></div>
@@ -1444,6 +1499,28 @@ function renderSubtitleTable() {
   }
   html += '</tbody></table>';
   wrap.innerHTML = html;
+
+  // 右键行（非文本输入区域）切换禁用/启用状态
+  wrap.querySelectorAll('tr[data-frame]').forEach(row => {
+    row.addEventListener('contextmenu', (e) => {
+      // 如果点击的是 textarea 或预览区域，不做切换
+      if (e.target.closest('.subtitle-text-input') || e.target.closest('.subtitle-preview-box')) {
+        return;
+      }
+      e.preventDefault();
+      const frame = Number(row.dataset.frame);
+      if (state.disabledFrames.has(frame)) {
+        state.disabledFrames.delete(frame);
+      } else {
+        state.disabledFrames.add(frame);
+      }
+      // 抑制 re-render 期间浏览器自动 focus textarea 导致的"第x行"误触发
+      suppressActivation = true;
+      renderSubtitleTable();
+      // 延迟一帧解除抑制，确保异步 focus 事件也被拦截
+      setTimeout(() => { suppressActivation = false; }, 0);
+    });
+  });
 
   wrap.querySelectorAll('.subtitle-text-input').forEach(textarea => {
     const frame = Number(textarea.dataset.frame);
@@ -1464,10 +1541,13 @@ function renderSubtitleTable() {
 
     // 绑定多重事件（focus、click、select），确保在用户进行点击、选中文字或打字时，100% 正确激活对应行
     const activateRow = () => {
+      // 渲染期间（如右键禁用触发的 re-render）浏览器可能自动 focus 新 textarea，需抑制
+      if (suppressActivation) return;
       activeSubtitleFrame = frame;
       wrap.querySelectorAll('tr').forEach(r => r.classList.remove('is-active-row'));
       const row = textarea.closest('tr');
       if (row) row.classList.add('is-active-row');
+      updateSubtitleToolbar();
     };
 
     textarea.addEventListener('focus', activateRow);
@@ -1529,31 +1609,58 @@ function renderSubtitleTable() {
     }
   });
 
-  // 3. 动态渲染“整轨模式 / 取消选择”轻量级交互按钮
-  const actionsContainer = document.querySelector('#subtitleSingleCorrect')?.parentElement;
-  if (actionsContainer) {
-    // 先清理原先已有的整轨按钮，避免重复添加
-    const existingResetBtn = actionsContainer.querySelector('#subtitleResetActiveBtn');
-    if (existingResetBtn) {
-      existingResetBtn.remove();
+  // 点击表格非文本输入区域 → 回到整轨模式
+  wrap.addEventListener('click', (e) => {
+    if (e.target.closest('.subtitle-text-input') || e.target.closest('.subtitle-preview-box')) return;
+    if (activeSubtitleFrame !== null) {
+      activeSubtitleFrame = null;
+      suppressActivation = true;
+      renderSubtitleTable();
+      setTimeout(() => { suppressActivation = false; }, 0);
     }
-    
-    if (activeSubtitleFrame !== null && activeSubtitleFrame !== undefined) {
-      const resetBtn = document.createElement('button');
-      resetBtn.id = 'subtitleResetActiveBtn';
-      resetBtn.className = 'btn btn-xs btn-primary'; // 稍显突出，表示这是一个高交互的当前状态
-      resetBtn.style.marginRight = '8px';
-      resetBtn.innerHTML = '🌐 整轨模式';
-      resetBtn.title = '当前已选中单行字幕，点击可切换回整轨批量操作模式';
-      resetBtn.addEventListener('click', () => {
-        activeSubtitleFrame = null;
-        renderSubtitleTable();
-        showToast('已切换至整轨模式', 'ok');
-      });
-      // 插入到 actionsContainer 的最前面
-      actionsContainer.insertBefore(resetBtn, actionsContainer.firstChild);
-    }
+  });
+
+  // 3. 更新模式指示器与禁用按钮状态（按钮为静态 HTML 元素，此处仅更新文本/可见性）
+  updateSubtitleToolbar();
+}
+
+function updateSubtitleToolbar() {
+  const disableBtn = $('subtitleDisableAllBtn');
+  const modeLabel = $('subtitleModeLabel');
+
+  if (!disableBtn || !modeLabel) return;
+
+  // 全部禁用按钮文字切换
+  const allDisabled = state.disabledFrames.size === state.subtitleItems.length && state.subtitleItems.length > 0;
+  if (allDisabled) {
+    disableBtn.innerHTML = '✅ 全部启用';
+    disableBtn.title = '取消禁用所有字幕条目';
+  } else {
+    disableBtn.innerHTML = '🚫 全部禁用';
+    disableBtn.title = '一键禁用所有字幕条目，之后可单独右键行序号/时间码启用需要的条目';
   }
+
+  // 模式指示器：始终显示当前是整轨还是单行模式
+  if (activeSubtitleFrame !== null && activeSubtitleFrame !== undefined) {
+    const item = state.subtitleItems.find(s => s.startFrame === activeSubtitleFrame);
+    const idx = item ? item.index + 1 : '?';
+    modeLabel.textContent = `📍 第${idx}行`;
+    modeLabel.title = '当前操作仅针对该行字幕，点击此处返回整轨模式';
+    modeLabel.classList.add('is-active-mode');
+  } else {
+    modeLabel.textContent = '📋 整轨';
+    modeLabel.title = '纠音/停顿操作将对整轨字幕生效，右键行序号/时间码可禁用该行';
+    modeLabel.classList.remove('is-active-mode');
+  }
+}
+
+function toggleDisableAll() {
+  if (state.disabledFrames.size === state.subtitleItems.length) {
+    state.disabledFrames = new Set();
+  } else {
+    state.disabledFrames = new Set(state.subtitleItems.map(item => item.startFrame));
+  }
+  renderSubtitleTable();
 }
 
 function framesToTimecode(frames) {
@@ -2183,12 +2290,15 @@ function populateVoices() {
   }
 
   // 确保当 voices 真正加载更新完毕后，根据下拉框当前选中的预设（或默认预设）重新绘制风格与参数
-  for (const prefix of ['subtitle', 'manual']) {
-    const sel = $(`${prefix}PresetSelect`);
-    const activePresetId = sel && sel.value ? sel.value : state.defaultPresetId;
-    if (activePresetId) {
-      applyPresetToPanel(prefix, activePresetId);
-      if (sel) sel.value = activePresetId;
+  // 仅在首次初始化时应用预设，避免后续 refreshState（如生成完成后）误重置用户手动调整的音色
+  if (!state.initialized) {
+    for (const prefix of ['subtitle', 'manual']) {
+      const sel = $(`${prefix}PresetSelect`);
+      const activePresetId = sel && sel.value ? sel.value : state.defaultPresetId;
+      if (activePresetId) {
+        applyPresetToPanel(prefix, activePresetId);
+        if (sel) sel.value = activePresetId;
+      }
     }
   }
 }
@@ -2267,7 +2377,17 @@ async function generateSubtitles() {
   setResult('subtitleResult', '正在生成字幕配音...');
 
   try {
-    const subtitleItems = state.subtitleItems.map(item => {
+    // 根据禁用状态过滤字幕条目
+    const enabledItems = state.subtitleItems.filter(item => !state.disabledFrames.has(item.startFrame));
+    const disabledCount = state.subtitleItems.length - enabledItems.length;
+    
+    if (enabledItems.length === 0) {
+      setResult('subtitleResult', '所有字幕已被禁用，请至少启用一条字幕后再生成配音。', 'error');
+      setBusy(false);
+      return;
+    }
+
+    const subtitleItems = enabledItems.map(item => {
       const { cleanText, annotations } = parseTextAndGenerateAnnotations(item.text);
       return {
         ...item,
@@ -2284,7 +2404,7 @@ async function generateSubtitles() {
       subtitleItems
     });
 
-    setResult('subtitleResult', `完成：共 ${result.total} 条，插入 ${result.inserted} 条，跳过 ${result.skipped} 条。目标音频轨：${result.audioTrackIndex}`, 'ok');
+    setResult('subtitleResult', `完成：共 ${result.total} 条，插入 ${result.inserted} 条，跳过 ${result.skipped} 条${disabledCount > 0 ? `，忽略已禁用 ${disabledCount} 条` : ''}。目标音频轨：${result.audioTrackIndex}`, 'ok');
     await refreshState();
   } catch (error) {
     setResult('subtitleResult', friendlyErrorMessage(error), 'error');
@@ -2312,9 +2432,9 @@ async function insertManual() {
 
     const result = await window.momoVoiceSub.insertManual({
       text: cleanText,
-      audioTrackIndex: 'auto',
+      audioTrackIndex: state.selectedManualAudioTrack,
       voiceSettings: settings,
-      overwriteMode: 'allowDuplicate'
+      overwriteMode: state.selectedManualOverwrite
     });
 
     setResult('manualResult', `已插入到 ${result.currentTimecode}（帧 ${result.recordFrame}），目标音频轨：${result.audioTrackIndex}`, 'ok');
@@ -2560,7 +2680,7 @@ async function savePresetFromPanel(prefix) {
     renderPresetsGrid();
     updatePresetDropdowns();
     $(`${prefix}PresetSelect`).value = newPreset.id;
-    showToast(`已存为“${presetName}”，可去设置页重命名。`, 'ok');
+    showToast(`已存为"${presetName}"，可去设置页重命名。`, 'ok');
   } catch (error) {
     setResult(`${prefix}Result`, friendlyErrorMessage(error), 'error');
   } finally {
@@ -2582,15 +2702,18 @@ function loadSettingsToForm() {
     $('azureKey').value = '';
   }
 
-  for (const prefix of ['subtitle', 'manual']) {
-    const rate = $(`${prefix}Rate`);
-    const pitch = $(`${prefix}Pitch`);
-    const vol = $(`${prefix}Volume`);
-    const sd = $(`${prefix}Styledegree`);
-    if (rate) rate.value = Number.parseInt(settings.defaultRate || '0', 10) || 0;
-    if (pitch) pitch.value = Number.parseInt(settings.defaultPitch || '0', 10) || 0;
-    if (vol) vol.value = Number.parseInt(settings.defaultVolume || '100', 10) || 100;
-    if (sd) sd.value = Number.parseInt(settings.defaultStyledegree || '100', 10) || 100;
+  // 仅在首次初始化时将参数滑块重置为全局默认值，避免后续 refreshState（如生成完成后）覆盖用户手动调整的参数
+  if (!state.initialized) {
+    for (const prefix of ['subtitle', 'manual']) {
+      const rate = $(`${prefix}Rate`);
+      const pitch = $(`${prefix}Pitch`);
+      const vol = $(`${prefix}Volume`);
+      const sd = $(`${prefix}Styledegree`);
+      if (rate) rate.value = Number.parseInt(settings.defaultRate || '0', 10) || 0;
+      if (pitch) pitch.value = Number.parseInt(settings.defaultPitch || '0', 10) || 0;
+      if (vol) vol.value = Number.parseInt(settings.defaultVolume || '100', 10) || 100;
+      if (sd) sd.value = Number.parseInt(settings.defaultStyledegree || '100', 10) || 100;
+    }
   }
   updateRangeLabels();
   
@@ -3074,13 +3197,13 @@ async function refreshState() {
       dot.className = 'dot connected';
       const label = `${appState.resolve.projectName} / ${appState.resolve.timelineName}`;
       if (statusBtn) statusBtn.removeAttribute('title');
-      if (statusLabel) statusLabel.textContent = `${label} (点击刷新)`;
+      if (statusLabel) statusLabel.textContent = `${label} (点击刷新状态)`;
       if (pHeaderText) pHeaderText.textContent = label;
     } else {
       dot.className = 'dot error';
       const errorMsg = appState.resolve.error || '连接失败';
       if (statusBtn) statusBtn.removeAttribute('title');
-      if (statusLabel) statusLabel.textContent = `${errorMsg} (点击刷新)`;
+      if (statusLabel) statusLabel.textContent = `${errorMsg} (点击刷新状态)`;
       if (pHeaderText) pHeaderText.textContent = errorMsg;
     }
 
@@ -3178,6 +3301,7 @@ function setupEvents() {
   $('testAzure').addEventListener('click', testAzure);
   $('refreshVoices').addEventListener('click', refreshVoices);
   $('openDevTools').addEventListener('click', openDevTools);
+  $('showLogPanel').addEventListener('click', toggleLogPanel);
   $('deleteUnusedCache').addEventListener('click', deleteUnusedCache);
   $('deleteCurrentProjectCache').addEventListener('click', deleteCurrentProjectCache);
   $('deleteAllProjectCache').addEventListener('click', deleteAllProjectCache);
@@ -3278,6 +3402,15 @@ function setupEvents() {
   $('subtitleSingleCorrect').addEventListener('click', handleSubtitleSingleCorrect);
   $('subtitleBatchCorrect').addEventListener('click', handleSubtitleBatchCorrect);
   $('subtitleInsertPause').addEventListener('click', handleSubtitleInsertPause);
+  $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
+  $('subtitleModeLabel').addEventListener('click', () => {
+    if (activeSubtitleFrame !== null) {
+      activeSubtitleFrame = null;
+      suppressActivation = true;
+      renderSubtitleTable();
+      setTimeout(() => { suppressActivation = false; }, 0);
+    }
+  });
 
   $('addPolyEntry').addEventListener('click', openAddPolyEntry);
   $('polyEntrySave').addEventListener('click', async () => {

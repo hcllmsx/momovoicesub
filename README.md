@@ -11,10 +11,9 @@
 ```text
 apps/
   com.momo.voicesub.dr/      # DaVinci Resolve Workflow Integration 插件
-  com.momo.voicesub.pr/      # Premiere Pro UXP 插件实验版
+  com.momo.voicesub.pr/      # 还在开发中
 scripts/
   install.ps1                # 安装 DaVinci Resolve 版
-  install-premiere-dev.ps1   # 输出 Premiere Pro UXP 开发加载路径
 ```
 
 ## 功能

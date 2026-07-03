@@ -80,6 +80,11 @@
                   <span class="card-icon">📄</span>
                   <span>字幕列表</span>
                   <div class="card-actions">
+                    <div class="mode-group">
+                      <button id="subtitleDisableAllBtn" class="btn btn-xs btn-ghost">🚫 全部禁用</button>
+                      <span class="mode-separator"></span>
+                      <span id="subtitleModeLabel" class="mode-badge mode-badge-clickable">📋 整轨</span>
+                    </div>
                     <button id="subtitleSingleCorrect" class="btn btn-xs btn-ghost">🔤 单字纠音</button>
                     <button id="subtitleBatchCorrect" class="btn btn-xs btn-ghost">🔤 批量纠音</button>
                     <button id="subtitleInsertPause" class="btn btn-xs btn-ghost">⏸ 设定停顿</button>
@@ -150,6 +155,16 @@
       <!-- ─── 手动配音 ─── -->
       <section id="manual" class="tab-panel">
         <div class="tab-scroll-content">
+          <div class="track-bar">
+            <div class="track-group">
+              <label class="track-label">音频轨</label>
+              <div id="manualAudioTrackTags" class="tag-list"></div>
+            </div>
+            <div class="track-group">
+              <label class="track-label">策略</label>
+              <div id="manualOverwriteTags" class="tag-list"></div>
+            </div>
+          </div>
           <div class="content-split">
             <div class="content-main">
               <div class="card">
@@ -261,8 +276,6 @@
               <button id="testAzure" class="btn btn-secondary">测试连接</button>
               <button id="refreshVoices" class="btn btn-secondary">刷新音色</button>
               <button id="saveSettings" class="btn btn-primary">保存设置</button>
-              <span class="btn-separator"></span>
-              <button id="openDevTools" class="btn btn-secondary">DevTools</button>
             </div>
           </div>
 
@@ -305,7 +318,17 @@
               <div class="table-placeholder">暂无词条，可添加常用多音字</div>
             </div>
           </div>
-          
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">🛠</span>
+              <span>开发者</span>
+            </div>
+            <div class="card-footer settings-actions">
+              <button id="openDevTools" class="btn btn-secondary">DevTools</button>
+              <button id="showLogPanel" class="btn btn-secondary">显示日志</button>
+            </div>
+          </div>
 
           <!-- 设置页面底部版本号页脚 -->
           <div class="settings-footer">

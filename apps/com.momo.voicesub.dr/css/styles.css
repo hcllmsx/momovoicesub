@@ -523,7 +523,52 @@ body.app-busy * {
 .card-actions {
   margin-left: auto;
   display: flex;
+  align-items: center;
   gap: 4px;
+}
+
+/* ─── Mode Group (禁用 + 模式指示器) ─── */
+.mode-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 8px;
+}
+
+.mode-separator {
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  background: var(--panel-hover);
+  border-radius: 4px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.mode-badge-clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mode-badge-clickable:hover {
+  background: var(--line);
+}
+
+.mode-badge.is-active-mode {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  font-weight: 600;
 }
 
 .param-body {
@@ -692,6 +737,31 @@ body.app-busy * {
 
 .subtitle-table tr:hover td {
   background: var(--accent-subtle);
+}
+
+.subtitle-table tr.is-active-row td {
+  background: var(--accent-subtle);
+}
+
+/* 禁用行样式 */
+.subtitle-table tr.is-disabled-row {
+  opacity: 0.38;
+  pointer-events: none;
+}
+
+.subtitle-table tr.is-disabled-row .subtitle-text-input:disabled {
+  cursor: not-allowed;
+}
+
+.subtitle-table tr.is-disabled-row .subtitle-index,
+.subtitle-table tr.is-disabled-row .subtitle-timecode {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.subtitle-table tr.is-disabled-row .subtitle-index:hover,
+.subtitle-table tr.is-disabled-row .subtitle-timecode:hover {
+  opacity: 1;
 }
 
 .subtitle-index {
@@ -2762,7 +2832,7 @@ body.app-busy * {
 }
 
 #logOutput {
-  height: 90px;
+  height: 270px;
   margin: 0;
   padding: 6px 12px;
   overflow: auto;
@@ -2774,8 +2844,8 @@ body.app-busy * {
   /* 增加平滑的过渡动画，体验极佳 */
 }
 
-.log-panel.expanded #logOutput {
-  height: 270px;
+.log-panel:not(.expanded) #logOutput {
+  height: 90px;
 }
 
 /* ═══════════════════════════════════════════════
