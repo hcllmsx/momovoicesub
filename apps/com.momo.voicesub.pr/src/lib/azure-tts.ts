@@ -89,6 +89,24 @@ function sanitizeForFileName(s: string, maxLen = 20): string {
   return cleaned.length > maxLen ? cleaned.slice(0, maxLen) : cleaned;
 }
 
+/**
+ * 将项目名清理为可安全用于文件夹名的字符串。
+ *
+ * 与达芬奇版 sanitizeName 行为对齐：移除 Windows 非法字符，空白转为下划线，
+ * 截断到 80 字符。空字符串回退为 'untitled'，避免目录名为空。
+ *
+ * 这里的清理比 sanitizeForFileName 更宽松（保留中日韩字符、括号等），
+ * 因为项目名通常含有中文和括号，过度清理会让目录名不可读。
+ */
+function sanitizeProjectName(name: string): string {
+  const cleaned = String(name || '')
+    .replace(/[\\/:*?"<>|#%&{}$!'@+`=]/g, '_')
+    .replace(/\s+/g, '_')
+    .trim();
+  const result = cleaned.length > 80 ? cleaned.slice(0, 80) : cleaned;
+  return result || 'untitled';
+}
+
 function normalizeEndpoint(settings: any = {}) {
   const explicit = String(settings.endpoint || '').trim().replace(/\/+$/, '');
   const region = String(settings.region || '').trim().toLowerCase();
@@ -244,7 +262,18 @@ export function buildSsml({ text, voice, style, rate, pitch, styledegree, role, 
   ].join('');
 }
 
-export async function getCacheFolder() {
+/**
+ * 获取基础缓存目录（cache/），是所有项目子目录的父目录。
+ *
+ * 该目录下不直接存放音频文件，而是按项目名分子目录：
+ *   cache/{projectName}/momo_xxx.wav
+ *   cache/{projectName}/cache-index.json
+ *
+ * 仅用于：
+ * - "打开缓存目录"（展示父目录，让用户看到所有项目）
+ * - "删除全部缓存"（遍历所有项目子目录）
+ */
+export async function getBaseCacheFolder() {
   const dataFolder = await fs.getDataFolder();
   let cacheFolder;
   try {
@@ -253,6 +282,65 @@ export async function getCacheFolder() {
     cacheFolder = await dataFolder.createFolder('cache');
   }
   return cacheFolder;
+}
+
+/**
+ * 判断 entry 是否为文件夹。
+ *
+ * 不使用 entry.isDirectory 属性，因为在某些 UXP 运行时版本中该属性可能为
+ * undefined，会导致已存在的文件夹被误判为“不是文件夹”，进而触发
+ * createFolder 并抛 "A Folder with given name exists" 错误。
+ *
+ * 改用 typeof entry.getEntries === 'function' 判断：只有 Folder 对象才有
+ * getEntries 方法，File 对象没有。这是最可靠的方式。
+ */
+function isFolderEntry(entry: any): boolean {
+  return !!entry && typeof entry.getEntries === 'function';
+}
+
+/**
+ * 获取当前项目的缓存目录（cache/{projectName}/）。
+ *
+ * 不同工程的缓存完全隔离：
+ * - 避免 hash 冲突时误删其他工程的缓存（两个工程有同一句字幕+同一音色时，
+ *   hash 相同、文件名相同，若共用目录会互相覆盖/误删）。
+ * - "删除当前工程缓存"只删除当前项目子目录，不影响其他工程。
+ *
+ * 同一项目内不同序列可以复用缓存（节省 Azure 调用），因为缓存键仅基于
+ * 文本+音色+参数，与序列无关。
+ *
+ * 实现说明：
+ * - 用 getEntry 尝试获取已存在的文件夹，失败则 createFolder 创建
+ * - 不检查 isDirectory 属性（某些 UXP 版本下不可靠）
+ * - 用 promise 去重避免并发调用时重复 createFolder 导致报错
+ *   （loadCacheDirPath 与 synthesize 可能同时调用此函数）
+ */
+const projectFolderPromises = new Map<string, Promise<any>>();
+
+export async function getProjectCacheFolder(projectName: string): Promise<any> {
+  const folderName = sanitizeProjectName(projectName);
+
+  // 复用正在进行中的请求，避免并发创建同一文件夹
+  const pending = projectFolderPromises.get(folderName);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    const baseFolder = await getBaseCacheFolder();
+    try {
+      // 尝试获取已存在的项目文件夹
+      return await baseFolder.getEntry(folderName);
+    } catch (_) {
+      // 不存在，创建新文件夹
+      return await baseFolder.createFolder(folderName);
+    }
+  })();
+
+  projectFolderPromises.set(folderName, promise);
+  try {
+    return await promise;
+  } finally {
+    projectFolderPromises.delete(folderName);
+  }
 }
 
 async function readCacheIndex(folder: any): Promise<any> {
@@ -367,14 +455,14 @@ export class AzureTtsProvider {
     }));
   }
 
-  public async synthesize({ text, voice, voiceLabel, style, rate, pitch, styledegree, role, volume, annotations, polyphonicDict, outputFormat = DEFAULT_OUTPUT_FORMAT, timelineFps = 24 }: any): Promise<any> {
+  public async synthesize({ text, voice, voiceLabel, style, rate, pitch, styledegree, role, volume, annotations, polyphonicDict, outputFormat = DEFAULT_OUTPUT_FORMAT, timelineFps = 24, projectName }: any): Promise<any> {
     const settings = await this.getSettings();
     const key = await this.getAzureKey();
     if (!key) throw new Error('Azure Speech key is required');
 
     const { synthUrl } = normalizeEndpoint(settings);
     const hash = await sha1(JSON.stringify({ text, voice, style, rate, pitch, styledegree, role, volume, annotations, polyphonicDict, outputFormat }));
-    const cacheFolder = await getCacheFolder();
+    const cacheFolder = await getProjectCacheFolder(projectName);
     // 文件名格式：字幕内容_音色名_momo_8位hash.wav
     // hash 仍基于完整参数计算，确保缓存命中逻辑不变；文件名只是更易识别
     const textSnippet = sanitizeForFileName(text, 20) || 'untitled';
@@ -441,15 +529,21 @@ export class AzureTtsProvider {
 
   // ─── 缓存管理公共方法 ───
 
-  /** 获取缓存目录的本地路径（用于在设置页展示和打开文件夹） */
-  public async getCacheDirNativePath(): Promise<string> {
-    const folder = await getCacheFolder();
+  /** 获取基础缓存目录的本地路径（用于"打开缓存目录"：展示所有项目子目录） */
+  public async getBaseCacheDirNativePath(): Promise<string> {
+    const folder = await getBaseCacheFolder();
     return folder.nativePath || '';
   }
 
-  /** 列出缓存目录下所有 .wav 文件名 */
-  public async listCacheFileNames(): Promise<string[]> {
-    const folder = await getCacheFolder();
+  /** 获取当前项目缓存目录的本地路径（用于设置页展示当前项目缓存路径） */
+  public async getProjectCacheDirNativePath(projectName: string): Promise<string> {
+    const folder = await getProjectCacheFolder(projectName);
+    return folder.nativePath || '';
+  }
+
+  /** 列出当前项目缓存目录下所有 .wav 文件名 */
+  public async listCacheFileNames(projectName: string): Promise<string[]> {
+    const folder = await getProjectCacheFolder(projectName);
     const names: string[] = [];
     try {
       const entries = await folder.getEntries();
@@ -462,10 +556,10 @@ export class AzureTtsProvider {
     return names;
   }
 
-  /** 删除缓存目录中指定的文件，返回成功删除的数量 */
-  public async deleteCacheFiles(fileNames: string[]): Promise<number> {
+  /** 删除当前项目缓存目录中指定的文件，返回成功删除的数量 */
+  public async deleteCacheFiles(projectName: string, fileNames: string[]): Promise<number> {
     if (!fileNames.length) return 0;
-    const folder = await getCacheFolder();
+    const folder = await getProjectCacheFolder(projectName);
     let deleted = 0;
     for (const name of fileNames) {
       try {
@@ -476,22 +570,89 @@ export class AzureTtsProvider {
         }
       } catch (_) {}
     }
-    // 清理 cache-index.json 中已删除文件的条目
-    await this.pruneCacheIndex(fileNames);
+    // 清理当前项目 cache-index.json 中已删除文件的条目
+    await this.pruneCacheIndex(projectName, fileNames);
     return deleted;
   }
 
-  /** 删除缓存目录中所有 .wav 文件，返回删除数量 */
+  /**
+   * 删除当前项目的整个缓存子目录，返回删除的 .wav 文件数量。
+   *
+   * 仅删除当前项目子目录，不影响其他工程的缓存。
+   * 用于"删除当前项目缓存"功能。
+   */
+  public async deleteProjectCacheFolder(projectName: string): Promise<number> {
+    const baseFolder = await getBaseCacheFolder();
+    const folderName = sanitizeProjectName(projectName);
+    let projectFolder: any = null;
+    try {
+      projectFolder = await baseFolder.getEntry(folderName);
+    } catch (_) { return 0; }
+    // 用 getEntries 方法存在性判断是否为文件夹（不依赖 isDirectory 属性）
+    if (!isFolderEntry(projectFolder)) return 0;
+
+    // 统计 .wav 文件数量（用于返回值）
+    let count = 0;
+    try {
+      const entries = await projectFolder.getEntries();
+      for (const entry of entries) {
+        if (entry.isFile && entry.name.endsWith('.wav')) count++;
+      }
+    } catch (_) {}
+
+    // UXP 的 Folder.delete() 可能不支持递归删除非空文件夹，
+    // 先清空目录内所有条目，再删除空文件夹本身
+    try {
+      const entries = await projectFolder.getEntries();
+      for (const entry of entries) {
+        try { await entry.delete(); } catch (_) {}
+      }
+    } catch (_) {}
+    try { await projectFolder.delete(); } catch (_) {}
+    return count;
+  }
+
+  /**
+   * 删除所有项目的缓存，返回删除的 .wav 文件数量。
+   *
+   * 遍历基础缓存目录下所有项目子目录并删除，同时兼容旧版直接放在 cache/ 下的 .wav 文件。
+   * 不影响 preview 目录（preview 与 cache 同级，位于 getDataFolder()/preview/）。
+   */
   public async deleteAllCacheFiles(): Promise<number> {
-    const allNames = await this.listCacheFileNames();
-    const deleted = await this.deleteCacheFiles(allNames);
+    const baseFolder = await getBaseCacheFolder();
+    let deleted = 0;
+    try {
+      const entries = await baseFolder.getEntries();
+      for (const entry of entries) {
+        if (isFolderEntry(entry)) {
+          // 统计该子目录下的 .wav 文件数量
+          try {
+            const subEntries = await entry.getEntries();
+            for (const subEntry of subEntries) {
+              if (subEntry.isFile && subEntry.name.endsWith('.wav')) deleted++;
+            }
+          } catch (_) {}
+          // 清空子目录内容后删除空目录
+          try {
+            const subEntries = await entry.getEntries();
+            for (const subEntry of subEntries) {
+              try { await subEntry.delete(); } catch (_) {}
+            }
+          } catch (_) {}
+          try { await entry.delete(); } catch (_) {}
+        } else if (entry.isFile && entry.name.endsWith('.wav')) {
+          // 兼容旧版：直接放在 cache/ 下的 .wav 文件
+          try { await entry.delete(); deleted++; } catch (_) {}
+        }
+      }
+    } catch (_) {}
     return deleted;
   }
 
-  /** 从 cache-index.json 中移除指定文件名的条目 */
-  private async pruneCacheIndex(deletedFileNames: string[]): Promise<void> {
+  /** 从当前项目的 cache-index.json 中移除指定文件名的条目 */
+  private async pruneCacheIndex(projectName: string, deletedFileNames: string[]): Promise<void> {
     if (!deletedFileNames.length) return;
-    const folder = await getCacheFolder();
+    const folder = await getProjectCacheFolder(projectName);
     const index = await readCacheIndex(folder);
     const deletedSet = new Set(deletedFileNames);
     let changed = false;

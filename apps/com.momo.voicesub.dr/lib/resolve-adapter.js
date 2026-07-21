@@ -155,23 +155,25 @@ class ResolveAdapter {
     return rate.fps;
   }
 
-  async getProjectTimelineCacheDir(project, timeline) {
-    const projectName = sanitizeName(await project.GetName());
-    const timelineId = typeof timeline.GetUniqueId === 'function'
-      ? sanitizeName(await timeline.GetUniqueId())
-      : sanitizeName(await timeline.GetName());
-    const settings = await this.settingsStore.load();
-    return path.join(settings.cacheDir || path.join(this.appDataDir, 'cache'), projectName || 'project', timelineId || 'timeline');
+  /**
+   * 获取当前项目的缓存目录（{cacheDir}/{projectName}/）。
+   *
+   * 不同工程的缓存完全隔离：
+   * - 避免 hash 冲突时误删其他工程的缓存（两个工程有同一句字幕+同一音色时，
+   *   hash 相同、文件名相同，若共用目录会互相覆盖/误删）。
+   * - "删除当前工程缓存"只删除当前项目子目录，不影响其他工程。
+   *
+   * 同一项目内不同时间线可以复用缓存（节省 Azure 调用），因为缓存键仅基于
+   * 文本+音色+参数，与时间线无关。
+   */
+  async getProjectCacheDir(project) {
+    const projectName = sanitizeName(await project.GetName()) || 'project';
+    return path.join(await this.getBaseCacheDir(), projectName);
   }
 
   async getBaseCacheDir() {
     const settings = await this.settingsStore.load();
     return settings.cacheDir || path.join(this.appDataDir, 'cache');
-  }
-
-  async getCurrentProjectCacheDir(project) {
-    const projectName = sanitizeName(await project.GetName()) || 'project';
-    return path.join(await this.getBaseCacheDir(), projectName);
   }
 
   normalizeFilePath(filePath) {
@@ -402,7 +404,7 @@ class ResolveAdapter {
 
   async deleteUnusedCurrentProjectCache() {
     const { project } = await this.getProjectContext();
-    const projectCacheDir = await this.getCurrentProjectCacheDir(project);
+    const projectCacheDir = await this.getProjectCacheDir(project);
     const cacheFiles = await this.listCacheFiles(projectCacheDir);
     const { used: usedPaths, unresolved } = await this.collectUsedCachePaths(projectCacheDir);
     const deleted = [];
@@ -446,7 +448,7 @@ class ResolveAdapter {
 
   async deleteCurrentProjectCache() {
     const { project } = await this.getProjectContext();
-    const projectCacheDir = await this.getCurrentProjectCacheDir(project);
+    const projectCacheDir = await this.getProjectCacheDir(project);
     const cacheFiles = await this.listCacheFiles(projectCacheDir, false);
 
     const previewDir = path.join(projectCacheDir, 'preview');
@@ -655,7 +657,7 @@ class ResolveAdapter {
     const { project, timeline } = await this.getContext();
     const targetTrack = await this.ensureTargetAudioTrack(audioTrackIndex);
     const fps = await this.getTimelineFps(project);
-    const cacheDir = await this.getProjectTimelineCacheDir(project, timeline);
+    const cacheDir = await this.getProjectCacheDir(project);
 
     let subtitles;
     if (subtitleItems && subtitleItems.length) {
@@ -677,25 +679,6 @@ class ResolveAdapter {
 
     const polyphonicDict = voiceSettings.polyphonicDict;
     const enablePoly = voiceSettings.enablePolyphonic !== false;
-
-    // ─── 预检：用第一条非空字幕做一次合成，验证音色是否支持当前语言 ───
-    // 避免音色不支持时每条字幕都发请求、都失败
-    // 预检命中的结果会自动缓存，循环中不会重复调用 API
-    const firstNonEmptySub = subtitles.find(sub => String(sub.text || '').trim());
-    if (firstNonEmptySub) {
-      const preflightOptions = {
-        ...voiceSettings,
-        text: firstNonEmptySub.text,
-        timelineFps: fps,
-        cacheDir
-      };
-      if (enablePoly) {
-        if (firstNonEmptySub.annotations && firstNonEmptySub.annotations.length) preflightOptions.annotations = firstNonEmptySub.annotations;
-        if (polyphonicDict && polyphonicDict.length) preflightOptions.polyphonicDict = polyphonicDict;
-      }
-      // 预检合成，失败会抛出异常，由外层 catch 捕获并提示用户
-      await this.ttsProvider.synthesize(preflightOptions);
-    }
 
     const results = [];
     for (const sub of subtitles) {
@@ -763,7 +746,7 @@ class ResolveAdapter {
 
     const targetTrack = await this.ensureTargetAudioTrack(audioTrackIndex);
     const fps = await this.getTimelineFps(project);
-    const cacheDir = await this.getProjectTimelineCacheDir(project, timeline);
+    const cacheDir = await this.getProjectCacheDir(project);
 
     let currentTimecode;
     try {

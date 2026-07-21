@@ -659,6 +659,12 @@ async function syncWithPremiere() {
   $("projectNameText")!.innerText = summary.projectName;
   $("sequenceNameText")!.innerText = summary.sequenceName;
 
+  // 项目切换后，缓存目录路径也跟着变化（cache/{projectName}/），需刷新设置页显示。
+  // 异步执行，不阻塞时间线同步。
+  if (projectChanged) {
+    loadCacheDirPath();
+  }
+
   if (projectChanged || sequenceChanged || state.audioTracks.length !== summary.audioTracks.length || state.captionTracks.length !== summary.captionTracks.length) {
     state.audioTracks = summary.audioTracks;
     state.captionTracks = summary.captionTracks;
@@ -768,6 +774,8 @@ async function manualRefresh() {
 
     $("projectNameText")!.innerText = summary.projectName;
     $("sequenceNameText")!.innerText = summary.sequenceName;
+    // 手动刷新后，缓存目录路径可能因项目切换而变化，同步刷新
+    loadCacheDirPath();
     updateTrackDropdowns();
 
     // 强制重新读取当前选中的字幕轨（即使项目/序列名没变也重读）
@@ -1748,10 +1756,18 @@ async function savePresetsToSettings() {
 
 // ─── 缓存管理 ───
 
-/** 加载并显示缓存目录路径 */
+/**
+ * 加载并显示缓存目录路径。
+ *
+ * 有活动项目时显示当前项目子目录路径（cache/{projectName}/），
+ * 无活动项目时显示基础缓存目录路径（cache/）。
+ */
 async function loadCacheDirPath() {
   try {
-    const path = await ttsProvider.getCacheDirNativePath();
+    const projectName = state.projectName && state.projectName !== '无活动工程' ? state.projectName : '';
+    const path = projectName
+      ? await ttsProvider.getProjectCacheDirNativePath(projectName)
+      : await ttsProvider.getBaseCacheDirNativePath();
     const input = $('cacheDirPath') as any;
     if (input) input.value = path;
   } catch (e) {
@@ -1759,10 +1775,17 @@ async function loadCacheDirPath() {
   }
 }
 
-/** 打开缓存目录（调用系统文件管理器） */
+/**
+ * 打开缓存目录（调用系统文件管理器）。
+ *
+ * 有活动项目时打开当前项目子目录，无活动项目时打开基础缓存目录。
+ */
 async function openCacheDir() {
   try {
-    const path = await ttsProvider.getCacheDirNativePath();
+    const projectName = state.projectName && state.projectName !== '无活动工程' ? state.projectName : '';
+    const path = projectName
+      ? await ttsProvider.getProjectCacheDirNativePath(projectName)
+      : await ttsProvider.getBaseCacheDirNativePath();
     if (!path) {
       showToast("无法获取缓存目录路径", "error");
       return;
@@ -1782,15 +1805,24 @@ async function openCacheDir() {
   }
 }
 
-/** 删除未使用缓存：扫描当前项目 momo-Voicesub 素材箱，删除未被引用的缓存文件 */
+/**
+ * 删除未使用缓存：扫描当前项目 momo-Voicesub 素材箱，删除当前项目缓存目录中
+ * 未被引用的缓存文件。
+ *
+ * 仅扫描当前项目子目录（cache/{projectName}/），不会影响其他工程的缓存。
+ */
 async function deleteUnusedCache() {
   try {
+    if (!state.projectName || state.projectName === '无活动工程') {
+      showToast("未检测到活动项目，无法清理未使用缓存", "error");
+      return;
+    }
     showToast("正在扫描缓存...", "info");
     const usedNames = await premiereAdapter.getMomoBinMediaFileNames();
-    const allCacheFiles = await ttsProvider.listCacheFileNames();
+    const allCacheFiles = await ttsProvider.listCacheFileNames(state.projectName);
 
     if (allCacheFiles.length === 0) {
-      showToast("缓存目录为空，无需清理", "info");
+      showToast("当前项目缓存目录为空，无需清理", "info");
       return;
     }
 
@@ -1808,7 +1840,7 @@ async function deleteUnusedCache() {
       return;
     }
 
-    const deleted = await ttsProvider.deleteCacheFiles(toDelete);
+    const deleted = await ttsProvider.deleteCacheFiles(state.projectName, toDelete);
     showToast(`已清理 ${deleted} 个未使用缓存（共扫描 ${allCacheFiles.length} 个）`, "success");
   } catch (e: any) {
     console.error("[Momo] 删除未使用缓存失败:", e);
@@ -1816,46 +1848,49 @@ async function deleteUnusedCache() {
   }
 }
 
-/** 删除当前项目缓存：删除 momo-Voicesub 素材箱中引用的缓存文件 */
+/**
+ * 删除当前项目缓存：直接删除当前项目的整个缓存子目录。
+ *
+ * 仅删除 cache/{projectName}/ 子目录，不影响其他工程的缓存。
+ * 时间线中已插入的配音素材将变为离线。
+ */
 async function deleteCurrentProjectCache() {
   try {
-    showToast("正在扫描当前项目缓存...", "info");
-    const usedNames = await premiereAdapter.getMomoBinMediaFileNames();
-    const allCacheFiles = await ttsProvider.listCacheFileNames();
-
-    // 找出被当前项目使用的缓存文件
-    const toDelete: string[] = [];
-    for (const fileName of allCacheFiles) {
-      const noExt = fileName.replace(/\.\w+$/, '');
-      if (usedNames.has(fileName) || usedNames.has(noExt)) {
-        toDelete.push(fileName);
-      }
-    }
-
-    if (toDelete.length === 0) {
-      showToast("当前项目没有使用任何缓存文件", "info");
+    if (!state.projectName || state.projectName === '无活动工程') {
+      showToast("未检测到活动项目，无法删除当前项目缓存", "error");
       return;
     }
-
-    const deleted = await ttsProvider.deleteCacheFiles(toDelete);
+    showToast("正在删除当前项目缓存...", "info");
+    const deleted = await ttsProvider.deleteProjectCacheFolder(state.projectName);
+    if (deleted === 0) {
+      showToast("当前项目没有缓存文件", "info");
+      return;
+    }
     showToast(`已删除当前项目缓存 ${deleted} 个文件（时间线素材将变为离线）`, "success");
+    // 刷新缓存目录路径显示（子目录被删除后 getProjectCacheFolder 会重建空目录）
+    await loadCacheDirPath();
   } catch (e: any) {
     console.error("[Momo] 删除当前项目缓存失败:", e);
     showToast(`删除当前项目缓存失败：${e?.message || e}`, "error");
   }
 }
 
-/** 删除全部缓存：删除缓存目录中所有 .wav 文件 */
+/**
+ * 删除全部缓存：删除基础缓存目录下所有项目子目录。
+ *
+ * 所有项目的配音素材将变为离线。不影响 preview 目录。
+ */
 async function deleteAllCache() {
   try {
     showToast("正在删除全部缓存...", "info");
-    const allCacheFiles = await ttsProvider.listCacheFileNames();
-    if (allCacheFiles.length === 0) {
+    const deleted = await ttsProvider.deleteAllCacheFiles();
+    if (deleted === 0) {
       showToast("缓存目录为空", "info");
       return;
     }
-    const deleted = await ttsProvider.deleteAllCacheFiles();
     showToast(`已删除全部缓存 ${deleted} 个文件（所有项目的配音素材将变为离线）`, "success");
+    // 刷新缓存目录路径显示
+    await loadCacheDirPath();
   } catch (e: any) {
     console.error("[Momo] 删除全部缓存失败:", e);
     showToast(`删除全部缓存失败：${e?.message || e}`, "error");
@@ -3081,40 +3116,6 @@ $("generateSubtitles")?.addEventListener("click", async () => {
     }
   }
 
-  // ─── 预检：用第一条非空字幕做一次合成，验证音色是否支持当前语言 ───
-  // 避免音色不支持时每条字幕都发请求、都失败、都弹错误
-  // 预检命中的结果会自动缓存，循环中不会重复调用 API
-  const firstNonEmptyItem = checkedIds
-    .map(id => state.subtitleItems.find(s => s.id === id))
-    .find(item => item && parseAnnotations(item.text).cleanText.trim());
-
-  if (firstNonEmptyItem) {
-    const { cleanText: preText, annotations: preAnn } = parseAnnotations(firstNonEmptyItem.text);
-    try {
-      showToast("正在预检音色兼容性...", "info");
-      await ttsProvider.synthesize({
-        text: preText,
-voice: state.selectedVoice.shortName,
-voiceLabel: cleanVoiceName(state.selectedVoice.localName || state.selectedVoice.displayName || state.selectedVoice.shortName),
-style,
-        rate,
-        pitch,
-        styledegree,
-        role,
-        volume,
-        annotations: preAnn,
-        polyphonicDict: enablePoly ? settings.polyphonicDict : [],
-        timelineFps: state.fps
-      });
-      // 预检成功（结果已缓存，循环中会命中），继续
-    } catch (e: any) {
-      const errMsg = (e && (e.message || e.stack)) || String(e);
-      console.error("[generateSubtitles] 预检失败:", e);
-      showToast(`预检失败，已中止批量配音：${errMsg}`, "error");
-      return;
-    }
-  }
-
   for (const id of checkedIds) {
     const item = state.subtitleItems.find(s => s.id === id);
     if (!item) continue;
@@ -3142,7 +3143,8 @@ style,
         volume,
         annotations,
         polyphonicDict: enablePoly ? settings.polyphonicDict : [],
-        timelineFps: state.fps
+        timelineFps: state.fps,
+        projectName: state.projectName
       });
 
       if (result && result.filePath) {
@@ -3272,7 +3274,8 @@ style,
       volume,
       annotations,
       polyphonicDict: enablePoly ? settings.polyphonicDict : [],
-      timelineFps: state.fps
+      timelineFps: state.fps,
+        projectName: state.projectName
     });
 
     if (result && result.filePath) {
