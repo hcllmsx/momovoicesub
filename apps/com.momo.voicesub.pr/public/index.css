@@ -1,0 +1,1757 @@
+/* ═══ 根变量与宿主适配 ═══ */
+:root {
+  --bg-color: var(--uxp-host-background-color, #1e1e1e);
+  --text-color: var(--uxp-host-text-color, #e0e0e0);
+  --text-secondary: var(--uxp-host-text-color-secondary, #b0b0b0);
+  --border-color: var(--uxp-host-border-color, #3a3a3a);
+  --font-family: var(--uxp-host-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+  
+  --accent-color: #5c6bc0;
+  --accent-hover: #7986cb;
+  --accent-active: #3f51b5;
+  --danger-color: #ec5f67;
+  --card-bg: #252525;
+  --header-bg: #1a1a1a;
+  --list-header-bg: #2d2d2d;
+  --list-item-hover: #333333;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  color: var(--text-color);
+  background-color: var(--bg-color);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  font-size: 12px;
+}
+
+/* ═══ App 外壳 ═══ */
+.app-shell {
+  position: relative; /* 作为 .toast-area 的定位上下文（UXP 不支持 z-index，靠 DOM 顺序 + absolute 定位） */
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* ═══ 顶部 Header (双行垂直紧凑布局) ═══ */
+.project-header {
+  background-color: var(--header-bg);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 0 12px; /* 底部内边距为 0，让选项卡与下方主内容区分割线重合 */
+  flex-shrink: 0;
+}
+.project-header > * + * {
+  margin-top: 8px; /* 两行之间间距（UXP 不支持 gap） */
+}
+
+/* 第一行：项目与序列信息（居中显示） */
+.header-row-top {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+.header-status-area {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+}
+
+.header-label {
+  color: var(--text-secondary);
+}
+
+#projectNameText, #sequenceNameText {
+  color: var(--text-color);
+  font-weight: 700;
+}
+
+.header-divider {
+  margin: 0 10px;
+  color: var(--border-color);
+}
+
+/* 连接状态指示器（可点击：刷新当前工程） */
+.status-indicator {
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.status-indicator:hover {
+  background-color: rgba(92, 107, 192, 0.18);
+  border-color: var(--accent-color);
+}
+
+.status-indicator:active {
+  background-color: rgba(92, 107, 192, 0.3);
+}
+
+/* 静态状态指示器（手动配音页：无需点击刷新，仅展示连接状态） */
+.status-indicator-static {
+  cursor: default;
+}
+.status-indicator-static:hover {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-color: var(--border-color);
+}
+.status-indicator-static:active {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.status-indicator > * + * {
+  margin-left: 5px; /* 图标与文字间距（UXP 不支持 gap） */
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--danger-color);
+}
+
+.dot.connected {
+  background-color: #99c794;
+}
+
+.status-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* 第二行：横向选项卡 */
+.header-row-bottom {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.header-nav {
+  display: flex;
+  width: 100%;
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.nav-btn {
+  flex: 1; /* 三等分均分 */
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 11px 0;
+  border-radius: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center; /* 文字水平居中 */
+  transition: color 0.15s ease;
+  font-size: 13px;
+  font-weight: 400;
+  font-family: inherit;
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.nav-btn:hover {
+  background-color: transparent;
+  color: var(--text-color);
+}
+
+.nav-btn.active {
+  background-color: transparent;
+  color: var(--accent-color);
+  font-weight: 700;
+}
+
+/* 处于 active 时，在底部形成横向指示下划线 */
+.nav-btn.active::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background-color: var(--accent-color);
+  border-radius: 2px;
+}
+
+.nav-icon {
+  font-size: 11px;
+}
+
+/* ═══ 主内容区 ═══ */
+.content-area {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 0; /* 允许 Flexbox 自动拉伸 */
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 选项卡面板 */
+.tab-panel {
+  display: none;
+  flex-grow: 1;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+
+.tab-panel.active {
+  display: flex;
+}
+
+.tab-scroll-content {
+  flex-grow: 1;
+  overflow-y: auto;
+  overflow-x: auto; /* 拉窄时允许水平滚动，避免内容被挤压 */
+  padding: 12px;
+  padding-bottom: 72px; /* 为下方浮动操作条留空 */
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 关键：覆盖 flex 子元素默认的 min-height:auto，允许内容超出时正确触发 overflow-y:auto 而非撑大父容器 */
+}
+.tab-scroll-content > * + * {
+  margin-top: 14px; /* track-bar 与下方 content-split 之间的间隙（UXP 不支持 gap） */
+}
+
+/* 顶部选择栏：三个 group 平分宽度 */
+.track-bar {
+  display: flex;
+  align-items: center;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 14px;
+  flex-shrink: 0;
+}
+.track-bar > * + * {
+  margin-left: 16px; /* group 之间间距（UXP 不支持 gap） */
+}
+
+.track-group {
+  flex: 1; /* 平分三份（manual tab 两个 group 则平分两份） */
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.track-group > * + * {
+  margin-left: 8px; /* label 与下拉框之间间距（UXP 不支持 gap） */
+}
+
+.track-label {
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.track-select {
+  /* 下拉框不填满整个 group 剩余空间，留出右侧间距避免挨着下一个 group 的文字 */
+  flex: 1 1 auto;
+  min-width: 60px;
+  max-width: calc(100% - 12px);
+}
+
+.track-group-tip {
+  color: var(--text-secondary);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+}
+
+/* 左右拆分容器 */
+.content-split {
+  display: flex;
+  flex-grow: 1;
+  align-items: stretch;
+  min-height: 0;
+}
+.content-split > * + * {
+  margin-left: 14px; /* 字幕列表与配音参数之间的间隙（UXP 不支持 gap） */
+}
+
+.content-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.content-side {
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 卡片 */
+.card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  overflow: hidden;
+}
+
+.card-header {
+  height: 34px;
+  background-color: rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+}
+.header-left > * + * {
+  margin-left: 6px; /* 图标与标题间距（UXP 不支持 gap） */
+}
+
+.card-title {
+  font-weight: 700;
+  color: var(--text-color);
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+}
+.card-actions > * + * {
+  margin-left: 2px; /* 按钮之间间距（UXP 不支持 gap；略收紧，避免显得过疏） */
+}
+/* 卡片标题栏小按钮：减小左右内边距，视觉上更紧凑 */
+.card-actions sp-button {
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+
+.card-body {
+  padding: 10px;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 字幕列表区域 */
+.subtitle-list-wrap {
+  flex-grow: 1;
+  overflow-y: auto;
+  background-color: rgba(0, 0, 0, 0.15);
+  padding: 4px;
+}
+
+.list-placeholder {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 16px;
+}
+
+/* 字幕条目 */
+.sub-item-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  transition: background-color 0.15s;
+}
+
+.sub-item-row:hover {
+  background-color: var(--list-item-hover);
+}
+.sub-item-row > * + * {
+  margin-left: 10px; /* 列之间间距（UXP 不支持 gap） */
+}
+
+.sub-item-row.disabled {
+  opacity: 0.5;
+}
+
+.sub-col-idx {
+  width: 20px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.sub-col-check {
+  display: flex;
+  align-items: center;
+}
+
+.sub-col-text-area {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sub-col-text-area > * + * {
+  margin-top: 4px; /* 行间距（UXP 不支持 gap） */
+}
+
+.sub-origin-text {
+  font-weight: 400;
+  color: var(--text-color);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sub-edit-input {
+  width: 100%;
+}
+
+.sub-col-time {
+  width: 90px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.sub-col-status {
+  width: 60px;
+  font-size: 11px;
+  text-align: center;
+  flex-shrink: 0;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+
+.status-wait { color: #f5af19; }
+.status-success { color: #99c794; }
+.status-error { color: var(--danger-color); }
+
+/* 字幕文字为空时的占位提示样式 */
+.sub-origin-text.text-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.empty-hint {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* 配音参数主体 */
+.param-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.param-body > * + * {
+  margin-top: 10px; /* 控件之间间距（UXP 不支持 gap） */
+}
+
+.preset-bar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 10px;
+}
+.preset-bar > * + * {
+  margin-left: 8px; /* 下拉框与保存按钮之间间距（UXP 不支持 gap） */
+}
+
+.preset-bar sp-button {
+  flex-shrink: 0; /* 不被下拉框挤压 */
+  white-space: nowrap; /* 防止"💾保存"文字换行 */
+}
+
+.preset-select {
+  flex-grow: 1;
+}
+
+.voice-box {
+  display: flex;
+  flex-direction: column;
+}
+.voice-box > * + * {
+  margin-top: 6px; /* 标签与触发行间距（UXP 不支持 gap） */
+}
+
+.param-label {
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+/* ═══ 音色选择（独立页面 + 触发行） ═══ */
+
+/* 字幕/手动页的「当前音色 + 更换」触发行 */
+.voice-trigger-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 10px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-color);
+  text-align: left;
+}
+
+.vt-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+  background-color: var(--bg-color);
+  flex-shrink: 0;
+}
+
+.vt-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.vt-info > * + * {
+  margin-top: 1px; /* 音色名与语种间距（UXP 不支持 gap） */
+}
+
+.vt-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-color);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vt-name.empty {
+  color: var(--danger-color);
+}
+
+.vt-locale {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.vt-change-btn {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 4px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--accent-color);
+  background-color: var(--accent-color);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.vt-change-btn:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.voice-trigger-row > * + * {
+  margin-left: 9px; /* 头像/信息/按钮间距（UXP 不支持 gap） */
+}
+
+/* 音色选择独立页面 */
+.voices-scroll-content {
+  padding: 12px;
+  padding-bottom: 72px;
+  flex-grow: 1;
+  overflow-y: auto;
+  overflow-x: auto; /* 拉窄时允许水平滚动 */
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 关键：允许内容超出时正确触发 overflow-y:auto */
+}
+
+.voices-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 380px; /* 保证筛选栏有足够宽度，过窄时出现水平滚动条 */
+  min-height: 0; /* 关键：允许 flex 子元素缩小，让 .vp-grid 的 overflow-y:auto 正确触发 */
+}
+.voices-page > * + * {
+  margin-top: 10px;
+}
+
+/* 筛选栏 */
+.vp-filter-bar {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--header-bg);
+  border-radius: 4px;
+  flex-shrink: 0; /* 关键：高度不足时筛选栏不被压缩，保持标签行间距正常；由 .vp-grid 内部滚动 */
+}
+.vp-filter-bar > * + * {
+  margin-top: 10px; /* 每行筛选之间间隙（UXP 不支持 gap，用 margin 代替） */
+}
+
+.vp-filter-search {
+  width: 100%;
+  min-height: 28px;
+  /* UXP 不支持 outline / box-shadow，移除原生聚焦黑边靠改用 sp-textfield 组件（见 HTML） */
+}
+
+.vp-filter-search:focus {
+  /* UXP 不支持 box-shadow，聚焦样式由 sp-textfield 组件原生提供 */
+}
+
+.vp-filter-rows {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.vp-filter-rows > * {
+  margin-right: 8px;
+  margin-bottom: 4px;
+}
+
+.vp-filter-rows-spaced {
+  justify-content: space-between;
+}
+
+.vp-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 160px; /* 拉窄时让 group 换行而非挤压内部 tag */
+}
+.vp-filter-group > * {
+  margin-right: 4px;
+  margin-bottom: 2px;
+}
+
+.vp-filter-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+/* 标签（语种/性别/情感/子类） */
+.vp-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-color);
+  background-color: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.vp-tag:hover {
+  border-color: var(--accent-hover);
+  color: var(--text-color);
+}
+
+.vp-tag.active {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+  color: #fff;
+}
+
+/* 收藏筛选按钮 */
+.vp-fav-btn {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  background-color: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.vp-fav-btn.active {
+  color: #ff6b81;
+  border-color: #ff6b81;
+  background-color: rgba(255, 107, 129, 0.12);
+}
+
+.vp-fav-btn:hover {
+  border-color: var(--accent-hover);
+}
+.vp-fav-btn > * + * {
+  margin-left: 3px; /* 图标与文字间距（UXP 不支持 gap） */
+}
+
+/* 音色网格（UXP 不支持 CSS Grid，改用 flexbox + flex-wrap 实现四列） */
+.vp-grid {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  overflow-y: auto;
+  flex: 1;
+  align-content: flex-start;
+}
+.vp-grid > * {
+  margin-right: 5px;
+  margin-bottom: 5px; /* 卡片间距（UXP 不支持 gap） */
+}
+
+.vp-grid-empty {
+  width: 100%;
+  padding: 30px 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* 音色卡片
+   flex-grow: 0 是关键：防止最后一行不足 4 个时卡片拉伸填满整行。
+   flex-basis: calc(25% - 5px) 配合 .vp-grid > * 的 margin-right:5px，
+   每张卡片含 margin 券占 25%，一行 4 张恰好 100%，不多不少。 */
+.vp-card {
+  display: flex;
+  align-items: center;
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: calc(25% - 5px);
+  min-width: 130px;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background-color: var(--bg-color);
+  cursor: pointer;
+  transition: border-color 0.12s, background-color 0.12s;
+  position: relative;
+}
+
+/* 头像与右侧信息之间的间隙（UXP 不支持 gap，用 margin-left 代替） */
+.vp-card > * + * {
+  margin-left: 8px;
+}
+
+.vp-card:hover {
+  border-color: var(--accent-hover);
+}
+
+.vp-card.selected {
+  border-color: var(--accent-color);
+  background-color: rgba(92, 107, 192, 0.18);
+}
+
+.vp-card-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  background-color: var(--card-bg);
+  flex-shrink: 0;
+}
+
+.vp-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.vp-card-info > * + * {
+  margin-top: 2px; /* 名称与 meta 间距（UXP 不支持 gap） */
+}
+
+.vp-card-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-color);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vp-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+}
+.vp-card-meta > * {
+  margin-right: 2px;
+  margin-bottom: 2px; /* tag 间距（UXP 不支持 gap） */
+}
+
+.vp-card-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background-color: var(--card-bg);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.vp-card-tag.style-tag {
+  background-color: rgba(92, 107, 192, 0.18);
+  color: var(--accent-hover);
+}
+
+.vp-card-actions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.vp-card-actions > * + * {
+  margin-top: 3px; /* 按钮间距（UXP 不支持 gap） */
+}
+
+.vp-card-preview-btn,
+.vp-card-fav-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+  background-color: var(--card-bg);
+  color: var(--text-color);
+  font-family: var(--font-family);
+  padding: 0;
+}
+
+.vp-card-preview-btn {
+  color: var(--accent-hover);
+}
+
+.vp-card-preview-btn:hover {
+  background-color: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+}
+
+.vp-card-preview-btn.loading {
+  background-color: var(--card-bg);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.vp-card-fav-btn.favorited {
+  color: #ff6b81;
+  border-color: #ff6b81;
+}
+
+.vp-card-fav-btn:hover {
+  border-color: var(--accent-hover);
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.tag-list > * {
+  margin-right: 4px;
+  margin-bottom: 4px; /* tag 间距（UXP 不支持 gap） */
+}
+
+.tag-item {
+  padding: 3px 6px;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 11px;
+  transition: all 0.15s;
+}
+
+.tag-item:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-color);
+}
+
+.tag-item.active {
+  background-color: rgba(92, 107, 192, 0.15);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.pr-slider {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+/* 浮动操作条 */
+.floating-action-bar {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  height: 54px;
+  background-color: rgba(30, 30, 30, 0.95);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  /* UXP 不支持 z-index 和 backdrop-filter；靠 DOM 顺序保证层叠 */
+}
+.floating-action-bar > * + * {
+  margin-left: 10px; /* 状态栏与按钮间距（UXP 不支持 gap） */
+}
+
+.floating-action-bar sp-button {
+  min-width: 150px;
+}
+
+/* 手动配音文本域 */
+.manual-textarea-wrap {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.manual-textarea {
+  width: 100%;
+  flex-grow: 1;
+  min-height: 250px;
+}
+
+/* ═══ 设置页面布局 ═══ */
+/* 设置页采用双层容器策略解决 UXP flex+overflow bug：
+   外层 .tab-scroll-content：保持 display:flex（占位，flex-grow:1 填满空间）
+   内层 .settings-scroll-wrap：独立 block div（天生 display:block），overflow-y:auto 滚动
+   原因：UXP 下无法通过 CSS 覆盖将一个已声明 display:flex 的元素改为 display:block
+   （ID 选择器、专门 class、!important 全部无效）。
+   所以不覆盖 .tab-scroll-content 的 display，而是新增一层 block 容器来承载内容和滚动。 */
+.settings-scroll-wrap {
+  overflow-y: auto;
+  padding: 12px;
+  padding-bottom: 12px; /* 设置页无浮动操作条，不需为底部操作条预留空间 */
+  height: 100%; /* 填满外层 .tab-scroll-content 的高度 */
+}
+
+/* 设置页无浮动操作条，覆盖 .tab-scroll-content 默认的 72px 底部留空 */
+#settings .tab-scroll-content {
+  padding-bottom: 12px;
+}
+
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  min-width: 420px; /* 保证板块有足够宽度，拉窄时出现水平滚动条而非挤压 */
+}
+.settings-layout > * + * {
+  margin-top: 16px; /* 板块之间的间隙（UXP 不支持 gap，用 margin 代替） */
+}
+/* 设置页的卡片按内容高度展示，不拉伸不压缩（覆盖全局 .card 的 flex-grow:1，避免高度不足时卡片被挤压导致文字重叠） */
+.settings-layout > .card {
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+
+/* 设置页底部版本号页脚（居中展示插件版本号，版本来自 VERSION 文件构建时注入） */
+.settings-footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 0 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  user-select: none;
+  -webkit-user-select: none;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.settings-body {
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.settings-body > * + * {
+  margin-top: 14px; /* 每行之间间隙（UXP 不支持 gap，用 margin 代替） */
+}
+
+.setting-row {
+  display: flex;
+  flex-direction: column;
+}
+.setting-row > * + * {
+  margin-top: 8px; /* label 与控件之间的间隙 */
+}
+
+/* Azure Key 输入框 + 记住密钥勾选横向排列（UXP 不支持 gap，用 margin-left 代替） */
+.setting-key-row {
+  display: flex;
+  align-items: center;
+}
+.setting-key-row > * + * {
+  margin-left: 8px;
+}
+.setting-key-row .setting-input {
+  flex: 1 1 auto;
+  width: auto; /* 覆盖 .setting-input 的 width:100%，让 flex-grow 决定宽度 */
+}
+.setting-key-row sp-checkbox {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 服务区域 + 自定义端点 同行排列（25% / 75%；UXP 不支持 grid，用 flex + flex-basis 代替）。
+   使用独立类 .setting-row-inline 而非在 .setting-row 上叠加覆盖类——
+   UXP 对已声明 display:flex 的元素覆盖 flex-direction 有风险，独立类更稳妥。 */
+.setting-row-inline {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+.setting-row-inline > * + * {
+  margin-left: 12px; /* 两组之间的间隙 */
+}
+.setting-group {
+  display: flex;
+  flex-direction: column;
+}
+.setting-group > * + * {
+  margin-top: 8px; /* label 与控件之间的间隙 */
+}
+.setting-group-region {
+  flex: 0 0 25%; /* 固定 25% 宽度，不伸缩 */
+}
+.setting-group-endpoint {
+  flex: 1 1 75%; /* 占据剩余宽度（约 75%），允许伸缩 */
+}
+
+.setting-label {
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.setting-input {
+  width: 100%;
+}
+
+.setting-actions {
+  display: flex;
+  justify-content: center; /* 按钮整体居中 */
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.setting-actions > * + * {
+  margin-left: 10px; /* 按钮之间间隙（UXP 不支持 gap，用 margin 代替） */
+}
+
+/* 全局 sp-button 直角化 + 内边距优化 */
+sp-button {
+  --spectrum-button-border-radius: 0 !important;
+  border-radius: 0 !important;
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+  min-height: 30px !important;
+}
+
+sp-button[variant="secondary"] {
+  --spectrum-button-border-radius: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* 多音字纠音字典管理器 */
+.dict-manager-body {
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.dict-manager-body > * + * {
+  margin-top: 18px;
+}
+
+.dict-add-bar {
+  display: flex;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px dashed var(--border-color);
+}
+.dict-add-bar > * + * {
+  margin-left: 6px; /* 控件之间间距（UXP 不支持 gap，用 margin 代替） */
+}
+
+.dict-add-bar sp-textfield {
+  flex-grow: 1;
+}
+
+.dict-list-header, .dict-list-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+}
+.dict-list-header > * + *,
+.dict-list-row > * + * {
+  margin-left: 10px; /* 列之间间距（UXP 不支持 gap，用 margin 代替） */
+}
+
+.dict-list-header {
+  background-color: var(--list-header-bg);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 700;
+  color: var(--text-secondary);
+  border-radius: 4px 4px 0 0;
+}
+
+.dict-list-wrap {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+}
+
+.dict-list-row {
+  background-color: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.15s;
+}
+
+.dict-list-row:hover {
+  background-color: var(--list-item-hover);
+}
+
+.col-char { width: 50px; font-weight: bold; }
+.col-pinyin { width: 90px; }
+.col-phonetic { flex-grow: 1; }
+.col-action { width: 50px; text-align: center; }
+
+/* 辅助属性 */
+.hidden {
+  display: none !important;
+}
+
+/* ═══ 预设管理 ═══ */
+/* UXP 不支持 CSS Grid，改用 flexbox + flex-wrap 实现四列布局。
+   flex-grow:0 防止末行不足 4 个时卡片拉伸；flex-basis 配合 margin-right 每项券占 25%。 */
+.presets-grid {
+  padding: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start; /* 防止卡片在交叉轴被拉伸 */
+}
+.presets-grid > * {
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: calc(25% - 12px); /* 四列：每项 25% - 12px，配合 margin-right:12px 券占 25% */
+  margin-right: 12px;
+  margin-bottom: 12px;
+}
+
+.presets-empty {
+  flex-basis: 100%; /* 覆盖 .presets-grid > * 的 25% basis，空状态占满整行 */
+  flex-grow: 0;
+  width: 100%;
+  margin-right: 0; /* 覆盖 .presets-grid > * 的 margin-right，空状态占满整行 */
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  background-color: rgba(0, 0, 0, 0.08);
+  border: 1px dashed var(--border-color);
+  border-radius: 4px;
+}
+
+.preset-card {
+  position: relative;
+  min-height: 80px;
+  padding: 10px 12px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.preset-card:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent-color);
+}
+
+.preset-card.is-default {
+  background-color: rgba(92, 107, 192, 0.08);
+  border: 2px solid var(--accent-color); /* UXP 不支持 box-shadow，用加粗 border 近似高亮效果 */
+}
+
+.preset-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.preset-card-header > * + * {
+  margin-left: 4px; /* 间距（UXP 不支持 gap，用 margin 代替） */
+}
+
+.preset-card-name-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-color);
+  pointer-events: none;
+}
+
+.preset-card-name {
+  flex-grow: 1;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-color) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: auto !important;
+  cursor: text;
+}
+
+.preset-card-name:hover {
+  text-decoration: underline;
+}
+
+.preset-card-name:focus {
+  text-decoration: none;
+  outline: none !important;
+  box-shadow: none !important;
+  border-bottom: 1px dashed var(--accent-color) !important;
+  border-radius: 0 !important;
+}
+
+.preset-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 6px;
+  pointer-events: none;
+}
+.preset-card-meta > * {
+  margin-right: 4px;
+  margin-bottom: 4px; /* 换行时的垂直间距（UXP 不支持 gap，用 margin 代替） */
+}
+
+.preset-tag {
+  font-size: 10px;
+  color: var(--accent-color);
+  background-color: rgba(92, 107, 192, 0.12);
+  border: 1px solid rgba(92, 107, 192, 0.2);
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.preset-card-star {
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.preset-card-star:hover,
+.preset-card.is-default .preset-card-star {
+  color: #ffb700;
+}
+
+.preset-card-delete {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: rgba(236, 95, 103, 0.12);
+  color: var(--danger-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.preset-card:hover .preset-card-delete {
+  opacity: 1;
+}
+
+.preset-card-delete:hover {
+  background-color: rgba(236, 95, 103, 0.3);
+}
+
+/* ═══ 缓存管理 ═══ */
+.cache-body {
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.cache-body > * + * {
+  margin-top: 20px; /* 每行之间间隙（UXP 不支持 gap，用 margin 代替） */
+}
+
+.cache-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.cache-actions {
+  display: flex;
+  justify-content: center; /* 按钮整体居中 */
+  flex-wrap: wrap;
+}
+.cache-actions > * + * {
+  margin-left: 10px; /* 按钮之间间隙（UXP 不支持 gap，用 margin 代替） */
+}
+
+.cache-actions sp-button {
+  flex-shrink: 0;
+}
+
+.text-danger {
+  color: var(--danger-color);
+}
+
+/* 与 status-success / toast success 同色；UXP 仅用基础 color，不依赖 box-shadow 等不支持属性 */
+.text-success {
+  color: #99c794;
+}
+
+/* ═══ Toast 提示框 ═══ */
+.toast-area {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  display: flex;
+  flex-direction: column;
+  /* UXP 不支持 z-index，靠 DOM 顺序保证层叠在最上层 */
+}
+.toast-area > * + * {
+  margin-top: 8px; /* toast 之间间距（UXP 不支持 gap） */
+}
+
+.toast {
+  background-color: #333333;
+  border-left: 4px solid var(--accent-color);
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  /* UXP 不支持 box-shadow */
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  min-width: 180px;
+  max-width: 300px;
+  animation: slideIn 0.25s ease-out;
+}
+.toast > * + * {
+  margin-left: 10px; /* 图标与文字间距（UXP 不支持 gap） */
+}
+
+.toast.toast-error {
+  border-left-color: var(--danger-color);
+}
+
+.toast.toast-success {
+  border-left-color: #99c794;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(120%); }
+  to { transform: translateX(0); }
+}
+
+/* ═══ UXP 模态弹窗（<dialog> + uxpShowModal） ═══ */
+/* UXP 的 <dialog> 由原生渲染，层级高于所有面板内容，无需 z-index */
+
+.mm-dialog {
+  padding: 0;
+  color: var(--text-color);
+  background-color: var(--bg-color);
+}
+
+.mm-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.mm-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mm-dialog-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mm-dialog-close:hover {
+  background-color: var(--card-bg);
+  color: var(--text-color);
+}
+
+.mm-dialog-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mm-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ─── 设定停顿弹窗 ─── */
+.mm-pause-options {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.mm-pause-options > * {
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+/* ─── 单字纠音弹窗 ─── */
+.mm-poly-options {
+  display: flex;
+  flex-direction: column;
+}
+
+.mm-poly-options > * + * {
+  margin-top: 6px;
+}
+
+.mm-poly-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.mm-poly-option:hover {
+  border-color: var(--accent-color);
+  background-color: rgba(92, 107, 192, 0.1);
+}
+
+.mm-poly-option-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.mm-poly-option-info > * + * {
+  margin-top: 2px;
+}
+
+.mm-poly-pinyin {
+  font-weight: 600;
+  color: var(--accent-color);
+  font-size: 13px;
+}
+
+.mm-poly-context {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.mm-poly-select {
+  color: #99c794;
+  font-weight: 600;
+}
+
+.mm-poly-empty {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background-color: var(--card-bg);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.mm-poly-empty > * + * {
+  margin-top: 4px;
+}
+
+.mm-poly-empty p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.mm-dialog-hint {
+  font-size: 11px !important;
+  color: var(--text-secondary);
+}
+
+.mm-poly-custom {
+  display: flex;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 12px;
+}
+
+.mm-poly-custom-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.mm-poly-custom sp-textfield {
+  flex-grow: 1;
+  margin-left: 8px;
+  margin-right: 8px;
+}
+
+/* ─── 批量纠音弹窗 ─── */
+.mm-dialog-lg .mm-batch-body {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.mm-batch-row {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  background-color: var(--card-bg);
+  border-radius: 4px;
+}
+
+.mm-batch-row > * + * {
+  margin-top: 6px;
+}
+
+.mm-batch-row + .mm-batch-row {
+  margin-top: 8px;
+}
+
+.mm-batch-row-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.mm-batch-row-words {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.mm-batch-row-words > * {
+  margin-right: 2px;
+  margin-bottom: 2px;
+}
+
+.mm-batch-char {
+  display: inline-flex;
+  padding: 3px 6px;
+  font-size: 13px;
+  border-radius: 2px;
+  color: var(--text-color);
+}
+
+.mm-batch-poly-char {
+  cursor: pointer;
+  color: #e5c07b;
+  border-bottom: 2px solid #e5c07b;
+}
+
+.mm-batch-poly-char:hover {
+  background-color: rgba(229, 192, 123, 0.15);
+}
+
+.mm-batch-poly-char.is-corrected {
+  color: #99c794;
+  border-bottom-color: #99c794;
+}
+
+.mm-batch-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* ─── 字幕列表预览层（文本框下方，仅有标注时显示） ─── */
+.sub-preview {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  word-break: break-all;
+  padding: 2px 4px;
+  border-left: 2px solid var(--border-color);
+  background-color: var(--card-bg);
+}
+
+/* ─── 高亮标注标签（多音字纠音 & 停顿标记） ─── */
+.poly-highlight {
+  display: inline;
+  color: #e5c07b;
+  font-weight: 600;
+  background-color: rgba(229, 192, 123, 0.12);
+  padding: 1px 3px;
+  border-radius: 2px;
+  margin-right: 2px;
+}
+
+.ann-pause {
+  display: inline;
+  color: #61afef;
+  font-weight: 600;
+  background-color: rgba(97, 175, 239, 0.12);
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-right: 2px;
+}
+
+/* ─── 手动配音效果预览层 ─── */
+.manual-preview-title {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.manual-textarea-highlight {
+  font-size: 13px;
+  color: var(--text-color);
+  line-height: 1.6;
+  word-break: break-all;
+  padding: 8px 10px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+/* ─── 批量纠音内联选项面板（替代链式 dialog） ─── */
+.mm-batch-inline-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 6px;
+  padding: 4px;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.mm-batch-inline-panel > * + * {
+  margin-top: 2px;
+}
+
+.mm-batch-inline-opt {
+  display: flex;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.mm-batch-inline-opt:hover {
+  background-color: var(--card-bg);
+}
+
+.mm-batch-inline-opt .mm-poly-pinyin {
+  color: #e5c07b;
+  font-weight: 600;
+  margin-right: 8px;
+  min-width: 40px;
+}
+
+.mm-batch-inline-opt .mm-poly-context {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.mm-batch-inline-hint {
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+}

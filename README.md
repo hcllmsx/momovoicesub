@@ -11,9 +11,10 @@
 ```text
 apps/
   com.momo.voicesub.dr/      # DaVinci Resolve Workflow Integration 插件
-  com.momo.voicesub.pr/      # 还在开发中
+  com.momo.voicesub.pr/      # 2026.07.21初步开发完成，等待功能完善
 scripts/
-  install.ps1                # 安装 DaVinci Resolve 版
+  dr-install.ps1                # 安装 DaVinci Resolve 版插件
+  pr-install.ps1                # 安装 Premiere Pro 版插件（目前好像仅仅用于开发）
 ```
 
 ## 功能
@@ -37,7 +38,7 @@ scripts/
 2. 在项目根目录运行安装脚本：
 
    ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+   powershell -ExecutionPolicy Bypass -File .\scripts\dr-install.ps1
    ```
 
 3. 重启 DaVinci Resolve Studio。
@@ -73,7 +74,7 @@ C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Pl
 
 ## Premiere Pro 开发版
 
-还在开发中...
+开发版使用 UXP 开发，目前仅用于开发测试。
 
 ## 缓存
 

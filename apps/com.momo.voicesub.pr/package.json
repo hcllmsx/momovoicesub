@@ -1,0 +1,18 @@
+{
+  "name": "com.momo.voicesub.pr",
+  "version": "0.26.721",
+  "description": "Momo VoiceSub Premiere Pro UXP Plugin",
+  "type": "commonjs",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12"
+  },
+  "dependencies": {
+    "@types/pako": "^2.0.4",
+    "pako": "^3.0.1"
+  }
+}

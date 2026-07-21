@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>默默配音助手</title>
+  <link rel="stylesheet" href="index.css">
+  <script defer src="./index.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <!-- ═══ 顶部 Header (双行极简结构) ═══ -->
+    <header class="project-header">
+      <!-- 第一行：项目与序列信息（居中显示） -->
+      <div class="header-row-top">
+        <div class="header-status-area">
+          <span class="header-label">项目：</span>
+          <span id="projectNameText">载入中...</span>
+          <span class="header-divider">|</span>
+          <span class="header-label">序列：</span>
+          <span id="sequenceNameText">未检测到活动序列</span>
+        </div>
+      </div>
+
+      <!-- 第二行：平分四等分、无背景的横向标签卡页签（使用 div 彻底杜绝 button 默认样式） -->
+      <div class="header-row-bottom">
+        <nav class="header-nav" aria-label="功能导航">
+          <div class="nav-btn active" data-tab="subtitles">字幕轨自动配音</div>
+          <div class="nav-btn" data-tab="manual">手动文本配音</div>
+          <div class="nav-btn" data-tab="voices">音色选择</div>
+          <div class="nav-btn" data-tab="settings">插件设置</div>
+        </nav>
+      </div>
+    </header>
+
+    <!-- ═══ 主内容区 ═══ -->
+    <div class="content-area">
+      <!-- ─── Tab 1: 字幕自动配音 ─── -->
+      <section id="subtitles" class="tab-panel active">
+        <div class="tab-scroll-content">
+          <!-- 顶部轨道与策略选择栏 -->
+          <div class="track-bar">
+            <div class="track-group">
+              <span class="track-label">选择字幕轨</span>
+              <sp-picker class="track-select" id="subtitleTrackDropdown">
+                <sp-menu slot="options" id="subtitleTrackMenu">
+                  <sp-menu-item value="-1">-- 无字幕轨 (手动SRT模式) --</sp-menu-item>
+                </sp-menu>
+              </sp-picker>
+            </div>
+            
+            <div class="track-group">
+              <span class="track-label">目标音频轨</span>
+              <sp-picker class="track-select" id="subtitleAudioTrackDropdown">
+                <sp-menu slot="options" id="subtitleAudioTrackMenu">
+                  <sp-menu-item value="auto" selected>自动新建音频轨 (顺延)</sp-menu-item>
+                </sp-menu>
+              </sp-picker>
+            </div>
+
+            <div class="track-group">
+              <span class="track-label">配音覆盖策略</span>
+              <sp-picker class="track-select" id="subtitleOverwriteDropdown">
+                <sp-menu slot="options">
+                  <sp-menu-item value="skip" selected>跳过已有音频 (推荐)</sp-menu-item>
+                  <sp-menu-item value="overwrite">覆盖已有配音轨上重叠音频</sp-menu-item>
+                </sp-menu>
+              </sp-picker>
+            </div>
+          </div>
+
+          <div class="content-split">
+            <!-- 左：字幕列表 -->
+            <div class="content-main">
+              <div class="card">
+                <div class="card-header">
+                  <div class="header-left">
+                    <span class="card-icon">📋</span>
+                    <span class="card-title">字幕列表</span>
+                  </div>
+                  <div class="card-actions">
+                    <sp-button variant="secondary" quiet size="s" id="subtitleImportSrtBtn" class="hidden text-success">导入本地 SRT</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="subtitleDisableAllBtn">全部禁用</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="subtitleInsertPause">设定停顿</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="subtitleSingleCorrect">单字纠音</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="subtitleBatchCorrect">批量纠音</sp-button>
+                  </div>
+                </div>
+                <!-- 列表容器 -->
+                <div id="subtitleListWrap" class="subtitle-list-wrap">
+                  <div class="list-placeholder">请选择上方字幕轨或导入本地 SRT 开始配音</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右：配音参数 -->
+            <div class="content-side">
+              <div class="card">
+                <div class="card-header">
+                  <div class="header-left">
+                    <span class="card-icon">🎙️</span>
+                    <span class="card-title">配音参数</span>
+                  </div>
+                  <sp-checkbox id="subtitlePolyToggle" checked>自定义纠音</sp-checkbox>
+                </div>
+                
+                <div class="param-body">
+                  <div class="preset-bar">
+<sp-picker class="preset-select" id="subtitlePresetDropdown">
+<sp-menu slot="options" id="subtitlePresetMenu">
+</sp-menu>
+                    </sp-picker>
+                    <sp-button variant="secondary" quiet size="s" id="saveSubtitlePreset">💾保存</sp-button>
+                  </div>
+
+                  <!-- 选定音色展示/更改容器 -->
+                  <div class="voice-box">
+                    <span class="param-label">选择音色</span>
+                    <div id="subtitleVoiceContainer" class="voice-trigger-row"></div>
+                  </div>
+
+                  <div class="slider-group">
+                    <!-- 风格选择 -->
+                    <span class="param-label">风格</span>
+                    <div id="subtitleStyleTags" class="tag-list"></div>
+
+                    <!-- 角色选择 -->
+                    <div id="subtitleRoleArea" class="hidden">
+                      <span class="param-label">角色</span>
+                      <div id="subtitleRoleTags" class="tag-list"></div>
+                    </div>
+
+                    <!-- 风格程度 -->
+                    <div id="subtitleStyledegreeArea" class="hidden">
+                      <sp-slider class="pr-slider" id="subtitleStyledegree" min="0" max="200" step="10" value="100">
+                        <sp-label slot="label">风格程度</sp-label>
+                      </sp-slider>
+                    </div>
+
+                    <!-- 语速 -->
+                    <sp-slider class="pr-slider" id="subtitleRate" min="-50" max="50" step="5" value="0">
+                      <sp-label slot="label">语速</sp-label>
+                    </sp-slider>
+
+                    <!-- 音调 -->
+                    <sp-slider class="pr-slider" id="subtitlePitch" min="-50" max="50" step="5" value="0">
+                      <sp-label slot="label">音调</sp-label>
+                    </sp-slider>
+
+                    <!-- 音量 -->
+                    <sp-slider class="pr-slider" id="subtitleVolume" min="0" max="200" step="10" value="100">
+                      <sp-label slot="label">音量</sp-label>
+                    </sp-slider>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="floating-action-bar">
+          <div class="status-indicator" id="refreshBtnSubtitles" title="点击刷新当前工程（重读字幕）" role="button" tabindex="0">
+            <span class="dot connected"></span>
+            <span class="status-label">已连接</span>
+          </div>
+          <sp-button variant="primary" id="generateSubtitles">▶ 生成并插入字幕配音</sp-button>
+        </div>
+      </section>
+
+      <!-- ─── Tab 2: 手动配音 ─── -->
+      <section id="manual" class="tab-panel">
+        <div class="tab-scroll-content">
+          <!-- 顶部选择栏 -->
+          <div class="track-bar">
+            <div class="track-group">
+              <span class="track-label">目标音频轨</span>
+              <sp-picker class="track-select" id="manualAudioTrackDropdown">
+                <sp-menu slot="options" id="manualAudioTrackMenu">
+                  <sp-menu-item value="auto" selected>自动新建音频轨 (顺延)</sp-menu-item>
+                </sp-menu>
+              </sp-picker>
+            </div>
+
+            <div class="track-group">
+              <span class="track-label">配音覆盖策略</span>
+              <sp-picker class="track-select" id="manualOverwriteDropdown">
+                <sp-menu slot="options">
+                  <sp-menu-item value="skip" selected>跳过已有音频 (推荐)</sp-menu-item>
+                  <sp-menu-item value="overwrite">覆盖已有配音轨上重叠音频</sp-menu-item>
+                </sp-menu>
+              </sp-picker>
+            </div>
+          </div>
+
+          <div class="content-split">
+            <!-- 左：文本编辑 -->
+            <div class="content-main">
+              <div class="card">
+                <div class="card-header">
+                  <div class="header-left">
+                    <span class="card-icon">✏️</span>
+                    <span class="card-title">文本编辑</span>
+                  </div>
+                  <div class="card-actions">
+                    <sp-button variant="secondary" quiet size="s" id="manualClearText" class="text-danger">一键清空</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="manualInsertPause">设定停顿</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="manualSingleCorrect">单字纠音</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="manualBatchCorrect">批量纠音</sp-button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="manual-textarea-wrap">
+                    <sp-textarea id="manualText" class="manual-textarea" placeholder="输入要生成配音的文字...&#10;选中文字后点击「单字纠音」可标注指定读音。"></sp-textarea>
+                  </div>
+                  <div id="manualPreviewTitle" class="manual-preview-title hidden">效果预览（含多音字纠音与停顿标记）：</div>
+                  <div id="manualTextHighlight" class="manual-textarea-highlight hidden"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右：配音参数 -->
+            <div class="content-side">
+              <div class="card">
+                <div class="card-header">
+                  <div class="header-left">
+                    <span class="card-icon">🎙️</span>
+                    <span class="card-title">配音参数</span>
+                  </div>
+                  <sp-checkbox id="manualPolyToggle" checked>自定义纠音</sp-checkbox>
+                </div>
+                
+                <div class="param-body">
+                  <div class="preset-bar">
+<sp-picker class="preset-select" id="manualPresetDropdown">
+<sp-menu slot="options" id="manualPresetMenu">
+</sp-menu>
+                    </sp-picker>
+                    <sp-button variant="secondary" quiet size="s" id="saveManualPreset">💾保存</sp-button>
+                  </div>
+
+                  <!-- 选定音色展示/更改容器 -->
+                  <div class="voice-box">
+                    <span class="param-label">选择音色</span>
+                    <div id="manualVoiceContainer" class="voice-trigger-row"></div>
+                  </div>
+
+                  <div class="slider-group">
+                    <!-- 风格选择 -->
+                    <span class="param-label">风格</span>
+                    <div id="manualStyleTags" class="tag-list"></div>
+
+                    <!-- 角色选择 -->
+                    <div id="manualRoleArea" class="hidden">
+                      <span class="param-label">角色</span>
+                      <div id="manualRoleTags" class="tag-list"></div>
+                    </div>
+
+                    <!-- 风格程度 -->
+                    <div id="manualStyledegreeArea" class="hidden">
+                      <sp-slider class="pr-slider" id="manualStyledegree" min="0" max="200" step="10" value="100">
+                        <sp-label slot="label">风格程度</sp-label>
+                      </sp-slider>
+                    </div>
+
+                    <!-- 语速 -->
+                    <sp-slider class="pr-slider" id="manualRate" min="-50" max="50" step="5" value="0">
+                      <sp-label slot="label">语速</sp-label>
+                    </sp-slider>
+
+                    <!-- 音调 -->
+                    <sp-slider class="pr-slider" id="manualPitch" min="-50" max="50" step="5" value="0">
+                      <sp-label slot="label">音调</sp-label>
+                    </sp-slider>
+
+                    <!-- 音量 -->
+                    <sp-slider class="pr-slider" id="manualVolume" min="0" max="200" step="10" value="100">
+                      <sp-label slot="label">音量</sp-label>
+                    </sp-slider>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="floating-action-bar">
+          <div class="status-indicator status-indicator-static" id="refreshBtnManual" title="工程已连接">
+            <span class="dot connected"></span>
+            <span class="status-label">已连接</span>
+          </div>
+          <sp-button variant="primary" id="insertManual">▶ 生成并插入到播放头</sp-button>
+        </div>
+      </section>
+
+      <!-- ─── Tab 3: 音色选择（独立页面） ─── -->
+      <section id="voices" class="tab-panel">
+        <div class="tab-scroll-content voices-scroll-content">
+          <div id="voicesPageContainer" class="voices-page">
+            <!-- 筛选栏 + 网格由 JS 动态渲染 -->
+          </div>
+        </div>
+        <div class="floating-action-bar">
+          <div class="status-indicator" id="voicePageStatus" title="当前选中音色" role="button" tabindex="0">
+            <span class="dot connected"></span>
+            <span class="status-label" id="voicePageCurrentLabel">未选择音色</span>
+          </div>
+          <sp-button variant="primary" id="voicePageBackBtn">◀ 返回</sp-button>
+        </div>
+      </section>
+
+      <!-- ─── Tab 4: 设置 ─── -->
+      <section id="settings" class="tab-panel">
+        <!-- .tab-scroll-content 仅占位（flex-grow:1），不承载内容 -->
+        <div class="tab-scroll-content">
+          <!-- 真正的滚动容器：独立 block div，天生 display:block，不受 UXP flex+overflow bug 影响 -->
+          <div class="settings-scroll-wrap">
+          <div class="settings-layout">
+            <div class="card">
+              <div class="card-header">
+                <span class="card-icon">⚙️</span>
+                <span class="card-title">API 授权与服务设置</span>
+              </div>
+              <div class="settings-body">
+                <div class="setting-row">
+                  <span class="setting-label">Azure Speech Key</span>
+                  <div class="setting-key-row">
+                    <sp-textfield id="settingAzureKey" class="setting-input" type="password" placeholder="输入您的 Azure Speech API 密钥"></sp-textfield>
+                    <sp-checkbox id="settingRememberKey">记住密钥</sp-checkbox>
+                  </div>
+                </div>
+                <div class="setting-row-inline">
+                  <div class="setting-group setting-group-region">
+                    <span class="setting-label">服务区域</span>
+                    <sp-textfield id="settingRegion" class="setting-input" placeholder="例如 eastasia"></sp-textfield>
+                  </div>
+                  <div class="setting-group setting-group-endpoint">
+                    <span class="setting-label">自定义端点</span>
+                    <sp-textfield id="settingEndpoint" class="setting-input" placeholder="留空则使用默认端点，支持反代或代理网关"></sp-textfield>
+                  </div>
+                </div>
+                <div class="setting-actions">
+                  <sp-button variant="secondary" id="testTtsConnection">测试连接</sp-button>
+                  <sp-button variant="secondary" id="refreshVoicesBtn">刷新音色</sp-button>
+                  <sp-button variant="primary" id="saveSettingsBtn">保存所有设置</sp-button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 预设管理 -->
+            <div class="card">
+              <div class="card-header">
+                <span class="card-icon">⭐</span>
+                <span class="card-title">预设管理</span>
+              </div>
+              <div class="presets-grid" id="presetsGrid">
+                <!-- 动态生成预设卡片 -->
+              </div>
+            </div>
+
+            <!-- 缓存管理 -->
+            <div class="card">
+              <div class="card-header">
+                <span class="card-icon">🗄</span>
+                <span class="card-title">缓存管理</span>
+              </div>
+              <div class="cache-body">
+                <div class="setting-row">
+                  <span class="setting-label">缓存目录</span>
+                  <sp-textfield id="cacheDirPath" class="setting-input" readonly placeholder="加载中..."></sp-textfield>
+                </div>
+                <p class="cache-note">试听缓存不会被删除。删除当前项目或全部缓存后，时间线上已有的配音素材将变为离线状态。</p>
+                <div class="cache-actions">
+                  <sp-button variant="secondary" id="openCacheDirBtn">📂 打开缓存目录</sp-button>
+                  <sp-button variant="secondary" id="deleteUnusedCacheBtn">删除未使用缓存</sp-button>
+                  <sp-button variant="secondary" id="deleteCurrentProjectCacheBtn">删除当前项目缓存</sp-button>
+                  <sp-button variant="negative" id="deleteAllCacheBtn">删除全部缓存</sp-button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 自定义纠音多音字字典管理器 -->
+            <div class="card">
+              <div class="card-header">
+                <span class="card-icon">🔤</span>
+                <span class="card-title">多音字纠音字典管理</span>
+              </div>
+              <div class="dict-manager-body">
+                <div class="dict-add-bar">
+                  <sp-textfield id="dictAddChar" placeholder="字 (如: 行)" maxlength="1"></sp-textfield>
+                  <sp-textfield id="dictAddPinyin" placeholder="拼音 (如: hang)"></sp-textfield>
+                  <sp-textfield id="dictAddPhonetic" placeholder="声母/声调 (如: h ang 2)"></sp-textfield>
+                  <sp-button variant="primary" size="s" id="dictAddBtn">添加词条</sp-button>
+                </div>
+                <div class="dict-list-header">
+                  <span class="col-char">汉字</span>
+                  <span class="col-pinyin">拼音标示</span>
+                  <span class="col-phonetic">微软音标 (SAPI)</span>
+                  <span class="col-action">操作</span>
+                </div>
+                <div id="dictListWrap" class="dict-list-wrap">
+                  <!-- 动态生成字典列表 -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 设置页底部版本号页脚（版本号由 VERSION 文件在构建时注入到 __APP_VERSION__） -->
+            <div class="settings-footer">
+              <span id="appVersion">默默配音助手</span>
+            </div>
+          </div>
+          </div><!-- /settings-scroll-wrap -->
+        </div>
+</section>
+</div>
+
+    <!-- Toast 提示区：必须放在 .app-shell 末尾，UXP 不支持 z-index，靠 DOM 顺序保证层叠在最上层 -->
+    <div id="toastArea" class="toast-area"></div>
+  </main>
+
+  <!-- ═══ UXP 模态弹窗（<dialog> + uxpShowModal，原生渲染层级高于所有面板内容） ═══ -->
+
+  <!-- 设定停顿弹窗 -->
+  <dialog id="pauseDialog" class="mm-dialog">
+    <div class="mm-dialog-header">
+      <span class="mm-dialog-title">设定停顿</span>
+      <div class="mm-dialog-close" id="pauseDialogClose" role="button" tabindex="0">✕</div>
+    </div>
+    <div class="mm-dialog-body">
+      <div class="mm-pause-options" id="pauseDialogOptions"></div>
+    </div>
+  </dialog>
+
+  <!-- 单字纠音弹窗 -->
+  <dialog id="polyDialog" class="mm-dialog">
+    <div class="mm-dialog-header">
+      <span class="mm-dialog-title" id="polyDialogTitle">选择读音</span>
+      <div class="mm-dialog-close" id="polyDialogClose" role="button" tabindex="0">✕</div>
+    </div>
+    <div class="mm-dialog-body">
+      <div class="mm-poly-options" id="polyDialogOptions"></div>
+      <div class="mm-poly-empty" id="polyDialogEmpty">
+        <p>未找到该字的多音字记录。</p>
+        <p class="mm-dialog-hint">可在设置页「多音字纠音字典管理」中添加，或在下方手动输入拼音。</p>
+      </div>
+      <div class="mm-poly-custom">
+        <span class="mm-poly-custom-label">手动输入拼音：</span>
+        <sp-textfield id="polyCustomInput" placeholder="如 hang2 或 hang 2"></sp-textfield>
+        <sp-button variant="primary" size="s" id="polyCustomConfirm">确认</sp-button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 批量纠音弹窗 -->
+  <dialog id="batchDialog" class="mm-dialog mm-dialog-lg">
+    <div class="mm-dialog-header">
+      <span class="mm-dialog-title" id="batchDialogTitle">批量多音字纠音</span>
+      <div class="mm-dialog-close" id="batchDialogClose" role="button" tabindex="0">✕</div>
+    </div>
+    <div class="mm-dialog-body mm-batch-body">
+      <div id="batchDialogContent"></div>
+    </div>
+    <div class="mm-dialog-footer">
+      <sp-button variant="primary" id="batchDialogConfirm">完成纠音</sp-button>
+    </div>
+  </dialog>
+</body>
+</html>

@@ -1,6 +1,6 @@
-﻿{
+{
   "name": "momovoicesub-resolve-plugin",
-  "version": "0.26.74",
+  "version": "0.26.721",
   "description": "默默配音助手 for DaVinci Resolve Studio",
   "main": "main.js",
   "type": "commonjs",
