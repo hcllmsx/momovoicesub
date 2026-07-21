@@ -1743,7 +1743,7 @@ body.app-busy * {
   border-color: var(--line-hover);
 }
 
-.preset-card.is-default {
+.preset-card.is-active {
   background: rgba(55, 110, 210, 0.06);
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-light);
@@ -1826,7 +1826,7 @@ body.app-busy * {
 }
 
 .preset-card-star:hover,
-.preset-card.is-default .preset-card-star {
+.preset-card.is-default-preset .preset-card-star {
   color: #ffb700;
 }
 

@@ -597,6 +597,15 @@ async function initPlugin() {
 
     state.presets = ensureDefaultPreset(settings);
     state.defaultPresetId = settings.defaultPresetId || 'preset-default';
+
+    // 迁移持久化：若内置预设音色被迁移过（小艺→晓晓），立即写回 settings.json，
+    // 确保下次加载时文件已是修正后的值，不再依赖每次内存迁移
+    const originalBuiltin = (settings.presets || []).find((p: any) => p.id === 'preset-default');
+    const currentBuiltin = state.presets.find(p => p.id === 'preset-default');
+    if (originalBuiltin && currentBuiltin && originalBuiltin.voice !== currentBuiltin.voice) {
+      savePresetsToSettings().catch((e) => console.error('[Momo] 持久化内置预设音色迁移失败:', e));
+    }
+
     renderPresetDropdown();
     renderPresetsGrid();
     // 初始化时应用默认预设（persist=false：预设已存在于 settings.json，无需重复保存；
@@ -1423,6 +1432,11 @@ function ensureDefaultPreset(settings: any): any[] {
   } else {
     // 确保内置预设名称不被修改
     defaultPreset.name = '内置预设';
+    // 迁移：早期内置预设音色曾为「小艺」(zh-CN-XiaoyiNeural)，统一改为「晓晓」(zh-CN-XiaoxiaoNeural)，
+    // 与达芬奇版默认音色保持一致。宽松匹配以兼容大小写差异。
+    if (typeof defaultPreset.voice === 'string' && defaultPreset.voice.toLowerCase().includes('xiaoyi')) {
+      defaultPreset.voice = 'zh-CN-XiaoxiaoNeural';
+    }
   }
   // 确保内置预设排在第一位
   const others = presets.filter((p: any) => p.id !== 'preset-default');
@@ -1559,9 +1573,10 @@ function renderPresetsGrid() {
   let html = '';
   for (const preset of state.presets) {
     const isDefault = preset.id === state.defaultPresetId;
+    const isActive = state.selectedVoice ? preset.voice === state.selectedVoice.shortName : false;
     const isSystemDefault = preset.id === 'preset-default';
     const voiceCleaned = cleanVoiceName((preset.voice || '').split('-').pop() || preset.voice);
-    const styleLabel = preset.style ? styleNameCn(preset.style) : '默认';
+    const styleLabel = preset.style ? styleNameCn(preset.style) : '默认风格';
 
     let metaHtml = `<span class="preset-tag">${voiceCleaned}</span>`;
     metaHtml += `<span class="preset-tag">${styleLabel}</span>`;
@@ -1569,10 +1584,10 @@ function renderPresetsGrid() {
     if (preset.pitch && preset.pitch !== '0%') metaHtml += `<span class="preset-tag">音调 ${preset.pitch}</span>`;
     if (preset.volume && preset.volume !== '100%') metaHtml += `<span class="preset-tag">音量 ${preset.volume}</span>`;
 
-    // 内置预设不可改名，渲染为 span；自定义预设渲染为可编辑 input
+    // 内置预设不可改名，渲染为 span；自定义预设渲染为可点击编辑的 span（点击后变为 input）
     const titleHtml = isSystemDefault
       ? `<span class="preset-card-name-label">${preset.name}</span>`
-      : `<input type="text" class="preset-card-name" value="${preset.name || ''}" data-id="${preset.id}" placeholder="预设名称" spellcheck="false">`;
+      : `<span class="preset-card-name-text" data-id="${preset.id}" title="点击重命名">${preset.name || '未命名'}</span>`;
 
     // 内置预设不可删除，不渲染删除按钮
     const deleteHtml = isSystemDefault
@@ -1580,7 +1595,7 @@ function renderPresetsGrid() {
       : `<div class="preset-card-delete" title="删除预设" data-id="${preset.id}">×</div>`;
 
     html += `
-      <div class="preset-card ${isDefault ? 'is-default' : ''}" data-id="${preset.id}">
+      <div class="preset-card ${isActive ? 'is-active' : ''} ${isDefault ? 'is-default-preset' : ''}" data-id="${preset.id}">
         <div class="preset-card-header">
           ${titleHtml}
           <span class="preset-card-star" title="${isDefault ? '当前已是默认预设' : '设为默认预设'}" data-id="${preset.id}">★</span>
@@ -1592,44 +1607,74 @@ function renderPresetsGrid() {
   }
   grid.innerHTML = html;
 
-  // 绑定重命名输入框事件
-  grid.querySelectorAll('.preset-card-name').forEach(inp => {
-    const inputEl = inp as HTMLInputElement;
-    inputEl.addEventListener('click', (e) => e.stopPropagation());
-    inputEl.addEventListener('input', () => {
-      const id = inputEl.getAttribute('data-id');
+  // 点击预设名称 span 进入编辑模式（替换为 input，失焦/回车保存，Esc 取消）
+  grid.querySelectorAll('.preset-card-name-text').forEach(span => {
+    const spanEl = span as HTMLElement;
+    spanEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = spanEl.getAttribute('data-id');
+      if (!id) return;
       const preset = state.presets.find(p => p.id === id);
-      if (preset) preset.name = inputEl.value.trim();
-    });
-    inputEl.addEventListener('change', async () => {
-      const id = inputEl.getAttribute('data-id');
-      const preset = state.presets.find(p => p.id === id);
-      if (preset) {
-        preset.name = inputEl.value.trim();
-        await savePresetsToSettings();
-        renderPresetDropdown();
-        showToast(`预设已重命名为「${preset.name}」`, "success");
-      }
+      if (!preset) return;
+
+      // 用 input 替换 span 进入编辑态
+      const inputEl = document.createElement('input') as HTMLInputElement;
+      inputEl.type = 'text';
+      inputEl.className = 'preset-card-name';
+      inputEl.value = preset.name || '';
+      inputEl.setAttribute('data-id', id);
+      inputEl.setAttribute('spellcheck', 'false');
+      inputEl.setAttribute('placeholder', '预设名称');
+      spanEl.replaceWith(inputEl);
+      inputEl.focus();
+      try { inputEl.select(); } catch (_) {}
+
+      let committed = false;
+      const commit = async (save: boolean) => {
+        if (committed) return;
+        committed = true;
+        if (save) {
+          const newName = inputEl.value.trim();
+          if (newName && newName !== preset.name) {
+            preset.name = newName;
+            await savePresetsToSettings();
+            renderPresetDropdown();
+            showToast(`预设已重命名为「${preset.name}」`, "success");
+          }
+        }
+        // 重新渲染网格，把 input 换回 span
+        renderPresetsGrid();
+      };
+
+      inputEl.addEventListener('blur', () => commit(true));
+      inputEl.addEventListener('keydown', (ke: any) => {
+        if (ke.key === 'Enter') { ke.preventDefault(); commit(true); }
+        else if (ke.key === 'Escape') { ke.preventDefault(); commit(false); }
+      });
+      inputEl.addEventListener('click', (ce) => ce.stopPropagation());
     });
   });
 
-  // 点击预设卡片设为默认
+  // 点击预设卡片：切换自动/手动配音的当前音色为该预设的音色（不修改默认预设）
   grid.querySelectorAll('.preset-card').forEach(card => {
     card.addEventListener('click', (e) => {
       const tgt = e.target as HTMLElement;
-      // 点击输入框、删除按钮、星星时不触发卡片点击
-      if (tgt.closest('.preset-card-name') || tgt.closest('.preset-card-delete') || tgt.closest('.preset-card-star')) return;
+      // 点击名称（span 或编辑态 input）、删除按钮、星星时不触发卡片点击
+      if (tgt.closest('.preset-card-name-text') || tgt.closest('.preset-card-name') || tgt.closest('.preset-card-delete') || tgt.closest('.preset-card-star')) return;
       const id = (card as HTMLElement).dataset.id;
-      if (id) {
-        state.defaultPresetId = id;
-        renderPresetsGrid();
-        savePresetsToSettings();
-        renderPresetDropdown();
-      }
+      if (!id) return;
+      const preset = state.presets.find(p => p.id === id);
+      if (!preset || !preset.voice) return;
+      const voice = state.voices.find(v => v.shortName === preset.voice);
+      if (!voice) return;
+      // persist=false：仅切换当前音色，不持久化为默认音色
+      selectVoice(voice, false);
+      renderPresetsGrid();
+      showToast(`已切换音色为「${cleanVoiceName(voice.localName || voice.displayName || voice.shortName)}」`, "info");
     });
   });
 
-  // 点击星星设为默认
+  // 点击星星设为默认（点击卡片共身不设为默认，避免误触）
   grid.querySelectorAll('.preset-card-star').forEach(star => {
     star.addEventListener('click', (e) => {
       e.stopPropagation();

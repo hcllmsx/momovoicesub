@@ -1224,7 +1224,7 @@ sp-button[variant="secondary"] {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  cursor: pointer;
+  cursor: pointer; /* 点击卡片切换当前配音音色 */
   transition: all 0.15s;
 }
 
@@ -1233,7 +1233,7 @@ sp-button[variant="secondary"] {
   border-color: var(--accent-color);
 }
 
-.preset-card.is-default {
+.preset-card.is-active {
   background-color: rgba(92, 107, 192, 0.08);
   border: 2px solid var(--accent-color); /* UXP 不支持 box-shadow，用加粗 border 近似高亮效果 */
 }
@@ -1254,25 +1254,44 @@ sp-button[variant="secondary"] {
   pointer-events: none;
 }
 
+/* 预设名称：非编辑态 span（点击后变为 input） */
+.preset-card-name-text {
+  display: inline-block;
+  flex-grow: 1;
+  width: 75%;
+  color: var(--text-color);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 0 1px 0;
+  border-bottom: 1px dashed var(--border-color);
+  cursor: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preset-card-name-text:hover {
+  border-bottom-color: var(--accent-color);
+}
+
+/* 预设名称：编辑态 input（点击 span 后动态创建） */
 .preset-card-name {
   flex-grow: 1;
   border: none !important;
+  border-bottom: 1px dashed var(--accent-color) !important;
   background: transparent !important;
   color: var(--text-color) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
-  padding: 0 !important;
+  padding: 0 0 1px 0 !important;
   margin: 0 !important;
   min-height: auto !important;
+  width: 75% !important;
   cursor: text;
-}
-
-.preset-card-name:hover {
-  text-decoration: underline;
+  border-radius: 0 !important;
 }
 
 .preset-card-name:focus {
-  text-decoration: none;
   outline: none !important;
   box-shadow: none !important;
   border-bottom: 1px dashed var(--accent-color) !important;
@@ -1311,7 +1330,7 @@ sp-button[variant="secondary"] {
 }
 
 .preset-card-star:hover,
-.preset-card.is-default .preset-card-star {
+.preset-card.is-default-preset .preset-card-star {
   color: #ffb700;
 }
 

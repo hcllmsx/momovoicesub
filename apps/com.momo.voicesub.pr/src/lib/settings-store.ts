@@ -82,6 +82,11 @@ export class SettingsStore {
 
   private ensureDefaults(settings: Partial<Settings>): Settings {
     const merged = { ...DEFAULT_SETTINGS, ...settings } as Settings;
+    // 迁移：早期 PR 版默认音色曾为「小艺」(zh-CN-XiaoyiNeural)，统一改为「晓晓」(zh-CN-XiaoxiaoNeural)，
+    // 与达芬奇版默认音色保持一致。宽松匹配以兼容大小写差异。
+    if (typeof merged.defaultVoice === 'string' && merged.defaultVoice.toLowerCase().includes('xiaoyi')) {
+      merged.defaultVoice = 'zh-CN-XiaoxiaoNeural';
+    }
     return merged;
   }
 

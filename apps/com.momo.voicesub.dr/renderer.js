@@ -2454,6 +2454,8 @@ function renderPresetsGrid() {
   let html = '';
   state.presets.forEach(preset => {
     const isDefault = preset.id === state.defaultPresetId;
+    const currentVoice = voicePickers.subtitle ? voicePickers.subtitle.getSelected() : '';
+    const isActive = preset.voice === currentVoice;
     const isSystemDefault = preset.id === 'preset-default';
     const voiceCleaned = cleanVoiceName(preset.voice.split('-').pop() || preset.voice);
     const styleLabel = preset.style ? styleCn(preset.style) : '默认';
@@ -2482,7 +2484,7 @@ function renderPresetsGrid() {
       : `<div class="preset-card-delete" title="删除预设" data-id="${preset.id}">×</div>`;
       
     html += `
-      <div class="preset-card ${isDefault ? 'is-default' : ''}" data-id="${preset.id}">
+      <div class="preset-card ${isActive ? 'is-active' : ''} ${isDefault ? 'is-default-preset' : ''}" data-id="${preset.id}">
         <div class="preset-card-header">
           ${titleHtml}
           <span class="preset-card-star" title="${isDefault ? '当前已是默认预设' : '设为默认预设'}" data-id="${preset.id}">★</span>
@@ -2517,12 +2519,23 @@ function renderPresetsGrid() {
   
   grid.querySelectorAll('.preset-card').forEach(card => {
     card.addEventListener('click', (e) => {
+      // 点击名称输入框、删除按钮、星星时不触发卡片点击
+      const tgt = e.target;
+      if (tgt && tgt.closest && (tgt.closest('.preset-card-name') || tgt.closest('.preset-card-delete') || tgt.closest('.preset-card-star'))) return;
       const id = card.dataset.id;
-      if (id) {
-        state.defaultPresetId = id;
-        renderPresetsGrid();
-        savePresetsAutomatically();
+      if (!id) return;
+      const preset = state.presets.find(p => p.id === id);
+      if (!preset || !preset.voice) return;
+      // 将自动配音与手动配音的当前音色切换为该预设的音色（不修改默认预设）
+      for (const prefix of ['subtitle', 'manual']) {
+        const picker = voicePickers[prefix];
+        if (picker) picker.setSelected(preset.voice);
+        const info = stylesForVoice(preset.voice);
+        populateStyleTags(prefix, info.styles);
+        populateRoleTags(prefix, info.roles);
       }
+      renderPresetsGrid();
+      showToast(`已切换音色为「${cleanVoiceName(preset.voice)}」`, 'info');
     });
   });
   
