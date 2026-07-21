@@ -273,6 +273,20 @@ function registerIpcHandlers() {
     return result;
   });
 
+  registerLoggedHandler('cache:openFolder', async () => {
+    const settings = await settingsStore.load();
+    const cacheDir = settings.cacheDir || path.join(app.getPath('appData'), 'momovoicesub', 'cache');
+    // 确保目录存在（fs/promises 有 mkdir，fallback 版可能没有）
+    if (typeof fs.mkdir === 'function') {
+      try { await fs.mkdir(cacheDir, { recursive: true }); } catch (_) {}
+    }
+    const errMsg = await shell.openPath(cacheDir);
+    if (errMsg) {
+      throw new Error(`无法打开缓存目录: ${errMsg}`);
+    }
+    return { ok: true, cacheDir };
+  });
+
   registerLoggedHandler('debug:openDevTools', async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.openDevTools({ mode: 'detach' });

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   deleteUnusedCurrentProjectCache: () => ipcRenderer.invoke('cache:deleteUnusedCurrentProject'),
   deleteCurrentProjectCache: () => ipcRenderer.invoke('cache:deleteCurrentProject'),
   deleteAllProjectCache: () => ipcRenderer.invoke('cache:deleteAllProjects'),
+  openCacheFolder: () => ipcRenderer.invoke('cache:openFolder'),
   openDevTools: () => ipcRenderer.invoke('debug:openDevTools'),
   copyLog: (logText) => ipcRenderer.invoke('debug:copyLog', logText),
   exportLog: (logText) => ipcRenderer.invoke('debug:exportLog', logText),

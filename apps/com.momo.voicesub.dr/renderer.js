@@ -3169,6 +3169,20 @@ async function deleteAllProjectCache() {
   });
 }
 
+async function openCacheFolder() {
+  try {
+    setBusy(true);
+    const result = await window.momoVoiceSub.openCacheFolder();
+    if (result && result.ok) {
+      log(`已打开缓存目录: ${result.cacheDir}`);
+    }
+  } catch (error) {
+    log(`打开缓存目录失败: ${friendlyErrorMessage(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
 // ─── Refresh State ───
 
 async function refreshState() {
@@ -3305,6 +3319,7 @@ function setupEvents() {
   $('deleteUnusedCache').addEventListener('click', deleteUnusedCache);
   $('deleteCurrentProjectCache').addEventListener('click', deleteCurrentProjectCache);
   $('deleteAllProjectCache').addEventListener('click', deleteAllProjectCache);
+  $('openCacheFolder').addEventListener('click', openCacheFolder);
   $('generateSubtitles').addEventListener('click', generateSubtitles);
   $('insertManual').addEventListener('click', insertManual);
   $('copyLog').addEventListener('click', copyLog);

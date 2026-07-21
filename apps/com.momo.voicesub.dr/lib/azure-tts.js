@@ -418,6 +418,12 @@ class AzureTtsProvider {
     const audio = Buffer.from(await response.arrayBuffer());
     await fs.writeFile(filePath, audio);
     const duration = wavDurationFrames(audio, timelineFps);
+
+    // 音频时长校验：如果 Azure 返回了 0 帧的空音频，说明音色可能不支持当前文本语言
+    if (!duration || duration.durationFrames === 0) {
+      throw new Error(`音色合成失败：Azure 返回了空音频（0 帧），音色可能不支持当前文本语言。请检查音色与字幕语言是否匹配。`);
+    }
+
     await updateCacheIndex(targetDir, hash, {
       text, textHash: sha1(text),
       voice: voice || 'zh-CN-XiaoxiaoNeural',

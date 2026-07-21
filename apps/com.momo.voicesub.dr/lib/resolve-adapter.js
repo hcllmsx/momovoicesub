@@ -22,7 +22,7 @@ const { sha1 } = require('./azure-tts');
 
 const TARGET_TRACK_NAME = 'Momo VoiceSub';
 const CLIP_SUFFIX = '_momo';
-const MEDIAPOOL_FOLDER_NAME = 'momovoicesub';
+const MEDIAPOOL_FOLDER_NAME = 'momo-Voicesub';
 const TEXT_PREVIEW_LENGTH = 28;
 
 function sanitizeName(value) {
@@ -678,6 +678,25 @@ class ResolveAdapter {
     const polyphonicDict = voiceSettings.polyphonicDict;
     const enablePoly = voiceSettings.enablePolyphonic !== false;
 
+    // ─── 预检：用第一条非空字幕做一次合成，验证音色是否支持当前语言 ───
+    // 避免音色不支持时每条字幕都发请求、都失败
+    // 预检命中的结果会自动缓存，循环中不会重复调用 API
+    const firstNonEmptySub = subtitles.find(sub => String(sub.text || '').trim());
+    if (firstNonEmptySub) {
+      const preflightOptions = {
+        ...voiceSettings,
+        text: firstNonEmptySub.text,
+        timelineFps: fps,
+        cacheDir
+      };
+      if (enablePoly) {
+        if (firstNonEmptySub.annotations && firstNonEmptySub.annotations.length) preflightOptions.annotations = firstNonEmptySub.annotations;
+        if (polyphonicDict && polyphonicDict.length) preflightOptions.polyphonicDict = polyphonicDict;
+      }
+      // 预检合成，失败会抛出异常，由外层 catch 捕获并提示用户
+      await this.ttsProvider.synthesize(preflightOptions);
+    }
+
     const results = [];
     for (const sub of subtitles) {
       const text = String(sub.text || '').trim();
@@ -704,19 +723,25 @@ class ResolveAdapter {
         if (polyphonicDict && polyphonicDict.length) synthOptions.polyphonicDict = polyphonicDict;
       }
 
-      const audio = await this.ttsProvider.synthesize(synthOptions);
+      try {
+        const audio = await this.ttsProvider.synthesize(synthOptions);
 
-      const durationFrames = Math.min(audio.durationFrames, maxFrames);
-      const insert = await this.insertAudioFile({
-        filePath: audio.filePath,
-        audioTrackIndex: targetTrack,
-        recordFrame: sub.startFrame,
-        durationFrames,
-        clipName,
-        overwriteMode,
-        forceReimport: audio.cacheHit === false
-      });
-      results.push({ text, start: sub.startFrame, end: sub.endFrame, audio, ...insert });
+        const durationFrames = Math.min(audio.durationFrames, maxFrames);
+        const insert = await this.insertAudioFile({
+          filePath: audio.filePath,
+          audioTrackIndex: targetTrack,
+          recordFrame: sub.startFrame,
+          durationFrames,
+          clipName,
+          overwriteMode,
+          forceReimport: audio.cacheHit === false
+        });
+        results.push({ text, start: sub.startFrame, end: sub.endFrame, audio, ...insert });
+      } catch (synthErr) {
+        // 单条合成/插入失败，中止剩余字幕，抛出友好错误
+        const errMsg = synthErr && synthErr.message ? synthErr.message : String(synthErr);
+        throw new Error(`字幕「${textPreview(text)}」配音失败，已中止剩余 ${subtitles.length - results.length - 1} 条：${errMsg}`);
+      }
     }
 
     return {

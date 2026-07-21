@@ -6,3 +6,9 @@ apps/davinci-resolve/com.momo.voicesub/WorkflowIntegration.node
 
 *.log
 _temp/
+
+# Premiere Pro UXP Plugin
+apps/com.momo.voicesub.pr/node_modules/
+apps/com.momo.voicesub.pr/dist/
+
+.catpaw/
