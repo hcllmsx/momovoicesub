@@ -32,6 +32,11 @@ const state = {
   
   // 字幕列表
   subtitleItems: [] as SubtitleItem[],
+
+  // 手动导入的 SRT 字幕备份
+  // 当用户从「无字幕轨(手动SRT模式)」切换到某个字幕轨时，备份当前手动导入的 SRT；
+  // 切回手动模式时恢复，避免用户辛苦导入的 SRT 因切换轨道而丢失。
+  manualSrtItemsBackup: [] as SubtitleItem[],
   
   // 选中的音色
   selectedVoice: null as VoiceInfo | null,
@@ -206,7 +211,7 @@ function setPickerValue(picker: HTMLElement | null, val: string) {
   });
 }
 
-function showToast(message: string, type: "success" | "error" | "info" = "info") {
+function showToast(message: string, type: "success" | "error" | "info" | "warning" = "info") {
   const area = $("toastArea");
   if (!area) return;
 
@@ -661,12 +666,23 @@ async function syncWithPremiere() {
     updateTrackDropdowns();
 
     if (state.captionTracks.length > 0 && (sequenceChanged || state.activeCaptionTrackIndex === -2)) {
+      // 从手动模式自动切到字幕轨前，备份手动 SRT（若有）
+      if (state.activeCaptionTrackIndex === -1 && state.subtitleItems.length > 0) {
+        state.manualSrtItemsBackup = state.subtitleItems.slice();
+      }
       const firstTrackIndex = state.captionTracks[0].index;
       await autoLoadSubtitleTrack(firstTrackIndex);
     } else if (state.captionTracks.length === 0) {
-      state.activeCaptionTrackIndex = -1;
-      state.subtitleItems = [];
-      renderSubtitleList();
+      // 没有字幕轨
+      if (state.activeCaptionTrackIndex >= 0) {
+        // 之前选中了某个字幕轨，现在该轨道没了（如切换序列），切回手动模式
+        state.activeCaptionTrackIndex = -1;
+        // 恢复手动 SRT 备份（若有），避免字幕列表被清空
+        state.subtitleItems = state.manualSrtItemsBackup.slice();
+        renderSubtitleList();
+      }
+      // 注意：若已经是手动模式（activeCaptionTrackIndex === -1），保留当前 subtitleItems
+      // （可能是用户手动导入的 SRT），不因音频轨数量变化等无关刷新而清空
       updateImportSrtBtnVisibility();
     }
   }
@@ -796,6 +812,12 @@ async function autoLoadSubtitleTrack(trackIndex: number) {
   }
 
   try {
+// 保存项目，确保读取 .prproj 时拿到最新内容（含手动编辑、剃刀分割等操作）
+try {
+  await premiereAdapter.saveProject();
+} catch (saveErr) {
+  console.warn("[Momo] autoLoadSubtitleTrack: 保存项目失败，仍尝试读取:", saveErr);
+}
 const items = await premiereAdapter.loadSubtitlesFromTrack(trackIndex, state.fps);
 // 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
 mergeSubtitleAnnotations(state.subtitleItems, items);
@@ -805,7 +827,7 @@ renderSubtitleList();
     if (items.length > 0) {
       const textCount = items.filter(i => i.text && i.text.trim()).length;
       if (textCount === 0) {
-        // 未读到文字 —— .prproj 策略也未能提取到字幕文字
+        // 未读到文字 —— UXP API 和 .prproj 策略都未能提取到字幕文字
         showToast(
           `已读到 ${items.length} 条字幕时序，但未能自动提取字幕文字。请点击「导入本地 SRT」完成配对。`,
           "warning"
@@ -2063,16 +2085,35 @@ $("dictAddBtn")?.addEventListener("click", async () => {
 // ─── 字幕读取与载入 ───
 $("subtitleTrackDropdown")?.addEventListener("change", async (e: any) => {
   const val = parseInt(e.target.value, 10);
+  const prevIndex = state.activeCaptionTrackIndex;
+
+  // 从手动模式切走到字幕轨：备份当前手动导入的 SRT，以便切回时恢复
+  if (prevIndex === -1 && val !== -1) {
+    state.manualSrtItemsBackup = state.subtitleItems.slice();
+  }
+
   state.activeCaptionTrackIndex = val;
   updateImportSrtBtnVisibility();
   if (val === -1) {
-    state.subtitleItems = [];
+    // 切回手动模式：恢复之前备份的 SRT（若有），而非清空
+    state.subtitleItems = state.manualSrtItemsBackup.slice();
     renderSubtitleList();
+    if (state.subtitleItems.length > 0) {
+      showToast(`已切换到手动 SRT 模式，恢复 ${state.subtitleItems.length} 条字幕`, "info");
+    } else {
+      showToast("已切换到手动 SRT 模式，可导入本地 SRT 开始", "info");
+    }
     return;
   }
 
   showToast("正在读取字幕轨...", "info");
   try {
+// 保存项目，确保读取 .prproj 时拿到最新内容
+try {
+  await premiereAdapter.saveProject();
+} catch (saveErr) {
+  console.warn("[Momo] 下拉切换: 保存项目失败，仍尝试读取:", saveErr);
+}
 const items = await premiereAdapter.loadSubtitlesFromTrack(val, state.fps);
 // 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
 mergeSubtitleAnnotations(state.subtitleItems, items);
@@ -2110,6 +2151,10 @@ $("subtitleImportSrtBtn")?.addEventListener("click", async () => {
     } else {
       // 没有已读取的时序数据，直接使用 SRT 内容
       state.subtitleItems = srtItems;
+      // 在手动模式下，同步更新备份，以便切换轨道后能恢复
+      if (state.activeCaptionTrackIndex === -1) {
+        state.manualSrtItemsBackup = srtItems.slice();
+      }
       renderSubtitleList();
       showToast(`SRT 导入成功！共 ${srtItems.length} 条字幕`, "success");
     }
@@ -3010,6 +3055,32 @@ $("generateSubtitles")?.addEventListener("click", async () => {
 
   showToast(`开始生成字幕配音，共 ${checkedIds.length} 条...`, "info");
 
+  // ─── 批量配音前先保存项目 ───
+  // 原因：PR 工程未保存时，内部状态可能不一致（如刚移动过音频片段但未落盘），
+  // 此时执行 createOverwriteItemAction 可能导致 PR 闪退（无错误信息）。
+  // 保存项目可确保工程状态一致，大幅降低闪退概率。
+  try {
+    showToast("正在保存项目以确保工程状态一致...", "info");
+    const saved = await premiereAdapter.saveProject();
+    if (!saved) {
+      showToast("项目保存失败，仍尝试继续配音（可能增加闪退风险）", "warning");
+    }
+  } catch (saveErr: any) {
+    console.warn("[generateSubtitles] 项目保存失败:", saveErr);
+    showToast("项目保存异常，仍尝试继续配音", "warning");
+  }
+
+  // ─── 校验目标音轨索引是否仍有效 ───
+  // 防止用户在打开下拉后、点击生成前删除了音轨，导致索引越界闪退
+  if (targetAudioTrackIndexVal !== "auto") {
+    const targetIdx = parseInt(targetAudioTrackIndexVal, 10);
+    const currentSummary = await premiereAdapter.getSummary();
+    if (currentSummary && targetIdx >= currentSummary.audioTracks.length) {
+      showToast(`目标音轨 A${targetIdx + 1} 已不存在（当前仅有 ${currentSummary.audioTracks.length} 条音轨），请重新选择目标音轨`, "error");
+      return;
+    }
+  }
+
   // ─── 预检：用第一条非空字幕做一次合成，验证音色是否支持当前语言 ───
   // 避免音色不支持时每条字幕都发请求、都失败、都弹错误
   // 预检命中的结果会自动缓存，循环中不会重复调用 API
@@ -3156,6 +3227,26 @@ return;
   const volume = `${volumeSlider.value}%`;
 
   showToast("正在合成音频...", "info");
+
+  // ─── 插入前先保存项目，确保工程状态一致（避免未保存时闪退） ───
+  try {
+    const saved = await premiereAdapter.saveProject();
+    if (!saved) {
+      console.warn("[insertManual] 项目保存失败，仍尝试继续");
+    }
+  } catch (saveErr: any) {
+    console.warn("[insertManual] 项目保存异常:", saveErr);
+  }
+
+  // ─── 校验目标音轨索引是否仍有效 ───
+  if (targetAudioTrackIndexVal !== "auto") {
+    const targetIdx = parseInt(targetAudioTrackIndexVal, 10);
+    const currentSummary = await premiereAdapter.getSummary();
+    if (currentSummary && targetIdx >= currentSummary.audioTracks.length) {
+      showToast(`目标音轨 A${targetIdx + 1} 已不存在（当前仅有 ${currentSummary.audioTracks.length} 条音轨），请重新选择目标音轨`, "error");
+      return;
+    }
+  }
 
   try {
 const settings = await settingsStore.load();

@@ -1439,6 +1439,10 @@ sp-button[variant="secondary"] {
   border-left-color: #99c794;
 }
 
+.toast.toast-warning {
+  border-left-color: #e5c07b;
+}
+
 @keyframes slideIn {
   from { transform: translateX(120%); }
   to { transform: translateX(0); }

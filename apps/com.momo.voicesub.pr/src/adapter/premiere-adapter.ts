@@ -158,22 +158,92 @@ function ticksToSeconds(ticks: number): number {
 }
 
 /**
+ * 检查一段字节是否构成合法的 UTF-8 文本。
+ *
+ * 判定规则：
+ * - 不含 null 字节（0x00），文本不应包含 null
+ * - 每个字节都符合 UTF-8 编码规则（首字节 + 正确数量的延续字节 10xxxxxx）
+ * - 返回该段文本的「类型评分」：
+ *   - 0：非法 UTF-8
+ *   - 1：纯 ASCII（可能是字体名等，不是字幕）
+ *   - 2：含多字节 UTF-8（可能是字幕文字）
+ *   - 3：含 CJK 字符（极可能是字幕文字）
+ *
+ * @param bytes 待检查的字节
+ * @param maxLen 最多检查多少字节（防止超长扫描）
+ * @returns 类型评分（0/1/2/3）
+ */
+function classifyUtf8Text(bytes: Uint8Array, maxLen: number = 8192): number {
+  const limit = Math.min(bytes.length, maxLen);
+  if (limit === 0) return 0;
+  let hasMultiByte = false;
+  let hasCjk = false;
+  let i = 0;
+  while (i < limit) {
+    const b = bytes[i];
+    if (b === 0x00) return 0; // 文本不应含 null 字节
+    if (b < 0x80) {
+      // ASCII，但控制字符（除换行/回车/制表）视为非法
+      if (b < 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0d) return 0;
+      i++;
+    } else if (b < 0xc0) {
+      return 0; // 非法起始字节（延续字节作首字节）
+    } else if (b < 0xe0) {
+      // 2 字节
+      if (i + 2 > limit) return 0;
+      if ((bytes[i + 1] & 0xc0) !== 0x80) return 0;
+      hasMultiByte = true;
+      i += 2;
+    } else if (b < 0xf0) {
+      // 3 字节（常见中文）
+      if (i + 3 > limit) return 0;
+      if ((bytes[i + 1] & 0xc0) !== 0x80) return 0;
+      if ((bytes[i + 2] & 0xc0) !== 0x80) return 0;
+      // CJK 统一汉字范围：U+4E00 ~ U+9FFF
+      // UTF-8 编码：E4 B8 80 ~ E9 BF BF
+      if (b >= 0xe4 && b <= 0xe9) {
+        hasCjk = true;
+      }
+      hasMultiByte = true;
+      i += 3;
+    } else if (b < 0xf8) {
+      // 4 字节（emoji 等）
+      if (i + 4 > limit) return 0;
+      if ((bytes[i + 1] & 0xc0) !== 0x80) return 0;
+      if ((bytes[i + 2] & 0xc0) !== 0x80) return 0;
+      if ((bytes[i + 3] & 0xc0) !== 0x80) return 0;
+      hasMultiByte = true;
+      i += 4;
+    } else {
+      return 0;
+    }
+  }
+  if (hasCjk) return 3;
+  if (hasMultiByte) return 2;
+  return 1;
+}
+
+/**
  * 从一个 FormattedTextData 的二进制数据中提取字幕文字。
  *
- * 已分析出的二进制结构（PR 2024/2025 实测）：
- *   ... [字体名 UTF-8] 00 00 00 01 00 00 00 0C 00 00 00 08 00 0C 00 04 00 08 00 08 00 00 00 08 00 00 00 [总长 LE32] [字幕UTF8长度 LE32] [字幕 UTF-8 字节] ...
+ * 采用多策略提取，兼容不同来源（手动创建 / SRT 导入 / 复制粘贴）的字幕：
  *
- * 关键稳定特征：字幕 UTF-8 字节紧随在一个 LE32 长度前缀之后，
- * 且该长度前缀之前 8 字节固定为 `08 00 00 00 08 00 00 00`（两个 LE32 = 8, 8）。
+ * 策略1（标准模式）：查找 PR 手动编辑字幕的固定二进制特征
+ *   `08 00 00 00 08 00 00 00 <总长 LE32> <字幕长度 LE32> <字幕 UTF-8 字节>`
+ *   这是 PR 在用户手动编辑字幕时生成的标准格式。
  *
- * 扫描策略：在二进制中查找所有 `08 00 00 00 08 00 00 00` 出现位置，
- * 取其后第 8 字节起的 LE32 作为字幕长度，再读取对应字节并按 UTF-8 解码。
+ * 策略2（LE32 前缀扫描）：扫描所有可能的 LE32 长度前缀，检查其后是否为
+ *   合法 UTF-8 文本。用于 SRT 导入等非标准格式，字幕文字前可能有不同的
+ *   前缀字节，但通常仍以 LE32 长度 + UTF-8 字节的方式存储。
+ *   优先返回含 CJK 字符的最长文本。
+ *
+ * 策略3（连续 UTF-8 扫描）：扫描二进制中最长的连续合法 UTF-8 文本段。
+ *   用于无长度前缀的格式（兜底方案）。
  *
  * @returns 提取到的字幕文字（可能为空字符串）
  */
 function extractSubtitleFromBinary(bytes: Uint8Array): string {
-  // 模式：08 00 00 00 08 00 00 00 <总长 4B> <字幕长度 4B> <字幕字节>
-  // 扫描所有匹配位置，返回第一个能成功解码出非空字幕文字的结果
+  // ── 策略1：标准模式 08 00 00 00 08 00 00 00 <总长> <字幕长度> <字幕字节> ──
   for (let i = 0; i + 16 <= bytes.length; i++) {
     // 检查 8 字节固定模式 08 00 00 00 08 00 00 00
     if (bytes[i] !== 0x08 || bytes[i + 1] !== 0x00 || bytes[i + 2] !== 0x00 || bytes[i + 3] !== 0x00) continue;
@@ -205,7 +275,116 @@ function extractSubtitleFromBinary(bytes: Uint8Array): string {
       return text;
     }
   }
-  return "";
+
+  // ── 策略2：LE32 前缀 + 合法 UTF-8 文本扫描 ──
+  // 扫描所有位置，寻找「LE32 长度 + 该长度的合法 UTF-8 文本」组合
+  // 收集所有候选，优先返回含 CJK 字符的最长文本
+  let bestCandidate = "";
+  let bestScore = 0; // 评分：3=CJK文本，2=多字节文本，1=纯ASCII
+  let bestLen = 0;
+
+  for (let i = 0; i + 4 <= bytes.length; i++) {
+    const len =
+      bytes[i] |
+      (bytes[i + 1] << 8) |
+      (bytes[i + 2] << 16) |
+      (bytes[i + 3] << 24);
+
+    // 合理性校验：长度应在 2~8192 之间（单个字符的字幕极少）
+    if (len < 2 || len > 8192) continue;
+
+    const start = i + 4;
+    if (start + len > bytes.length) continue;
+
+    const candidateBytes = bytes.subarray(start, start + len);
+    const score = classifyUtf8Text(candidateBytes, len);
+    if (score === 0) continue;
+
+    // 纯 ASCII 且很短的，跳过（可能是字体名、样式名等）
+    if (score === 1 && len < 4) continue;
+
+    const text = decodeUtf8(candidateBytes);
+    if (!text || text.trim().length === 0) continue;
+
+    // 评分越高越好；同评分下取更长的
+    if (score > bestScore || (score === bestScore && len > bestLen)) {
+      bestScore = score;
+      bestLen = len;
+      bestCandidate = text;
+    }
+  }
+
+  if (bestCandidate) {
+    return bestCandidate;
+  }
+
+  // ── 策略3：连续 UTF-8 文本段扫描（兜底） ──
+  // 扫描二进制中最长的连续合法 UTF-8 文本段
+  let longestText = "";
+  let longestByteLen = 0;
+  let longestIsCjk = false;
+  let i = 0;
+  while (i < bytes.length) {
+    // 跳过非法 UTF-8 起始字节
+    const b = bytes[i];
+    if (b === 0x00 || b < 0x20) {
+      i++;
+      continue;
+    }
+
+    // 尝试从此位置开始解析连续的 UTF-8 文本
+    let j = i;
+    let hasMultiByte = false;
+    let hasCjk = false;
+    while (j < bytes.length) {
+      const bj = bytes[j];
+      if (bj === 0x00) break;
+      if (bj < 0x80) {
+        if (bj < 0x20 && bj !== 0x09 && bj !== 0x0a && bj !== 0x0d) break;
+        j++;
+      } else if (bj < 0xc0) {
+        break; // 延续字节作首字节，非法
+      } else if (bj < 0xe0) {
+        if (j + 2 > bytes.length || (bytes[j + 1] & 0xc0) !== 0x80) break;
+        hasMultiByte = true;
+        j += 2;
+      } else if (bj < 0xf0) {
+        if (j + 3 > bytes.length || (bytes[j + 1] & 0xc0) !== 0x80 || (bytes[j + 2] & 0xc0) !== 0x80) break;
+        if (bj >= 0xe4 && bj <= 0xe9) hasCjk = true;
+        hasMultiByte = true;
+        j += 3;
+      } else if (bj < 0xf8) {
+        if (j + 4 > bytes.length || (bytes[j + 1] & 0xc0) !== 0x80 || (bytes[j + 2] & 0xc0) !== 0x80 || (bytes[j + 3] & 0xc0) !== 0x80) break;
+        hasMultiByte = true;
+        j += 4;
+      } else {
+        break;
+      }
+    }
+
+    const segLen = j - i;
+    // 至少 2 个字节，且含多字节字符（过滤纯 ASCII 短串如字体名）
+    if (segLen >= 2 && (hasCjk || (hasMultiByte && segLen >= 4))) {
+      const segBytes = bytes.subarray(i, j);
+      const text = decodeUtf8(segBytes);
+      if (text && text.trim().length > 0) {
+        // 优先 CJK 文本；同为 CJK/非 CJK 时取字节长度更长的
+        const shouldReplace =
+          !longestText ||
+          (hasCjk && !longestIsCjk) ||
+          (hasCjk === longestIsCjk && segLen > longestByteLen);
+        if (shouldReplace) {
+          longestText = text;
+          longestByteLen = segLen;
+          longestIsCjk = hasCjk;
+        }
+      }
+    }
+
+    i = j > i ? j : i + 1;
+  }
+
+  return longestText;
 }
 
 export class PremiereAdapter {
@@ -446,6 +625,9 @@ export class PremiereAdapter {
   /**
    * 保存当前项目到磁盘
    * @returns Promise<boolean> 保存成功返回 true，失败返回 false
+   *
+   * 注意：PR 的 project.save() 返回 true 后，磁盘文件可能尚未完全写入。
+   * 此处增加 300ms 延迟，确保后续读取 .prproj 时拿到的是最新内容。
    */
   public async saveProject(): Promise<boolean> {
     try {
@@ -458,6 +640,8 @@ export class PremiereAdapter {
       const result = await project.save();
       if (result) {
         console.log("[Momo] Project saved successfully");
+        // 等待磁盘文件写入完成，避免读到旧内容
+        await new Promise(resolve => setTimeout(resolve, 300));
       } else {
         console.warn("[Momo] Project save returned false");
       }
@@ -648,13 +832,24 @@ export class PremiereAdapter {
     console.log(`[Momo] Found ${captionTrackXmls.length} CaptionDataClipTrack(s).`);
 
     if (captionTrackXmls.length === 0) {
-      console.warn("[Momo] No CaptionDataClipTrack found in .prproj");
+      // 诊断：搜索所有 Caption 开头的标签，帮助识别 SRT 导入等非标准格式
+      const captionTagRegex = /<(\w*[Cc]aption\w*)[^>]*>/g;
+      const captionTags = new Set<string>();
+      let tagMatch: RegExpExecArray | null;
+      while ((tagMatch = captionTagRegex.exec(xmlText)) !== null) {
+        captionTags.add(tagMatch[1]);
+      }
+      console.warn(`[Momo] No CaptionDataClipTrack found. All Caption-related tags in XML: ${Array.from(captionTags).join(", ") || "(none)"}`);
+
+      // 同时搜索所有 FormattedTextData 的数量，判断字幕数据是否存在但结构不同
+      const ftdCount = (xmlText.match(/<FormattedTextData/gi) || []).length;
+      console.warn(`[Momo] FormattedTextData count in XML: ${ftdCount}`);
       return [];
     }
 
     // 选定目标字幕轨（按索引）；若索引越界，默认取第 0 个
     const targetTrackXml = captionTrackXmls[Math.min(captionTrackIndex, captionTrackXmls.length - 1)];
-    console.log(`[Momo] Target caption track #${captionTrackIndex} selected.`);
+    console.log(`[Momo] Target caption track #${captionTrackIndex} selected (of ${captionTrackXmls.length} tracks).`);
 
     // ── 第 3 步：从目标 CaptionDataClipTrack 的 ClipItems 中获取所有 TrackItem 的 ObjectRef ──
     // 结构：<CaptionDataClipTrack ...>...<ClipItems><TrackItems>
@@ -673,6 +868,9 @@ export class PremiereAdapter {
 
     const items: SubtitleItem[] = [];
     let idCounter = 1;
+    let noBlockRefCount = 0;
+    let noBlockCount = 0;
+    let noFtdCount = 0;
 
     for (const itemId of itemIds) {
       // 从 objectById 取出对应的 CaptionDataClipTrackItem
@@ -697,22 +895,27 @@ export class PremiereAdapter {
       const startSec = ticksToSeconds(startTicks);
       const endSec = ticksToSeconds(endTicks);
 
-      // 提取 BlockVectorItem ObjectRef="M" -> Block ObjectID="M" -> FormattedTextData base64
-      const blockRefMatch = itemXml.match(/<BlockVectorItem\s+Index="\d+"\s+ObjectRef="(\d+)"/i);
       let text = "";
+      const blockRefMatch = itemXml.match(/<BlockVectorItem\s+Index="\d+"\s+ObjectRef="(\d+)"/i);
       if (blockRefMatch) {
         const blockId = blockRefMatch[1];
         const blockXml = objectById.get(blockId) || "";
-        // 在 Block 中找 FormattedTextData base64
-        const ftdMatch = blockXml.match(/<FormattedTextData\s+Encoding="base64"[^>]*>([A-Za-z0-9+/=\s]*)<\/FormattedTextData>/i);
-        if (ftdMatch) {
-          const b64 = ftdMatch[1].replace(/\s+/g, "");
-          try {
-            const binary = base64Decode(b64);
-            text = extractSubtitleFromBinary(binary);
-          } catch (decodeErr: any) {
-            console.warn(`[Momo] Failed to decode FormattedTextData for item ${itemId}:`, decodeErr?.message || decodeErr);
+        if (blockXml) {
+          // 提取字幕文字（处理内联数据和 BinaryHash 引用两种情况）
+          text = this.extractTextFromBlock(xmlText, blockXml, blockId, itemId, objectById);
+          if (!text || !text.trim()) {
+            noFtdCount++;
           }
+        } else {
+          console.warn(`[Momo] item ${itemId} 引用的 Block(ObjectID=${blockId}) 未在 object map 中找到`);
+          noBlockCount++;
+        }
+      } else {
+        // item 中没有 BlockVectorItem，可能是 SRT 导入的非标准结构
+        noBlockRefCount++;
+        // 仅对第一条输出诊断，避免日志刷屏
+        if (noBlockRefCount === 1) {
+          console.warn(`[Momo] item ${itemId} 中没有 BlockVectorItem，item XML 前300字符: ${itemXml.substring(0, 300)}`);
         }
       }
 
@@ -726,19 +929,265 @@ export class PremiereAdapter {
       });
     }
 
+    // 输出本次解析的诊断摘要
+    const textCount = items.filter(i => i.text && i.text.trim().length > 0).length;
+    console.log(`[Momo] 解析摘要：共 ${items.length} 条，提取到文字 ${textCount} 条` +
+      (noBlockRefCount > 0 ? `；${noBlockRefCount} 条无 BlockVectorItem` : "") +
+      (noBlockCount > 0 ? `；${noBlockCount} 条未找到 Block` : "") +
+      (noFtdCount > 0 ? `；${noFtdCount} 条无 FormattedTextData` : ""));
+    if (items.length > 0 && textCount < items.length) {
+      console.warn(`[Momo] 字幕提取摘要：共 ${items.length} 条，其中 ${textCount} 条提取到文字，${items.length - textCount} 条文字为空`);
+    }
+
     items.sort((a, b) => a.start - b.start);
     return items;
   }
 
   /**
-   * 读取指定字幕轨上的所有字幕（含时间位置与文字）。
+   * 从 Block 中提取字幕文字。
    *
-   * 当前唯一可用方案：读取 .prproj 项目文件。
-   * PR UXP API 的 CaptionTrack 类不提供读取字幕文字的方法（getName() 返回 "SyntheticCaption"），
-   * FCPXML 导出也不含字幕文字，因此只能直接解析 .prproj。
+   * PR 的二进制去重机制（SRT 导入时常见）：
+   * - 相同内容的字幕只存储一份内联 base64 数据（在源 Block 中）
+   * - 其他字幕块通过相同的 BinaryHash 自闭合引用源块：
+   *     <FormattedTextData Encoding="base64" BinaryHash="abc-123"/>
+   * - 手动编辑后，PR 可能将数据内联到字幕块本身
+   *
+   * 此方法依次尝试：
+   * 1. 当前 Block 内联 base64 数据（手动编辑后的情况）
+   * 2. 当前 Block 的 BinaryHash，在整个 XML 中搜索有内联数据的源 Block
+   *
+   * @param xmlText 完整的 .prproj XML 文本
+   * @param blockXml 当前 Block 的 XML
+   * @param blockId 当前 Block 的 ObjectID（用于日志）
+   * @param itemId 当前字幕项的 ID（用于日志）
+   * @param _objectById ObjectID -> XML 映射（保留参数，当前未使用）
+   * @returns 提取到的字幕文字；失败返回空字符串
+   */
+  private extractTextFromBlock(
+    xmlText: string,
+    blockXml: string,
+    blockId: string,
+    itemId: string,
+    _objectById: Map<string, string>
+  ): string {
+    // 策略1：当前 Block 内联 base64 数据
+    const inlineMatch = blockXml.match(/<FormattedTextData\s+Encoding="base64"[^>]*>([A-Za-z0-9+/=\s]+)<\/FormattedTextData>/i);
+    if (inlineMatch) {
+      const b64 = inlineMatch[1].replace(/\s+/g, "");
+      if (b64.length > 0) {
+        try {
+          const binary = base64Decode(b64);
+          const text = extractSubtitleFromBinary(binary);
+          if (text && text.trim()) {
+            return text;
+          }
+          // 内联数据存在但提取失败：输出 hex dump 用于诊断
+          const hexDump = Array.from(binary.subarray(0, Math.min(64, binary.length)))
+            .map(b => b.toString(16).padStart(2, "0"))
+            .join(" ");
+          console.warn(`[Momo] 内联数据提取失败 (item ${itemId}, Block ${blockId})，二进制长度=${binary.length}，前64字节: ${hexDump}`);
+        } catch (decodeErr: any) {
+          console.warn(`[Momo] Failed to decode inline FormattedTextData for item ${itemId}:`, decodeErr?.message || decodeErr);
+        }
+      }
+    }
+
+    // 策略2：当前 Block 自闭合，通过 BinaryHash 在整个 XML 中搜索源 Block
+    const binaryHashMatch = blockXml.match(/<FormattedTextData\s+[^>]*BinaryHash="([^"]+)"[^>]*/i);
+    if (binaryHashMatch) {
+      const binaryHash = binaryHashMatch[1];
+      // 转义 BinaryHash 中的特殊字符（GUID 含 -）
+      const escapedHash = binaryHash.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // 在整个 XML 中搜索有相同 BinaryHash 且包含内联 base64 数据的 FormattedTextData
+      // 注意：必须匹配有 </FormattedTextData> 闭合标签的（排除自闭合 />）
+      const sourceRegex = new RegExp(
+        '<FormattedTextData\\s+Encoding="base64"\\s+BinaryHash="' + escapedHash + '"\\s*>([A-Za-z0-9+/=\\s]+)</FormattedTextData>',
+        "i"
+      );
+      const sourceMatch = xmlText.match(sourceRegex);
+      if (sourceMatch) {
+        const b64 = sourceMatch[1].replace(/\s+/g, "");
+        if (b64.length > 0) {
+          try {
+            const binary = base64Decode(b64);
+            const text = extractSubtitleFromBinary(binary);
+            if (text && text.trim()) {
+              return text;
+            }
+            // 源 Block 内联数据提取失败
+            const hexDump = Array.from(binary.subarray(0, Math.min(64, binary.length)))
+              .map(b => b.toString(16).padStart(2, "0"))
+              .join(" ");
+            console.warn(`[Momo] 源Block数据提取失败 (item ${itemId}, BinaryHash=${binaryHash})，二进制长度=${binary.length}，前64字节: ${hexDump}`);
+          } catch (decodeErr: any) {
+            console.warn(`[Momo] Failed to decode source Block data for item ${itemId} (BinaryHash=${binaryHash}):`, decodeErr?.message || decodeErr);
+          }
+        }
+      } else {
+        // 找到了 BinaryHash 但在整个 XML 中没有对应的内联数据源
+        // 这可能意味着 .prproj 中的字幕数据确实未持久化（罕见）
+        console.warn(`[Momo] item ${itemId} Block(${blockId}) 有 BinaryHash=${binaryHash} 但 XML 中无对应内联数据源`);
+      }
+      return "";
+    }
+
+    // 策略3：Block 中完全没有 FormattedTextData（既无内联也无 BinaryHash）
+    // 检查是否存在其他编码的 FormattedTextData
+    const ftdAnyMatch = blockXml.match(/<FormattedTextData\s+([^>]*)>/i);
+    if (ftdAnyMatch) {
+      console.warn(`[Momo] item ${itemId} 的 Block(${blockId}) 存在 FormattedTextData 但非 base64 编码，属性: ${ftdAnyMatch[1]}`);
+    } else {
+      console.warn(`[Momo] item ${itemId} 的 Block(${blockId}) 中没有 FormattedTextData，Block XML 前300字符: ${blockXml.substring(0, 300)}`);
+    }
+    return "";
+  }
+
+  /**
+   * 使用 UXP API 直接读取字幕轨上的字幕项。
+   *
+   * PR 25.6+ 的 CaptionTrack 类提供了 getTrackItems(trackItemType, includeEmpty) 方法，
+   * 返回 TrackItem 数组。每个 TrackItem 有 getName()/getStartTime()/getEndTime() 方法。
+   *
+   * 此方法作为 .prproj 解析方案的补充/首选方案：
+   * - 优点：直接读取 PR 内存中的最新状态，不受项目保存延迟影响，能正确反映剃刀分割等操作
+   * - 缺点：getName() 可能返回内部名称而非字幕文字（需实测验证）
    *
    * @param captionTrackIndex 目标字幕轨索引
-   * @param _fps 保留参数（向后兼容），当前方案不使用，时间由 .prproj 的 ticks 直接换算
+   * @returns 字幕项列表；若 API 不可用或无法获取文字，返回空数组
+   */
+  private async tryLoadFromUxpApi(captionTrackIndex: number): Promise<SubtitleItem[]> {
+    try {
+      const project = await ppro.Project.getActiveProject();
+      if (!project) return [];
+      const sequence = await project.getActiveSequence();
+      if (!sequence) return [];
+
+      const captionCount = await sequence.getCaptionTrackCount();
+      if (captionTrackIndex < 0 || captionTrackIndex >= captionCount) {
+        console.warn(`[Momo] UXP API: captionTrackIndex ${captionTrackIndex} 越界（共 ${captionCount} 条字幕轨）`);
+        return [];
+      }
+
+      const captionTrack = await sequence.getCaptionTrack(captionTrackIndex);
+      if (!captionTrack) {
+        console.warn("[Momo] UXP API: getCaptionTrack 返回 null");
+        return [];
+      }
+
+      // 检查 getTrackItems 方法是否存在
+      if (typeof captionTrack.getTrackItems !== "function") {
+        console.warn("[Momo] UXP API: CaptionTrack.getTrackItems 方法不可用");
+        return [];
+      }
+
+      // 获取字幕项（CLIP 类型，不包含空项）
+      const TrackItemType = (ppro.Constants && ppro.Constants.TrackItemType) || {};
+      const CLIP_TYPE = TrackItemType.CLIP !== undefined ? TrackItemType.CLIP : 1;
+
+      let trackItems: any[] = [];
+      try {
+        trackItems = await captionTrack.getTrackItems(CLIP_TYPE, false);
+      } catch (itemsErr: any) {
+        console.warn("[Momo] UXP API: getTrackItems 调用失败:", itemsErr?.message || itemsErr);
+        return [];
+      }
+
+      if (!trackItems || trackItems.length === 0) {
+        console.log("[Momo] UXP API: getTrackItems 返回空数组");
+        return [];
+      }
+
+      console.log(`[Momo] UXP API: getTrackItems 返回 ${trackItems.length} 个 TrackItem`);
+
+      const items: SubtitleItem[] = [];
+      let idCounter = 1;
+
+      for (const trackItem of trackItems) {
+        if (!trackItem) continue;
+
+        // 获取时间
+        let startSec = 0;
+        let endSec = 0;
+        try {
+          const startTime = await trackItem.getStartTime();
+          startSec = (startTime && typeof startTime.seconds === "number") ? startTime.seconds : 0;
+        } catch (e) { /* getStartTime 可能不可用 */ }
+        try {
+          const endTime = await trackItem.getEndTime();
+          endSec = (endTime && typeof endTime.seconds === "number") ? endTime.seconds : startSec + 1;
+        } catch (e) { /* getEndTime 可能不可用 */ }
+
+        // 尝试多种方法获取字幕文字
+        let text = "";
+        // 方法1: getName() - 最可能返回字幕文字
+        try {
+          const name = trackItem.name;
+          if (name && typeof name === "string" && name.trim()) {
+            text = name;
+          }
+        } catch (e) { /* name 属性可能不可用 */ }
+
+        // 方法2: getName() 方法
+        if (!text && typeof trackItem.getName === "function") {
+          try {
+            const name = await trackItem.getName();
+            if (name && typeof name === "string" && name.trim()) {
+              // 过滤掉内部类名如 "SyntheticCaption"
+              if (name !== "SyntheticCaption" && name !== "Caption") {
+                text = name;
+              }
+            }
+          } catch (e) { /* getName 可能不可用 */ }
+        }
+
+        // 方法3: 尝试 getProperties 获取字幕属性
+        if (!text && typeof trackItem.getProperties === "function") {
+          try {
+            const props = await trackItem.getProperties();
+            if (props) {
+              // 尝试各种可能的文字属性名
+              for (const key of ["text", "Text", "caption", "Caption", "content", "Content"]) {
+                const val = (props as any)[key];
+                if (typeof val === "string" && val.trim()) {
+                  text = val;
+                  break;
+                }
+              }
+            }
+          } catch (e) { /* getProperties 可能不可用 */ }
+        }
+
+        items.push({
+          id: idCounter++,
+          text,
+          start: startSec,
+          end: endSec,
+          duration: endSec - startSec,
+          status: "待配音"
+        });
+      }
+
+      items.sort((a, b) => a.start - b.start);
+      const textCount = items.filter(i => i.text && i.text.trim().length > 0).length;
+      console.log(`[Momo] UXP API: 解析 ${items.length} 条，其中 ${textCount} 条获取到文字`);
+      return items;
+    } catch (e: any) {
+      console.error("[Momo] tryLoadFromUxpApi failed:", e?.message || e);
+      return [];
+    }
+  }
+
+  /**
+   * 读取指定字幕轨上的所有字幕（含时间位置与文字）。
+   *
+   * 双方案策略：
+   * 1. 优先尝试 UXP API（tryLoadFromUxpApi）：直接读取 PR 内存最新状态，
+   *    不受项目保存延迟影响，能正确反映剃刀分割等操作
+   * 2. 若 UXP API 无法获取文字（返回空文字），回退到 .prproj 解析方案
+   * 3. 若两者都获取到部分文字，取文字更多的那个
+   *
+   * @param captionTrackIndex 目标字幕轨索引
+   * @param _fps 保留参数（向后兼容），当前方案不使用，时间由 ticks/seconds 直接换算
    */
   public async loadSubtitlesFromTrack(captionTrackIndex: number, _fps: number = 24): Promise<SubtitleItem[]> {
     const project = await ppro.Project.getActiveProject();
@@ -747,13 +1196,43 @@ export class PremiereAdapter {
     if (!sequence) throw new Error("No active sequence");
 
     try {
-      const items = await this.tryLoadFromProjectFile(captionTrackIndex);
-      const textCount = items.filter(i => i.text && i.text.trim().length > 0).length;
-      console.log(`[Momo] .prproj: loaded ${items.length} subtitles, ${textCount} with text.`);
-      return items;
+      // 方案1：优先尝试 UXP API（直接读取内存最新状态）
+      const uxpItems = await this.tryLoadFromUxpApi(captionTrackIndex);
+      const uxpTextCount = uxpItems.filter(i => i.text && i.text.trim().length > 0).length;
+
+      // 方案2：读取 .prproj 项目文件（磁盘上的已保存状态）
+      const prprojItems = await this.tryLoadFromProjectFile(captionTrackIndex);
+      const prprojTextCount = prprojItems.filter(i => i.text && i.text.trim().length > 0).length;
+
+      // 决策：选择文字更多的方案
+      // 若 UXP API 能获取到文字，优先用 UXP（反映最新状态，如剃刀分割后）
+      // 若 UXP 获取不到文字但 .prproj 能，用 .prproj
+      // 若两者都能获取到文字，取文字更多且 item 数量更合理的
+      let result: SubtitleItem[];
+      if (uxpTextCount > 0 && uxpTextCount >= prprojTextCount) {
+        result = uxpItems;
+        console.log(`[Momo] 使用 UXP API 结果：${uxpItems.length} 条（含 ${uxpTextCount} 条文字）`);
+      } else if (prprojTextCount > 0) {
+        result = prprojItems;
+        console.log(`[Momo] 使用 .prproj 结果：${prprojItems.length} 条（含 ${prprojTextCount} 条文字）`);
+      } else if (uxpItems.length > 0) {
+        // 两者都没有文字，但 UXP 有 item（至少能反映时间）
+        result = uxpItems;
+        console.log(`[Momo] 两者均无文字，使用 UXP API 时间结果：${uxpItems.length} 条`);
+      } else {
+        result = prprojItems;
+        console.log(`[Momo] UXP 无结果，使用 .prproj 结果：${prprojItems.length} 条`);
+      }
+
+      return result;
     } catch (e: any) {
       console.error("[Momo] loadSubtitlesFromTrack failed:", e?.message || e);
-      return [];
+      // 兜底：尝试 .prproj 方案
+      try {
+        return await this.tryLoadFromProjectFile(captionTrackIndex);
+      } catch (_) {
+        return [];
+      }
     }
   }
 
