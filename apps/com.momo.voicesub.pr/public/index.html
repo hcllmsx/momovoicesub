@@ -316,25 +316,27 @@
           <div class="settings-layout">
             <div class="card">
               <div class="card-header">
-                <span class="card-icon">⚙️</span>
-                <span class="card-title">API 授权与服务设置</span>
+                <div class="header-left">
+                  <span class="card-icon">⚙️</span>
+                  <span class="card-title">API 授权与服务设置</span>
+                </div>
               </div>
               <div class="settings-body">
                 <div class="setting-row">
                   <span class="setting-label">Azure Speech Key</span>
                   <div class="setting-key-row">
-                    <sp-textfield id="settingAzureKey" class="setting-input" type="password" placeholder="输入您的 Azure Speech API 密钥"></sp-textfield>
+                    <input id="settingAzureKey" class="setting-input native-input" type="password" placeholder="输入您的 Azure Speech API 密钥">
                     <sp-checkbox id="settingRememberKey">记住密钥</sp-checkbox>
                   </div>
                 </div>
                 <div class="setting-row-inline">
                   <div class="setting-group setting-group-region">
                     <span class="setting-label">服务区域</span>
-                    <sp-textfield id="settingRegion" class="setting-input" placeholder="例如 eastasia"></sp-textfield>
+                    <input id="settingRegion" class="setting-input native-input" type="text" placeholder="例如 eastasia">
                   </div>
                   <div class="setting-group setting-group-endpoint">
                     <span class="setting-label">自定义端点</span>
-                    <sp-textfield id="settingEndpoint" class="setting-input" placeholder="留空则使用默认端点，支持反代或代理网关"></sp-textfield>
+                    <input id="settingEndpoint" class="setting-input native-input" type="text" placeholder="留空则使用默认端点，支持反代或代理网关">
                   </div>
                 </div>
                 <div class="setting-actions">
@@ -348,8 +350,10 @@
             <!-- 预设管理 -->
             <div class="card">
               <div class="card-header">
-                <span class="card-icon">⭐</span>
-                <span class="card-title">预设管理</span>
+                <div class="header-left">
+                  <span class="card-icon">⭐</span>
+                  <span class="card-title">预设管理</span>
+                </div>
               </div>
               <div class="presets-grid" id="presetsGrid">
                 <!-- 动态生成预设卡片 -->
@@ -359,13 +363,15 @@
             <!-- 缓存管理 -->
             <div class="card">
               <div class="card-header">
-                <span class="card-icon">🗄</span>
-                <span class="card-title">缓存管理</span>
+                <div class="header-left">
+                  <span class="card-icon">🗄</span>
+                  <span class="card-title">缓存管理</span>
+                </div>
               </div>
               <div class="cache-body">
                 <div class="setting-row">
                   <span class="setting-label">缓存目录</span>
-                  <sp-textfield id="cacheDirPath" class="setting-input" readonly placeholder="加载中..."></sp-textfield>
+                  <input id="cacheDirPath" class="setting-input native-input" type="text" readonly placeholder="加载中...">
                 </div>
                 <p class="cache-note">试听缓存不会被删除。删除当前项目或全部缓存后，时间线上已有的配音素材将变为离线状态。</p>
                 <div class="cache-actions">
@@ -377,27 +383,37 @@
               </div>
             </div>
 
-            <!-- 自定义纠音多音字字典管理器 -->
+            <!-- 多音字字典管理（内置/自定义选项卡） -->
             <div class="card">
               <div class="card-header">
-                <span class="card-icon">🔤</span>
-                <span class="card-title">多音字纠音字典管理</span>
+                <div class="header-left">
+                  <span class="card-icon">🔤</span>
+                  <span class="card-title">多音字字典管理</span>
+                </div>
+                <div class="poly-dict-tabs">
+                  <div class="poly-dict-tab" data-poly-tab="builtin">内置</div>
+                  <div class="poly-dict-tab active" data-poly-tab="custom">自定义</div>
+                </div>
               </div>
               <div class="dict-manager-body">
-                <div class="dict-add-bar">
-                  <sp-textfield id="dictAddChar" placeholder="字 (如: 行)" maxlength="1"></sp-textfield>
-                  <sp-textfield id="dictAddPinyin" placeholder="拼音 (如: hang)"></sp-textfield>
-                  <sp-textfield id="dictAddPhonetic" placeholder="声母/声调 (如: h ang 2)"></sp-textfield>
-                  <sp-button variant="primary" size="s" id="dictAddBtn">添加词条</sp-button>
+                <!-- 内置面板（只读） -->
+                <div class="poly-dict-panel" data-poly-panel="builtin">
+                  <div class="poly-dict-controls">
+                    <input id="polyBuiltinSearch" class="native-input poly-search-input" type="text" placeholder="搜索内置词典（字/拼音）...">
+                  </div>
+                  <div id="polyBuiltinWrap" class="poly-dict-list-wrap">
+                    <div class="dict-empty-hint">加载中...</div>
+                  </div>
                 </div>
-                <div class="dict-list-header">
-                  <span class="col-char">汉字</span>
-                  <span class="col-pinyin">拼音标示</span>
-                  <span class="col-phonetic">微软音标 (SAPI)</span>
-                  <span class="col-action">操作</span>
-                </div>
-                <div id="dictListWrap" class="dict-list-wrap">
-                  <!-- 动态生成字典列表 -->
+                <!-- 自定义面板（可增删改） -->
+                <div class="poly-dict-panel active" data-poly-panel="custom">
+                  <div class="poly-dict-controls poly-dict-controls-with-action">
+                    <input id="polyDictSearch" class="native-input poly-search-input" type="text" placeholder="搜索自定义词典（字/拼音）...">
+                    <sp-button variant="primary" size="s" id="dictAddBtn">+ 添加词条</sp-button>
+                  </div>
+                  <div id="dictListWrap" class="poly-dict-list-wrap">
+                    <div class="dict-empty-hint">暂无自定义词条</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -460,6 +476,29 @@
     </div>
     <div class="mm-dialog-footer">
       <sp-button variant="primary" id="batchDialogConfirm">完成纠音</sp-button>
+    </div>
+  </dialog>
+
+  <!-- 多音字字典：添加/编辑词条弹窗（1字多拼音） -->
+  <dialog id="dictEntryDialog" class="mm-dialog">
+    <div class="mm-dialog-header">
+      <span class="mm-dialog-title" id="dictEntryDialogTitle">添加词条</span>
+      <div class="mm-dialog-close" id="dictEntryDialogClose" role="button" tabindex="0">✕</div>
+    </div>
+    <div class="mm-dialog-body">
+      <div class="dict-entry-char-row">
+        <span class="dict-entry-label">汉字</span>
+        <input id="dictEntryChar" class="native-input" type="text" placeholder="输入一个汉字（如：行）" maxlength="1">
+      </div>
+      <div class="dict-entry-pinyin-header">
+        <span class="dict-entry-label">读音（可添加多个）</span>
+        <sp-button variant="secondary" quiet size="s" id="dictEntryAddRow">+ 添加读音</sp-button>
+      </div>
+      <div id="dictEntryRows" class="dict-entry-rows"></div>
+    </div>
+    <div class="mm-dialog-footer">
+      <sp-button variant="secondary" id="dictEntryCancel">取消</sp-button>
+      <sp-button variant="primary" id="dictEntrySave">保存</sp-button>
     </div>
   </dialog>
 </body>

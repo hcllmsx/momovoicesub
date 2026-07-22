@@ -58,7 +58,10 @@ const state = {
   // 手动配音文本框最后的选区（基于 cleanText 的位置）
   lastManualSelection: { start: 0, end: 0 } as { start: number, end: number },
   // 手动配音底层带标注文本（文本框只显示其 cleanText）
-  manualTextWithAnnotations: "" as string
+  manualTextWithAnnotations: "" as string,
+
+  // 内置多音字字典是否已展开（默认收起，只显示2行）
+  builtinPolyExpanded: false as boolean
 };
 
 // ─── 音色选择器辅助定义（移植自达芬奇版 renderer.js） ───
@@ -680,6 +683,7 @@ async function initPlugin() {
   if (state.currentTab === 'voices') renderVoicesPage();
 
     renderDictList(settings.polyphonicDict || []);
+    renderBuiltinDictList();
 
     // 恢复手动配音文本（与达芬奇版一致：不清空则跨会话保留）
     restoreManualText();
@@ -2098,73 +2102,367 @@ $("refreshVoicesBtn")?.addEventListener("click", async () => {
 });
 
 // ─── 多音字字典管理 ───
+
+/** 罗马数字（用于卡片读音序号） */
+function romanNumber(num: number): string {
+  const map = ["", "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ"];
+  return map[num] || String(num);
+}
+
+/** 根据窗口宽度推断网格列数（与 CSS 配合，UXP 无 media query 故用 JS 判断） */
+function getPolyGridCols(): number {
+  const w = window.innerWidth;
+  if (w <= 600) return 1;
+  if (w <= 900) return 2;
+  return 3;
+}
+
+/** 按汉字聚合字典条目 */
+function groupPolyByChar(dict: any[]): Record<string, any[]> {
+  const groups: Record<string, any[]> = {};
+  for (const e of dict) {
+    if (!e.char) continue;
+    if (!groups[e.char]) groups[e.char] = [];
+    groups[e.char].push(e);
+  }
+  return groups;
+}
+
+/** 渲染内置多音字字典（只读卡片，默认2行+展开） */
+function renderBuiltinDictList() {
+  const wrap = $("polyBuiltinWrap");
+  if (!wrap) return;
+  const searchTerm = (($("polyBuiltinSearch") as any)?.value || "").toLowerCase().trim();
+  let dict = polyphonicBuiltin || [];
+  if (searchTerm) {
+    dict = dict.filter((e: any) =>
+      (e.char || "").includes(searchTerm) || (e.pinyin || "").toLowerCase().includes(searchTerm)
+    );
+  }
+  if (!dict.length) {
+    wrap.innerHTML = '<div class="dict-empty-hint">暂无匹配的内置词条</div>';
+    return;
+  }
+
+  const groups = groupPolyByChar(dict);
+  const groupKeys = Object.keys(groups);
+  const collapsedCount = getPolyGridCols() * 2; // 默认只显示 2 行
+  const expanded = state.builtinPolyExpanded;
+  const visibleKeys = expanded ? groupKeys : groupKeys.slice(0, collapsedCount);
+  const hasMore = groupKeys.length > collapsedCount;
+
+  let html = '<div class="poly-dict-grid">';
+  for (const char of visibleKeys) {
+    const entries = groups[char];
+    html += `<div class="poly-dict-card poly-dict-card-builtin">`;
+    html += `<div class="poly-card-header"><span class="poly-card-char">${escapeHtml(char)}</span><span class="poly-card-badge">内置</span></div>`;
+    html += `<div class="poly-card-body">`;
+    entries.forEach((e: any, idx: number) => {
+      html += `<div class="poly-card-pinyin-row">`;
+      html += `<span class="poly-card-index">${romanNumber(idx + 1)}</span>`;
+      html += `<span class="poly-card-pinyin-val">${escapeHtml(e.pinyin)}<span class="poly-card-phonetic"> (${escapeHtml(e.phonetic)})</span></span>`;
+      html += `<span class="poly-card-context-val">${escapeHtml(e.context || "")}</span>`;
+      html += `</div>`;
+    });
+    html += `</div></div>`;
+  }
+  html += '</div>';
+
+  if (hasMore) {
+    html += `<div class="poly-dict-expand-bar"><sp-button variant="secondary" quiet size="s" class="poly-dict-expand-btn">${expanded ? "收起" : "展开全部"}（共 ${groupKeys.length} 个汉字）</sp-button></div>`;
+  }
+
+  wrap.innerHTML = html;
+
+  const expandBtn = wrap.querySelector(".poly-dict-expand-btn") as any;
+  if (expandBtn) {
+    expandBtn.addEventListener("click", () => {
+      state.builtinPolyExpanded = !state.builtinPolyExpanded;
+      renderBuiltinDictList();
+    });
+  }
+}
+
+/** 渲染自定义多音字字典（可编辑卡片网格） */
 function renderDictList(polyDict: any[]) {
   const wrap = $("dictListWrap");
   if (!wrap) return;
 
-  if (polyDict.length === 0) {
-    wrap.innerHTML = '<div style="padding:10px;text-align:center;color:gray;">字典中暂无自定义条目</div>';
+  const searchTerm = (($("polyDictSearch") as any)?.value || "").toLowerCase().trim();
+  let dict = polyDict || [];
+  if (searchTerm) {
+    dict = dict.filter((e: any) =>
+      (e.char || "").includes(searchTerm) || (e.pinyin || "").toLowerCase().includes(searchTerm)
+    );
+  }
+
+  if (!dict.length) {
+    wrap.innerHTML = '<div class="dict-empty-hint">暂无自定义词条，点击右上角「+ 添加词条」添加</div>';
     return;
   }
 
-  let html = "";
-  polyDict.forEach((entry, idx) => {
-    html += `
-      <div class="dict-list-row">
-        <span class="col-char">${entry.char}</span>
-        <span class="col-pinyin">${entry.pinyin}</span>
-        <span class="col-phonetic">${entry.phonetic || "-"}</span>
-        <span class="col-action">
-          <sp-button variant="secondary" quiet size="s" class="dict-del-btn" data-idx="${idx}">删除</sp-sp-button>
-        </span>
-      </div>
-    `;
-  });
+  const groups = groupPolyByChar(dict);
+  let html = '<div class="poly-dict-grid">';
+  for (const char of Object.keys(groups)) {
+    const entries = groups[char];
+    html += `<div class="poly-dict-card">`;
+    html += `<div class="poly-card-header">`;
+    html += `<span class="poly-card-char">${escapeHtml(char)}</span>`;
+    html += `<div class="poly-card-actions">`;
+    html += `<sp-button variant="secondary" quiet size="s" class="poly-dict-edit" data-char="${escapeHtml(char)}">✎</sp-button>`;
+    html += `<sp-button variant="secondary" quiet size="s" class="poly-dict-del" data-char="${escapeHtml(char)}">✕</sp-button>`;
+    html += `</div></div>`;
+    html += `<div class="poly-card-body">`;
+    entries.forEach((e: any, idx: number) => {
+      html += `<div class="poly-card-pinyin-row">`;
+      html += `<span class="poly-card-index">${romanNumber(idx + 1)}</span>`;
+      html += `<span class="poly-card-pinyin-val">${escapeHtml(e.pinyin)}<span class="poly-card-phonetic"> (${escapeHtml(e.phonetic || "")})</span></span>`;
+      html += `<span class="poly-card-context-val">${escapeHtml(e.context || "")}</span>`;
+      html += `</div>`;
+    });
+    html += `</div></div>`;
+  }
+  html += '</div>';
   wrap.innerHTML = html;
 
-  wrap.querySelectorAll(".dict-del-btn").forEach(btn => {
+  // 删除按钮：删除该汉字的所有读音
+  wrap.querySelectorAll(".poly-dict-del").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const idx = parseInt(btn.getAttribute("data-idx") || "0", 10);
+      const char = btn.getAttribute("data-char") || "";
       const settings = await settingsStore.load();
-      const dict = settings.polyphonicDict || [];
-      dict.splice(idx, 1);
-      // 只传 polyphonicDict 字段，避免覆盖其他数据
-      await settingsStore.save({ polyphonicDict: dict });
-      
-      showToast("词条已成功删除", "success");
-      renderDictList(dict);
+      let dict2 = settings.polyphonicDict || [];
+      dict2 = dict2.filter((e: any) => e.char !== char);
+      await settingsStore.save({ polyphonicDict: dict2 });
+      showToast(`已删除「${char}」的全部读音`, "success");
+      renderDictList(dict2);
+    });
+  });
+
+  // 编辑按钮：打开弹窗编辑该汉字的读音
+  wrap.querySelectorAll(".poly-dict-edit").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const char = btn.getAttribute("data-char") || "";
+      const settings = await settingsStore.load();
+      const dict2 = settings.polyphonicDict || [];
+      const sameCharEntries = dict2.filter((e: any) => e.char === char);
+      await showDictEntryDialog(char, sameCharEntries);
     });
   });
 }
 
-$("dictAddBtn")?.addEventListener("click", async () => {
-  const charInput = $("dictAddChar") as any;
-  const pinyinInput = $("dictAddPinyin") as any;
-  const phoneticInput = $("dictAddPhonetic") as any;
+// ─── 选项卡切换 ───
+document.querySelectorAll(".poly-dict-tab").forEach((tab: Element) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".poly-dict-tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".poly-dict-panel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    const target = tab.getAttribute("data-poly-tab");
+    const panel = document.querySelector(`.poly-dict-panel[data-poly-panel="${target}"]`);
+    if (panel) panel.classList.add("active");
+    // 切到内置面板时重新渲染（适配窗口列数）
+    if (target === "builtin") renderBuiltinDictList();
+    // 切到自定义面板时重新渲染（读取最新数据）
+    if (target === "custom") {
+      settingsStore.load().then(s => renderDictList(s.polyphonicDict || []));
+    }
+  });
+});
 
-  const char = charInput.value.trim();
-  const pinyin = pinyinInput.value.trim();
-  const phonetic = phoneticInput.value.trim();
+// 搜索框实时过滤
+($("polyBuiltinSearch") as any)?.addEventListener("input", () => renderBuiltinDictList());
+($("polyDictSearch") as any)?.addEventListener("input", async () => {
+  const s = await settingsStore.load();
+  renderDictList(s.polyphonicDict || []);
+});
 
-  if (!char || !pinyin) {
-    showToast("汉字与拼音标示为必填项", "error");
-    return;
+// ─── 添加/编辑词条弹窗（1字多拼音） ───
+
+/** 弹窗内当前编辑的拼音行数据 */
+let dictEntryRows: { phonetic: string; context: string }[] = [];
+
+/** 渲染弹窗内的拼音行列表 */
+function renderDictEntryRows() {
+  const container = $("dictEntryRows");
+  if (!container) return;
+  let html = "";
+  dictEntryRows.forEach((row, idx) => {
+    html += `<div class="dict-entry-row">`;
+    html += `<input class="native-input dict-entry-row-pinyin" type="text" placeholder="拼音(如 hang2)" value="${escapeHtml(row.phonetic)}" data-row="${idx}" data-field="phonetic">`;
+    html += `<input class="native-input dict-entry-row-context" type="text" placeholder="语境(可选 如 银行)" value="${escapeHtml(row.context)}" data-row="${idx}" data-field="context">`;
+    html += `<sp-button variant="secondary" quiet size="s" class="dict-entry-row-del" data-row="${idx}">✕</sp-button>`;
+    html += `</div>`;
+  });
+  container.innerHTML = html;
+
+  // 绑定输入事件（实时更新 dictEntryRows）
+  container.querySelectorAll("input.dict-entry-row-pinyin, input.dict-entry-row-context").forEach((tf: any) => {
+    tf.addEventListener("input", (e: any) => {
+      const rowIdx = parseInt(tf.getAttribute("data-row") || "0", 10);
+      const field = tf.getAttribute("data-field");
+      if (field && dictEntryRows[rowIdx]) {
+        dictEntryRows[rowIdx][field as "phonetic" | "context"] = tf.value || "";
+      }
+    });
+  });
+
+  // 绑定删除行按钮
+  container.querySelectorAll(".dict-entry-row-del").forEach((btn: any) => {
+    btn.addEventListener("click", () => {
+      const rowIdx = parseInt(btn.getAttribute("data-row") || "0", 10);
+      dictEntryRows.splice(rowIdx, 1);
+      if (dictEntryRows.length === 0) {
+        dictEntryRows.push({ phonetic: "", context: "" });
+      }
+      renderDictEntryRows();
+    });
+  });
+}
+
+/**
+ * 从拼音输入推导 SAPI phonetic。
+ * 用户可输入 "hang2" 或 "hang 2" 或 "h ang 2"，统一归一化为带空格的 "hang 2" 格式。
+ */
+function derivePhonetic(input: string): string {
+  let ph = (input || "").trim().toLowerCase();
+  if (!ph) return "";
+  // 去除所有空格后重新插入声调数字前的空格
+  ph = ph.replace(/\s+/g, "");
+  ph = ph.replace(/^([a-zü]+)([1-5])$/, "$1 $2");
+  return ph;
+}
+
+/** 从 phonetic 推导显示用拼音（去掉空格和声调数字，带声调符号） */
+function derivePinyinFromPhonetic(phonetic: string): string {
+  const cleaned = (phonetic || "").toLowerCase().replace(/\s+/g, "");
+  // 简单返回去空格的版本作为 pinyin 标识（与内置字典格式一致）
+  const m = cleaned.match(/^([a-zü]+)([1-5])$/);
+  if (!m) return cleaned;
+  return cleaned;
+}
+
+/** 显示添加/编辑词条弹窗。editChar 传入时为编辑模式 */
+async function showDictEntryDialog(editChar?: string, existingEntries?: any[]) {
+  const dialog = $("dictEntryDialog") as any;
+  const titleEl = $("dictEntryDialogTitle");
+  const charInput = $("dictEntryChar") as any;
+  if (!dialog) return;
+
+  if (editChar && existingEntries) {
+    if (titleEl) titleEl.textContent = `编辑「${editChar}」`;
+    if (charInput) {
+      charInput.value = editChar;
+      charInput.setAttribute("readonly", "true");
+    }
+    dictEntryRows = existingEntries.map(e => {
+      const ph = (e.phonetic || "").trim();
+      const formattedPh = ph.replace(/([a-zü]+)([1-5])/, "$1 $2").trim();
+      return { phonetic: formattedPh, context: e.context || "" };
+    });
+    if (dictEntryRows.length === 0) {
+      dictEntryRows = [{ phonetic: "", context: "" }];
+    }
+  } else {
+    if (titleEl) titleEl.textContent = "添加词条";
+    if (charInput) {
+      charInput.value = "";
+      charInput.removeAttribute("readonly");
+    }
+    dictEntryRows = [{ phonetic: "", context: "" }];
+  }
+  renderDictEntryRows();
+
+  // 添加读音行按钮
+  const addRowBtn = $("dictEntryAddRow") as any;
+  if (addRowBtn) {
+    if (addRowBtn._clickHandler) {
+      addRowBtn.removeEventListener("click", addRowBtn._clickHandler);
+    }
+    const handler = () => {
+      dictEntryRows.push({ phonetic: "", context: "" });
+      renderDictEntryRows();
+    };
+    addRowBtn._clickHandler = handler;
+    addRowBtn.addEventListener("click", handler);
   }
 
-  const settings = await settingsStore.load();
-  const dict = settings.polyphonicDict || [];
-  
-  dict.push({ char, pinyin, phonetic });
-  // 只传 polyphonicDict 字段，避免覆盖其他数据
-  await settingsStore.save({ polyphonicDict: dict });
+  // 取消按钮
+  const cancelBtn = $("dictEntryCancel") as any;
+  if (cancelBtn) {
+    if (cancelBtn._clickHandler) {
+      cancelBtn.removeEventListener("click", cancelBtn._clickHandler);
+    }
+    const handler = () => dialog.close("cancel");
+    cancelBtn._clickHandler = handler;
+    cancelBtn.addEventListener("click", handler);
+  }
 
-  showToast(`已成功添加词条「${char}」`, "success");
-  
-  charInput.value = "";
-  pinyinInput.value = "";
-  phoneticInput.value = "";
+  // 关闭按钮
+  const closeBtn = $("dictEntryDialogClose") as any;
+  if (closeBtn) {
+    if (closeBtn._clickHandler) {
+      closeBtn.removeEventListener("click", closeBtn._clickHandler);
+    }
+    const handler = () => dialog.close("cancel");
+    closeBtn._clickHandler = handler;
+    closeBtn.addEventListener("click", handler);
+  }
 
-  renderDictList(dict);
+  // 保存按钮
+  const saveBtn = $("dictEntrySave") as any;
+  if (saveBtn) {
+    if (saveBtn._clickHandler) {
+      saveBtn.removeEventListener("click", saveBtn._clickHandler);
+    }
+    const handler = async () => {
+      const char = (charInput?.value || "").trim();
+      if (!char) {
+        showToast("请填写汉字", "error");
+        return;
+      }
+      const validRows = dictEntryRows.filter(r => (r.phonetic || "").trim());
+      if (!validRows.length) {
+        showToast("请至少填写一个拼音", "error");
+        return;
+      }
+
+      // 校验拼音格式并生成条目
+      const entries: any[] = [];
+      for (const row of validRows) {
+        const cleaned = (row.phonetic || "").trim().replace(/\s+/g, "").toLowerCase();
+        if (!/^([a-zü]+)[1-5]$/.test(cleaned)) {
+          showToast(`拼音「${row.phonetic}」格式有误，应为字母+声调数字（如 hang2）`, "error");
+          return;
+        }
+        const phonetic = derivePhonetic(row.phonetic);
+        const pinyin = derivePinyinFromPhonetic(phonetic);
+        entries.push({ char, pinyin, phonetic, context: (row.context || "").trim() });
+      }
+
+      const settings = await settingsStore.load();
+      let dict = settings.polyphonicDict || [];
+      // 编辑模式或添加模式：先清除该汉字的原有读音，再追加新条目（全量覆盖）
+      dict = dict.filter((e: any) => e.char !== char);
+      dict.push(...entries);
+      await settingsStore.save({ polyphonicDict: dict });
+
+      showToast(`已保存「${char}」的 ${entries.length} 个读音`, "success");
+      renderDictList(dict);
+      dialog.close("save");
+    };
+    saveBtn._clickHandler = handler;
+    saveBtn.addEventListener("click", handler);
+  }
+
+  await dialog.uxpShowModal({
+    title: editChar ? "编辑词条" : "添加词条",
+    resize: "none",
+    size: { width: 460, height: 420 }
+  });
+}
+
+// 添加词条按钮 → 打开弹窗（新增模式）
+$("dictAddBtn")?.addEventListener("click", () => {
+  showDictEntryDialog();
 });
 
 // ─── 字幕读取与载入 ───
