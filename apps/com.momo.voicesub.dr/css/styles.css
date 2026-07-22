@@ -1535,6 +1535,19 @@ body.app-busy * {
   border-top: 1px solid var(--line);
 }
 
+/* 页脚版本号中的 GitHub 仓库超链接 */
+.app-version-link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.app-version-link:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
 .settings-main {
   min-width: 0;
 }

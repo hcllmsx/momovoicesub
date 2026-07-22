@@ -3278,7 +3278,19 @@ async function refreshState() {
       state.selectedSubtitleTrack = String(state.subtitleTracks[0].index);
     }
     state.polyphonicDict = sanitizePolyphonicDict(appState.settings.polyphonicDict || []);
-    $('appVersion').textContent = state.appVersion ? `默默配音助手 v${state.appVersion}` : '';
+    // 页脚版本号：「momoVoicesub」为指向 GitHub 仓库的超链接
+    const appVersionEl = $('appVersion');
+    if (appVersionEl) {
+      appVersionEl.innerHTML = state.appVersion
+        ? `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） v${state.appVersion}`
+        : '';
+      const linkEl = $('appVersionLink');
+      if (linkEl) {
+        linkEl.addEventListener('click', () => {
+          window.momoVoiceSub.openExternal('https://github.com/hcllmsx/momovoicesub');
+        });
+      }
+    }
 
     showNodeWarning(appState.nodeWarning);
 
