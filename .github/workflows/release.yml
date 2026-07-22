@@ -68,4 +68,3 @@ jobs:
         with:
           name: '默默配音助手 ${{ github.ref_name }}'
           files: _output/momovoicesub-setup-*.exe
-          generate_release_notes: true
