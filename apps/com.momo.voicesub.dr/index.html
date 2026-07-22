@@ -310,14 +310,28 @@
           <div class="card">
             <div class="card-header">
               <span class="card-icon">📖</span>
-              <span>自定义多音字 · 词典管理</span>
-              <button id="addPolyEntry" class="btn btn-xs btn-primary">+ 添加词条</button>
+              <span>多音字字典管理</span>
+              <div class="poly-dict-tabs">
+                <button class="poly-dict-tab" data-poly-tab="builtin">内置</button>
+                <button class="poly-dict-tab active" data-poly-tab="custom">自定义</button>
+              </div>
             </div>
-            <div class="poly-dict-controls">
-              <input id="polyDictSearch" type="text" class="search-input" placeholder="搜索词典...">
+            <div class="poly-dict-panel" data-poly-panel="builtin">
+              <div class="poly-dict-controls">
+                <input id="polyBuiltinSearch" type="text" class="search-input" placeholder="搜索内置词典...">
+              </div>
+              <div id="polyBuiltinTable" class="poly-dict-table-wrap">
+                <div class="table-placeholder">加载中...</div>
+              </div>
             </div>
-            <div id="polyDictTable" class="poly-dict-table-wrap">
-              <div class="table-placeholder">暂无词条，可添加常用多音字</div>
+            <div class="poly-dict-panel active" data-poly-panel="custom">
+              <div class="poly-dict-controls poly-dict-controls-with-action">
+                <input id="polyDictSearch" type="text" class="search-input" placeholder="搜索自定义词典...">
+                <button id="addPolyEntry" class="btn btn-xs btn-primary">+ 添加词条</button>
+              </div>
+              <div id="polyDictTable" class="poly-dict-table-wrap">
+                <div class="table-placeholder">暂无词条，可添加常用多音字</div>
+              </div>
             </div>
           </div>
 

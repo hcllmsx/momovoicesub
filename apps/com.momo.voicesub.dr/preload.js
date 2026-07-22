@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   getState: () => ipcRenderer.invoke('app:getState'),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  loadBuiltinPoly: () => ipcRenderer.invoke('poly:loadBuiltin'),
   toggleFavorite: (shortName) => ipcRenderer.invoke('settings:toggleFavorite', shortName),
   listVoices: (settings) => ipcRenderer.invoke('tts:listVoices', settings),
   testConnection: (settings) => ipcRenderer.invoke('tts:testConnection', settings),

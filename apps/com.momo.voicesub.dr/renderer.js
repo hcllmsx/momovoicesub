@@ -114,172 +114,6 @@ function subMatchesLocale(subDef, locale) {
   return subDef.locales ? subDef.locales.includes(locale) : false;
 }
 
-const BUILTIN_POLY = [
-  { char: '行', pinyin: 'xíng', phonetic: 'xing 2', context: '行为/行动/步行' },
-  { char: '行', pinyin: 'háng', phonetic: 'hang 2', context: '银行/行业/排行' },
-  { char: '长', pinyin: 'cháng', phonetic: 'chang 2', context: '长度/长期/长久' },
-  { char: '长', pinyin: 'zhǎng', phonetic: 'zhang 3', context: '长大/生长/家长' },
-  { char: '重', pinyin: 'zhòng', phonetic: 'zhong 4', context: '重要/重点/重量' },
-  { char: '重', pinyin: 'chóng', phonetic: 'chong 2', context: '重复/重新/重叠' },
-  { char: '还', pinyin: 'hái', phonetic: 'hai 2', context: '还是/还有/还在' },
-  { char: '还', pinyin: 'huán', phonetic: 'huan 2', context: '归还/还钱/偿还' },
-  { char: '好', pinyin: 'hǎo', phonetic: 'hao 3', context: '好人/好看/很好' },
-  { char: '好', pinyin: 'hào', phonetic: 'hao 4', context: '好奇/好客/爱好' },
-  { char: '为', pinyin: 'wèi', phonetic: 'wei 4', context: '因为/为了/为什么' },
-  { char: '为', pinyin: 'wéi', phonetic: 'wei 2', context: '作为/行为/成为' },
-  { char: '都', pinyin: 'dōu', phonetic: 'dou 1', context: '都是/都有/全都' },
-  { char: '都', pinyin: 'dū', phonetic: 'du 1', context: '首都/都市/成都' },
-  { char: '发', pinyin: 'fā', phonetic: 'fa 1', context: '发现/发展/发生' },
-  { char: '发', pinyin: 'fà', phonetic: 'fa 4', context: '发型/头发/理发' },
-  { char: '乐', pinyin: 'lè', phonetic: 'le 4', context: '快乐/乐趣/欢乐' },
-  { char: '乐', pinyin: 'yuè', phonetic: 'yue 4', context: '音乐/乐曲/乐器' },
-  { char: '得', pinyin: 'de', phonetic: 'de 5', context: '跑得快/说得好' },
-  { char: '得', pinyin: 'dé', phonetic: 'de 2', context: '得到/获得/得意' },
-  { char: '着', pinyin: 'zhe', phonetic: 'zhe 5', context: '看着/说着/想着' },
-  { char: '着', pinyin: 'zháo', phonetic: 'zhao 2', context: '着急/着火/睡着' },
-  { char: '中', pinyin: 'zhōng', phonetic: 'zhong 1', context: '中国/中间/中央' },
-  { char: '中', pinyin: 'zhòng', phonetic: 'zhong 4', context: '中奖/中毒/看中' },
-  { char: '只', pinyin: 'zhǐ', phonetic: 'zhi 3', context: '只有/只是/只要' },
-  { char: '只', pinyin: 'zhī', phonetic: 'zhi 1', context: '一只/船只/只身' },
-  { char: '传', pinyin: 'chuán', phonetic: 'chuan 2', context: '传说/传播/传递' },
-  { char: '传', pinyin: 'zhuàn', phonetic: 'zhuan 4', context: '传记/自传/列传' },
-  { char: '朝', pinyin: 'cháo', phonetic: 'chao 2', context: '朝代/朝向/朝鲜' },
-  { char: '朝', pinyin: 'zhāo', phonetic: 'zhao 1', context: '朝阳/朝夕/朝气' },
-  { char: '当', pinyin: 'dāng', phonetic: 'dang 1', context: '当时/当然/应当' },
-  { char: '当', pinyin: 'dàng', phonetic: 'dang 4', context: '当真/当做/恰当' },
-  { char: '调', pinyin: 'diào', phonetic: 'diao 4', context: '调查/调动/声调' },
-  { char: '调', pinyin: 'tiáo', phonetic: 'tiao 2', context: '调整/调节/调味' },
-  { char: '分', pinyin: 'fēn', phonetic: 'fen 1', context: '分开/分别/分数' },
-  { char: '分', pinyin: 'fèn', phonetic: 'fen 4', context: '本分/过分/成分' },
-  { char: '干', pinyin: 'gàn', phonetic: 'gan 4', context: '干活/干部/才干' },
-  { char: '干', pinyin: 'gān', phonetic: 'gan 1', context: '干净/干涉/干燥' },
-  { char: '空', pinyin: 'kōng', phonetic: 'kong 1', context: '空间/天空/空气' },
-  { char: '空', pinyin: 'kòng', phonetic: 'kong 4', context: '空闲/空白/空缺' },
-  { char: '数', pinyin: 'shù', phonetic: 'shu 4', context: '数字/数量/数学' },
-  { char: '数', pinyin: 'shǔ', phonetic: 'shu 3', context: '数数/数不清' },
-  { char: '相', pinyin: 'xiāng', phonetic: 'xiang 1', context: '相同/相互/相比' },
-  { char: '相', pinyin: 'xiàng', phonetic: 'xiang 4', context: '相片/真相/长相' },
-  { char: '兴', pinyin: 'xīng', phonetic: 'xing 1', context: '兴奋/兴起/新兴' },
-  { char: '兴', pinyin: 'xìng', phonetic: 'xing 4', context: '兴趣/高兴/兴致' },
-  { char: '应', pinyin: 'yīng', phonetic: 'ying 1', context: '应该/应当/应有' },
-  { char: '应', pinyin: 'yìng', phonetic: 'ying 4', context: '应对/反应/应用' },
-  { char: '背', pinyin: 'bèi', phonetic: 'bei 4', context: '背后/背景/背诵' },
-  { char: '背', pinyin: 'bēi', phonetic: 'bei 1', context: '背包/背负/背债' },
-  { char: '强', pinyin: 'qiáng', phonetic: 'qiang 2', context: '强大/强调/加强' },
-  { char: '强', pinyin: 'qiǎng', phonetic: 'qiang 3', context: '勉强/强迫/强求' },
-  { char: '创', pinyin: 'chuàng', phonetic: 'chuang 4', context: '创造/创新/创建' },
-  { char: '创', pinyin: 'chuāng', phonetic: 'chuang 1', context: '创伤/创口/重创' },
-  { char: '处', pinyin: 'chù', phonetic: 'chu 4', context: '处长/到处/处所' },
-  { char: '处', pinyin: 'chǔ', phonetic: 'chu 3', context: '处理/相处/处罚' },
-  { char: '假', pinyin: 'jiǎ', phonetic: 'jia 3', context: '假装/假话/虚假' },
-  { char: '假', pinyin: 'jià', phonetic: 'jia 4', context: '放假/假期/请假' },
-  { char: '降', pinyin: 'jiàng', phonetic: 'jiang 4', context: '下降/降低/降落' },
-  { char: '降', pinyin: 'xiáng', phonetic: 'xiang 2', context: '投降/降服/降伏' },
-  { char: '率', pinyin: 'lǜ', phonetic: 'lv 4', context: '效率/概率/利率' },
-  { char: '率', pinyin: 'shuài', phonetic: 'shuai 4', context: '率领/率队/直率' },
-  { char: '没', pinyin: 'méi', phonetic: 'mei 2', context: '没有/没事/没人' },
-  { char: '没', pinyin: 'mò', phonetic: 'mo 4', context: '淹没/沉没/没收' },
-  { char: '模', pinyin: 'mó', phonetic: 'mo 2', context: '模仿/模式/模型' },
-  { char: '模', pinyin: 'mú', phonetic: 'mu 2', context: '模样/模板/模具' },
-  { char: '散', pinyin: 'sàn', phonetic: 'san 4', context: '散步/散开/分散' },
-  { char: '散', pinyin: 'sǎn', phonetic: 'san 3', context: '散文/散漫/松散' },
-  { char: '弹', pinyin: 'dàn', phonetic: 'dan 4', context: '子弹/导弹/炮弹' },
-  { char: '弹', pinyin: 'tán', phonetic: 'tan 2', context: '弹琴/弹性/弹力' },
-  { char: '卷', pinyin: 'juǎn', phonetic: 'juan 3', context: '卷起/卷发/卷尺' },
-  { char: '卷', pinyin: 'juàn', phonetic: 'juan 4', context: '试卷/卷宗/画卷' },
-  { char: '卡', pinyin: 'kǎ', phonetic: 'ka 3', context: '卡片/卡车/卡通' },
-  { char: '卡', pinyin: 'qiǎ', phonetic: 'qia 3', context: '卡住/关卡/卡壳' },
-  { char: '处', pinyin: 'chù', phonetic: 'chu 4', context: '到处/处长/住处' },
-  { char: '处', pinyin: 'chǔ', phonetic: 'chu 3', context: '处理/相处/处罚' },
-  { char: '的', pinyin: 'de', phonetic: 'de 5', context: '我的/好的/是的' },
-  { char: '的', pinyin: 'dí', phonetic: 'di 2', context: '的确/的确确' },
-  { char: '的', pinyin: 'dì', phonetic: 'di 4', context: '目的/有的放矢' },
-  { char: '了', pinyin: 'le', phonetic: 'le 5', context: '走了/看了/说了' },
-  { char: '了', pinyin: 'liǎo', phonetic: 'liao 3', context: '了解/了结/了如指掌' },
-  { char: '和', pinyin: 'hé', phonetic: 'he 2', context: '和平/和谐/温和' },
-  { char: '和', pinyin: 'huò', phonetic: 'huo 4', context: '和面/和稀泥' },
-  { char: '给', pinyin: 'gěi', phonetic: 'gei 3', context: '给你/送给/交给' },
-  { char: '给', pinyin: 'jǐ', phonetic: 'ji 3', context: '给予/供给/补给' },
-  { char: '更', pinyin: 'gèng', phonetic: 'geng 4', context: '更加/更好/更快' },
-  { char: '更', pinyin: 'gēng', phonetic: 'geng 1', context: '更新/更改/变更' },
-  { char: '几', pinyin: 'jǐ', phonetic: 'ji 3', context: '几个/几次/几岁' },
-  { char: '几', pinyin: 'jī', phonetic: 'ji 1', context: '几乎/茶几' },
-  { char: '间', pinyin: 'jiān', phonetic: 'jian 1', context: '时间/空间/中间' },
-  { char: '间', pinyin: 'jiàn', phonetic: 'jian 4', context: '间隔/间接/间谍' },
-  { char: '教', pinyin: 'jiào', phonetic: 'jiao 4', context: '教育/教学/教师' },
-  { char: '教', pinyin: 'jiāo', phonetic: 'jiao 1', context: '教书/教课/教给' },
-  { char: '觉', pinyin: 'jué', phonetic: 'jue 2', context: '感觉/觉得/自觉' },
-  { char: '觉', pinyin: 'jiào', phonetic: 'jiao 4', context: '睡觉/午觉/懒觉' },
-  { char: '难', pinyin: 'nán', phonetic: 'nan 2', context: '困难/难过/难题' },
-  { char: '难', pinyin: 'nàn', phonetic: 'nan 4', context: '灾难/苦难/磨难' },
-  { char: '切', pinyin: 'qiē', phonetic: 'qie 1', context: '切割/切除/切断' },
-  { char: '切', pinyin: 'qiè', phonetic: 'qie 4', context: '一切/亲切/密切' },
-  { char: '亲', pinyin: 'qīn', phonetic: 'qin 1', context: '亲人/亲爱/亲自' },
-  { char: '亲', pinyin: 'qìng', phonetic: 'qing 4', context: '亲家/亲家母' },
-  { char: '上', pinyin: 'shàng', phonetic: 'shang 4', context: '上面/上学/上班' },
-  { char: '上', pinyin: 'shǎng', phonetic: 'shang 3', context: '上声(声调)' },
-  { char: '什', pinyin: 'shén', phonetic: 'shen 2', context: '什么/为什么' },
-  { char: '什', pinyin: 'shí', phonetic: 'shi 2', context: '什锦/什物' },
-  { char: '识', pinyin: 'shí', phonetic: 'shi 2', context: '认识/知识/识别' },
-  { char: '识', pinyin: 'zhì', phonetic: 'zhi 4', context: '标识/博闻强识' },
-  { char: '似', pinyin: 'sì', phonetic: 'si 4', context: '似乎/类似/相似' },
-  { char: '似', pinyin: 'shì', phonetic: 'shi 4', context: '似的' },
-  { char: '血', pinyin: 'xuè', phonetic: 'xue 4', context: '血液/血管/血型' },
-  { char: '血', pinyin: 'xiě', phonetic: 'xie 3', context: '流血/吐血/血淋淋' },
-  { char: '正', pinyin: 'zhèng', phonetic: 'zheng 4', context: '正确/正在/正式' },
-  { char: '正', pinyin: 'zhēng', phonetic: 'zheng 1', context: '正月' },
-  { char: '转', pinyin: 'zhuǎn', phonetic: 'zhuan 3', context: '转变/转告/转让' },
-  { char: '转', pinyin: 'zhuàn', phonetic: 'zhuan 4', context: '转动/转圈/转盘' },
-  { char: '作', pinyin: 'zuò', phonetic: 'zuo 4', context: '工作/作业/作品' },
-  { char: '作', pinyin: 'zuō', phonetic: 'zuo 1', context: '作坊/作揖' },
-  { char: '系', pinyin: 'xì', phonetic: 'xi 4', context: '系统/关系/联系' },
-  { char: '系', pinyin: 'jì', phonetic: 'ji 4', context: '系鞋带/系扣子' },
-  { char: '省', pinyin: 'shěng', phonetic: 'sheng 3', context: '节省/省份/省略' },
-  { char: '省', pinyin: 'xǐng', phonetic: 'xing 3', context: '反省/省悟' },
-  { char: '藏', pinyin: 'cáng', phonetic: 'cang 2', context: '隐藏/收藏/躲藏' },
-  { char: '藏', pinyin: 'zàng', phonetic: 'zang 4', context: '西藏/宝藏/藏族' },
-  { char: '恶', pinyin: 'è', phonetic: 'e 4', context: '恶劣/罪恶/邪恶' },
-  { char: '恶', pinyin: 'wù', phonetic: 'wu 4', context: '厌恶/憎恶/可恶' },
-  { char: '缝', pinyin: 'féng', phonetic: 'feng 2', context: '缝纫/缝合/缝补' },
-  { char: '缝', pinyin: 'fèng', phonetic: 'feng 4', context: '缝隙/裂缝/门缝' },
-  { char: '荷', pinyin: 'hé', phonetic: 'he 2', context: '荷花/荷叶/荷塘' },
-  { char: '荷', pinyin: 'hè', phonetic: 'he 4', context: '负荷/荷载/电荷' },
-  { char: '华', pinyin: 'huá', phonetic: 'hua 2', context: '中华/华丽/年华' },
-  { char: '华', pinyin: 'huà', phonetic: 'hua 4', context: '华山/华姓' },
-  { char: '尽', pinyin: 'jìn', phonetic: 'jin 4', context: '尽力/尽量/尽情' },
-  { char: '尽', pinyin: 'jǐn', phonetic: 'jin 3', context: '尽管/尽快/尽早' },
-  { char: '看', pinyin: 'kàn', phonetic: 'kan 4', context: '看见/看到/看书' },
-  { char: '看', pinyin: 'kān', phonetic: 'kan 1', context: '看门/看护/看守' },
-  { char: '蒙', pinyin: 'méng', phonetic: 'meng 2', context: '启蒙/蒙蔽/蒙面' },
-  { char: '蒙', pinyin: 'měng', phonetic: 'meng 3', context: '蒙古/内蒙古' },
-  { char: '秘', pinyin: 'mì', phonetic: 'mi 4', context: '秘密/秘书/秘诀' },
-  { char: '秘', pinyin: 'bì', phonetic: 'bi 4', context: '秘鲁/便秘' },
-  { char: '宁', pinyin: 'níng', phonetic: 'ning 2', context: '宁静/安宁/宁愿' },
-  { char: '宁', pinyin: 'nìng', phonetic: 'ning 4', context: '宁可/宁愿' },
-  { char: '迫', pinyin: 'pò', phonetic: 'po 4', context: '压迫/迫使/迫切' },
-  { char: '迫', pinyin: 'pǎi', phonetic: 'pai 3', context: '迫击炮' },
-  { char: '铺', pinyin: 'pū', phonetic: 'pu 1', context: '铺开/铺设/铺张' },
-  { char: '铺', pinyin: 'pù', phonetic: 'pu 4', context: '店铺/铺子/床铺' },
-  { char: '圈', pinyin: 'quān', phonetic: 'quan 1', context: '圆圈/圈套/圈子' },
-  { char: '圈', pinyin: 'juàn', phonetic: 'juan 4', context: '猪圈/羊圈' },
-  { char: '丧', pinyin: 'sàng', phonetic: 'sang 4', context: '丧失/丧气/沮丧' },
-  { char: '丧', pinyin: 'sāng', phonetic: 'sang 1', context: '丧事/丧礼/奔丧' },
-  { char: '舍', pinyin: 'shě', phonetic: 'she 3', context: '舍弃/舍得/取舍' },
-  { char: '舍', pinyin: 'shè', phonetic: 'she 4', context: '宿舍/校舍/房舍' },
-  { char: '宿', pinyin: 'sù', phonetic: 'su 4', context: '住宿/宿舍/宿营' },
-  { char: '宿', pinyin: 'xiǔ', phonetic: 'xiu 3', context: '一宿/整宿' },
-  { char: '吐', pinyin: 'tǔ', phonetic: 'tu 3', context: '吐露/吐字/吐痰' },
-  { char: '吐', pinyin: 'tù', phonetic: 'tu 4', context: '呕吐/吐血/吐泻' },
-  { char: '鲜', pinyin: 'xiān', phonetic: 'xian 1', context: '鲜花/新鲜/鲜明' },
-  { char: '鲜', pinyin: 'xiǎn', phonetic: 'xian 3', context: '鲜有/鲜见/鲜为人知' },
-  { char: '校', pinyin: 'xiào', phonetic: 'xiao 4', context: '学校/校园/校长' },
-  { char: '校', pinyin: 'jiào', phonetic: 'jiao 4', context: '校对/校正/校检' },
-  { char: '载', pinyin: 'zài', phonetic: 'zai 4', context: '下载/载重/装载' },
-  { char: '载', pinyin: 'zǎi', phonetic: 'zai 3', context: '记载/刊载/转载' },
-  { char: '折', pinyin: 'zhé', phonetic: 'zhe 2', context: '折纸/曲折/转折' },
-  { char: '折', pinyin: 'shé', phonetic: 'she 2', context: '折本/折耗/腿折' },
-];
-
 const state = {
   settings: null,
   voices: [],
@@ -292,6 +126,8 @@ const state = {
   subtitleAnnotations: new Map(),
   manualAnnotations: [],
   polyphonicDict: [],
+  builtinPolyDict: [],
+  builtinPolyExpanded: false,
   presets: [],
   defaultPresetId: '',
   selectedSubtitleTrack: null,
@@ -483,7 +319,7 @@ function getPolyphonicDict() {
   const user = (state.settings && state.settings.polyphonicDict) || [];
   const all = [...user];
   const existingKeys = new Set(all.map(e => `${e.char}_${e.phonetic}`));
-  for (const builtin of BUILTIN_POLY) {
+  for (const builtin of state.builtinPolyDict) {
     const key = `${builtin.char}_${builtin.phonetic}`;
     if (!existingKeys.has(key)) {
       all.push(builtin);
@@ -3070,6 +2906,90 @@ function renderPinyinRows() {
   }
 }
 
+// 根据窗口宽度推断内置字典网格的当前列数（与 CSS media query 保持一致）
+function getPolyGridCols() {
+  const w = window.innerWidth;
+  if (w <= 600) return 1;
+  if (w <= 900) return 2;
+  return 3;
+}
+
+function renderBuiltinPolyTable() {
+  const wrap = $('polyBuiltinTable');
+  if (!wrap) return;
+  const searchTerm = $('polyBuiltinSearch')?.value?.toLowerCase() || '';
+  const dict = state.builtinPolyDict || [];
+
+  let filtered = dict;
+  if (searchTerm) {
+    filtered = dict.filter(e =>
+      e.char?.includes(searchTerm) || e.pinyin?.includes(searchTerm)
+    );
+  }
+
+  if (!filtered.length) {
+    wrap.innerHTML = '<div class="table-placeholder">暂无匹配的内置词条</div>';
+    return;
+  }
+
+  // 按汉字聚合归类（只读展示，不可编辑/删除）
+  const groups = {};
+  filtered.forEach(e => {
+    if (!e.char) return;
+    if (!groups[e.char]) groups[e.char] = [];
+    groups[e.char].push(e);
+  });
+
+  const groupKeys = Object.keys(groups);
+  const collapsedCount = getPolyGridCols() * 2; // 默认只显示 2 行
+  const expanded = state.builtinPolyExpanded;
+  const visibleKeys = expanded ? groupKeys : groupKeys.slice(0, collapsedCount);
+  const hasMore = groupKeys.length > collapsedCount;
+
+  let html = '<div class="poly-dict-grid">';
+  for (const char of visibleKeys) {
+    const entries = groups[char];
+    html += `
+      <div class="poly-dict-card poly-dict-card-builtin">
+        <div class="poly-card-header">
+          <span class="poly-card-char">${escapeHtml(char)}</span>
+          <span class="poly-card-badge">内置</span>
+        </div>
+        <div class="poly-card-body">
+    `;
+    entries.forEach((e, idx) => {
+      html += `
+        <div class="poly-card-pinyin-row">
+          <span class="poly-card-index">${romanNumber(idx + 1)}</span>
+          <span class="poly-card-pinyin-val">${escapeHtml(e.pinyin)} <span class="poly-card-phonetic">(${escapeHtml(e.phonetic)})</span></span>
+          <span class="poly-card-context-val" title="${escapeHtml(e.context || '')}">${escapeHtml(e.context || '')}</span>
+        </div>
+      `;
+    });
+    html += `
+        </div>
+      </div>
+    `;
+  }
+  html += '</div>';
+
+  if (hasMore) {
+    html += `<div class="poly-dict-expand-bar">
+      <button class="btn btn-xs btn-ghost poly-dict-expand-btn">${expanded ? '收起' : '展开全部'}（共 ${groupKeys.length} 个汉字）</button>
+    </div>`;
+  }
+
+  wrap.innerHTML = html;
+
+  const expandBtn = wrap.querySelector('.poly-dict-expand-btn');
+  if (expandBtn) {
+    expandBtn.addEventListener('click', () => {
+      state.builtinPolyExpanded = !state.builtinPolyExpanded;
+      renderBuiltinPolyTable();
+    });
+  }
+}
+
 function renderPolyDictTable() {
   const wrap = $('polyDictTable');
   if (!wrap) return;
@@ -3079,7 +2999,7 @@ function renderPolyDictTable() {
   let filtered = dict;
   if (searchTerm) {
     filtered = dict.filter(e =>
-      e.char?.includes(searchTerm) || e.pinyin?.includes(searchTerm) || e.context?.toLowerCase().includes(searchTerm)
+      e.char?.includes(searchTerm) || e.pinyin?.includes(searchTerm)
     );
   }
 
@@ -3278,6 +3198,16 @@ async function refreshState() {
       state.selectedSubtitleTrack = String(state.subtitleTracks[0].index);
     }
     state.polyphonicDict = sanitizePolyphonicDict(appState.settings.polyphonicDict || []);
+    // 加载内置多音字字典（仅加载一次，数据源为打包内的 polyphonic-builtin.json）
+    if (!state.builtinPolyDict.length) {
+      try {
+        state.builtinPolyDict = await window.momoVoiceSub.loadBuiltinPoly() || [];
+      } catch (e) {
+        log('加载内置多音字字典失败: ' + (e && e.message ? e.message : e));
+        state.builtinPolyDict = [];
+      }
+    }
+    renderBuiltinPolyTable();
     // 页脚版本号：「momoVoicesub」为指向 GitHub 仓库的超链接
     const appVersionEl = $('appVersion');
     if (appVersionEl) {
@@ -3642,6 +3572,20 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   }
 
   $('polyDictSearch').addEventListener('input', renderPolyDictTable);
+  $('polyBuiltinSearch').addEventListener('input', renderBuiltinPolyTable);
+
+  // 多音字字典管理：内置/自定义选项卡切换
+  document.querySelectorAll('.poly-dict-tab').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.poly-dict-tab').forEach(item => item.classList.remove('active'));
+      document.querySelectorAll('.poly-dict-panel').forEach(item => item.classList.remove('active'));
+      button.classList.add('active');
+      const panel = document.querySelector(`.poly-dict-panel[data-poly-panel="${button.dataset.polyTab}"]`);
+      if (panel) panel.classList.add('active');
+      // 切换到内置选项卡时重新渲染，以适应当前窗口宽度的列数
+      if (button.dataset.polyTab === 'builtin') renderBuiltinPolyTable();
+    });
+  });
 
   window.addEventListener('beforeunload', () => {
     window.momoVoiceSub.cleanupResolveInterface();

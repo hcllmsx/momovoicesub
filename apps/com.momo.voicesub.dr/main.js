@@ -167,6 +167,12 @@ function registerIpcHandlers() {
     return saved;
   });
 
+  // 内置多音字字典（只读），从打包内的 polyphonic-builtin.json 读取
+  // require 会缓存 JSON 模块，仅读取一次后常驻内存，适合静态字典
+  registerLoggedHandler('poly:loadBuiltin', async () => {
+    return require('./lib/polyphonic-builtin.json');
+  });
+
   registerLoggedHandler('tts:listVoices', async (_event, settingsOverride) => {
     const voices = await ttsProvider.listVoices(settingsOverride || {});
     await settingsStore.save({ voices });
