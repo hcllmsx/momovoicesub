@@ -2,7 +2,7 @@
 .codeartsdoer/
 开发日志.txt
 dev-readme.md
-apps/davinci-resolve/com.momo.voicesub/WorkflowIntegration.node
+apps/com.momo.voicesub.dr/WorkflowIntegration.node
 
 *.log
 _temp/
@@ -10,6 +10,10 @@ _temp/
 # Premiere Pro UXP Plugin
 apps/com.momo.voicesub.pr/node_modules/
 apps/com.momo.voicesub.pr/dist/
+
+# Installer build artifacts
+installer/payload/
+_output/
 
 .catpaw/
 .workbuddy/
