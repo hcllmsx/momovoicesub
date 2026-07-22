@@ -158,9 +158,12 @@
         </div>
 
         <div class="floating-action-bar">
-          <div class="status-indicator" id="refreshBtnSubtitles" title="点击刷新当前工程（重读字幕）" role="button" tabindex="0">
-            <span class="dot connected"></span>
-            <span class="status-label">已连接</span>
+          <div class="bar-left">
+            <img class="bar-logo" src="momovoicesub-logo.png" alt="logo">
+            <div class="status-indicator" id="refreshBtnSubtitles" title="点击刷新当前工程（重读字幕）" role="button" tabindex="0">
+              <span class="dot connected"></span>
+              <span class="status-label">已连接·点击可刷新状态</span>
+            </div>
           </div>
           <sp-button variant="primary" id="generateSubtitles">▶ 生成并插入字幕配音</sp-button>
         </div>
@@ -283,9 +286,12 @@
         </div>
 
         <div class="floating-action-bar">
-          <div class="status-indicator status-indicator-static" id="refreshBtnManual" title="工程已连接">
-            <span class="dot connected"></span>
-            <span class="status-label">已连接</span>
+          <div class="bar-left">
+            <img class="bar-logo" src="momovoicesub-logo.png" alt="logo">
+            <div class="status-indicator status-indicator-static" id="refreshBtnManual" title="工程已连接">
+              <span class="dot connected"></span>
+              <span class="status-label">已连接</span>
+            </div>
           </div>
           <sp-button variant="primary" id="insertManual">▶ 生成并插入到播放头</sp-button>
         </div>
@@ -299,9 +305,12 @@
           </div>
         </div>
         <div class="floating-action-bar">
-          <div class="status-indicator" id="voicePageStatus" title="当前选中音色" role="button" tabindex="0">
-            <span class="dot connected"></span>
-            <span class="status-label" id="voicePageCurrentLabel">未选择音色</span>
+          <div class="bar-left">
+            <img class="bar-logo" src="momovoicesub-logo.png" alt="logo">
+            <div class="status-indicator" id="voicePageStatus" title="当前选中音色" role="button" tabindex="0">
+              <span class="dot connected"></span>
+              <span class="status-label" id="voicePageCurrentLabel">未选择音色</span>
+            </div>
           </div>
           <sp-button variant="primary" id="voicePageBackBtn">◀ 返回</sp-button>
         </div>

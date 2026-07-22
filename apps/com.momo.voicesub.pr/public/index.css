@@ -133,8 +133,8 @@ body {
 }
 
 .status-label {
-  font-size: 10px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-color);
 }
 
 /* 第二行：横向选项卡 */
@@ -977,6 +977,22 @@ body {
 
 .floating-action-bar sp-button {
   min-width: 150px;
+}
+
+/* 浮动操作条左侧组（logo + 状态指示器），space-between 下整组靠左 */
+.bar-left {
+  display: flex;
+  align-items: center;
+}
+.bar-left > * + * {
+  margin-left: 8px;
+}
+/* 底部小 logo：等比缩放，高度贴齐操作条 */
+.bar-logo {
+  height: 22px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 /* 手动配音文本域

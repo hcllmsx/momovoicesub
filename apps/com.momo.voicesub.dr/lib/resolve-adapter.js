@@ -20,7 +20,7 @@ const path = require('path');
 const { currentTimecodeToRecordFrame, parseTimelineFrameRate } = require('./timecode');
 const { sha1 } = require('./azure-tts');
 
-const TARGET_TRACK_NAME = 'Momo VoiceSub';
+const TARGET_TRACK_NAME = 'momoVoicesub';
 const CLIP_SUFFIX = '_momo';
 const MEDIAPOOL_FOLDER_NAME = 'momo-Voicesub';
 const TEXT_PREVIEW_LENGTH = 28;
