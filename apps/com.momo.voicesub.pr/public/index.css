@@ -435,8 +435,31 @@ body {
   text-overflow: ellipsis;
 }
 
+/* 原生 input 替代 sp-textfield（UXP 的 sp-textfield 不支持 selectionStart/selectionEnd，
+   改用原生 <input> 以支持「设定停顿」「单字纠音」获取光标选区）
+   背景设为纯黑，形成「灰底卡片 + 黑色凹槽输入框」的干净层次，避免灰→黑→灰的层叠感 */
 .sub-edit-input {
   width: 100%;
+  background-color: #1a1a1a;
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-family);
+  min-height: 28px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.sub-edit-input:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+.sub-edit-input::placeholder {
+  color: var(--text-secondary);
 }
 
 .sub-col-time {
@@ -956,17 +979,42 @@ body {
   min-width: 150px;
 }
 
-/* 手动配音文本域 */
+/* 手动配音文本域
+   .manual-textarea-wrap 与 .manual-textarea-highlight 各自 flex:1，在有标注时平分可用高度；
+   无标注时预览区 display:none（.hidden），文本框自动占满全部空间 */
 .manual-textarea-wrap {
-  flex-grow: 1;
+  flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* 允许 flex 子元素缩小，配合下方预览区 flex:1 平分高度 */
 }
 
+/* 原生 textarea 替代 sp-textarea（同上，需支持 selectionStart/selectionEnd）
+   背景设为纯黑，与字幕输入框保持一致 */
 .manual-textarea {
   width: 100%;
-  flex-grow: 1;
-  min-height: 250px;
+  flex-grow: 1; /* 撑满 .manual-textarea-wrap */
+  background-color: #1a1a1a;
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--font-family);
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.manual-textarea:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+.manual-textarea::placeholder {
+  color: var(--text-secondary);
 }
 
 /* ═══ 设置页面布局 ═══ */
@@ -1016,6 +1064,19 @@ body {
   -webkit-user-select: none;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
+}
+
+/* 页脚版本号中的 GitHub 仓库超链接 */
+.app-version-link {
+  color: var(--accent-color, #4a9eff);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.app-version-link:hover {
+  text-decoration: underline;
+  opacity: 0.85;
 }
 
 .settings-body {
@@ -1687,24 +1748,66 @@ sp-button[variant="secondary"] {
 }
 
 /* ─── 高亮标注标签（多音字纠音 & 停顿标记） ─── */
+/* position:relative 供内部 .ann-remove 绝对定位；inline-flex 使关闭按钮可居中 */
 .poly-highlight {
-  display: inline;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   color: #e5c07b;
   font-weight: 600;
   background-color: rgba(229, 192, 123, 0.12);
   padding: 1px 3px;
   border-radius: 2px;
   margin-right: 2px;
+  cursor: default;
 }
 
 .ann-pause {
-  display: inline;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   color: #61afef;
   font-weight: 600;
   background-color: rgba(97, 175, 239, 0.12);
   padding: 1px 4px;
   border-radius: 2px;
   margin-right: 2px;
+  cursor: default;
+}
+
+/* 标签上的微型关闭按钮：默认隐藏，hover 标签时显示。点击可撤销该标注。
+   UXP 不支持 z-index/box-shadow/transition，靠 DOM 顺序保证层叠在标签之上 */
+.ann-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-secondary);
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.poly-highlight:hover .ann-remove,
+.ann-pause:hover .ann-remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ann-remove:hover {
+  background-color: var(--danger-color);
+  color: #fff;
+  border-color: var(--danger-color);
 }
 
 /* ─── 手动配音效果预览层 ─── */
@@ -1714,9 +1817,14 @@ sp-button[variant="secondary"] {
   margin-top: 8px;
   margin-bottom: 4px;
   font-weight: 600;
+  flex-shrink: 0; /* 标题固定高度，不参与平分 */
 }
 
+/* 预览区与文本框平分剩余高度：flex:1 使其在有标注时与 .manual-textarea-wrap 等高。
+   无标注时加 .hidden（display:none），flex:1 不生效，文本框自动占满全部空间 */
 .manual-textarea-highlight {
+  flex: 1;
+  min-height: 0; /* 允许缩小，配合 overflow-y:auto 正确触发滚动 */
   font-size: 13px;
   color: var(--text-color);
   line-height: 1.6;
@@ -1725,7 +1833,6 @@ sp-button[variant="secondary"] {
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  max-height: 120px;
   overflow-y: auto;
   white-space: pre-wrap;
 }

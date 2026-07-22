@@ -512,24 +512,57 @@ function syncAnnotatedText(oldAnnotated: string, newPlain: string): string {
 
 /**
  * 将带标注的文本渲染为高亮预览 HTML。
- * 字[phonetic] → 高亮标签显示"字[phonetic]"，可点击删除
- * [break:xxx] → 停顿标签显示"⏸ xxx"
+ * 字[phonetic] → 高亮标签显示"字[phonetic]"，附带关闭按钮可撤销
+ * [break:xxx] → 停顿标签显示"⏸ xxx"，附带关闭按钮可撤销
+ * 每个标签带 data-idx 索引，供 removeAnnotationByIndex 定位
  */
 function highlightText(text: string): string {
   if (!text) return "";
   const escaped = escapeHtml(text);
+  let count = 0;
   // 匹配 字[phonetic] 或 [break:xxx]
   return escaped.replace(
     /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-5\s]+)\]|(\[break:([^\]]+)\]))/g,
     (match, char, phonetic, _breakFull, breakDuration) => {
       void match; void _breakFull;
+      const idx = count++;
       if (char) {
-        return `<span class="poly-highlight">${char}[${phonetic}]</span>`;
+        return `<span class="poly-highlight" data-idx="${idx}">${char}[${phonetic}]<span class="ann-remove" data-idx="${idx}">×</span></span>`;
       } else {
-        return `<span class="ann-pause">⏸ ${breakDuration}</span>`;
+        return `<span class="ann-pause" data-idx="${idx}">⏸ ${breakDuration}<span class="ann-remove" data-idx="${idx}">×</span></span>`;
       }
     }
   );
+}
+
+/**
+ * 按索引移除带标注文本中的单个标注（多音字纠音或停顿标记）。
+ * 多音字：保留汉字本身，去掉 [phonetic] 标注
+ * 停顿：直接去掉 [break:xxx] 标记
+ */
+function removeAnnotationByIndex(annotatedText: string, targetIndex: number): string {
+  if (!annotatedText) return "";
+  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-5\s]+)\]|(\[break:[^\]]+\]))/g;
+  let match: RegExpExecArray | null;
+  let currentIndex = 0;
+  let result = "";
+  let lastIndex = 0;
+
+  while ((match = regex.exec(annotatedText)) !== null) {
+    if (currentIndex === targetIndex) {
+      result += annotatedText.slice(lastIndex, match.index);
+      if (match[1]) {
+        // 多音字：保留汉字，去掉 [phonetic]
+        result += match[1];
+      }
+      // 停顿：直接去掉 [break:xxx]
+      lastIndex = regex.lastIndex;
+      result += annotatedText.slice(lastIndex);
+      return result;
+    }
+    currentIndex++;
+  }
+  return annotatedText;
 }
 
 /** 判断带标注文本是否包含任何标注（用于决定是否显示预览层） */
@@ -567,9 +600,26 @@ function mergeSubtitleAnnotations(oldItems: any[], newItems: any[]): void {
 async function initPlugin() {
   try {
     // 设置页底部版本号显示（构建时从 VERSION 文件注入）
+    // 「momoVoicesub」为指向 GitHub 仓库的超链接，点击调 shell.openExternal 打开浏览器
     const appVersionEl = $("appVersion");
     if (appVersionEl) {
-      appVersionEl.textContent = `默默配音助手 v${__APP_VERSION__}`;
+      appVersionEl.innerHTML = `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） v${__APP_VERSION__}`;
+      const linkEl = $("appVersionLink");
+      if (linkEl) {
+        linkEl.addEventListener("click", async () => {
+          if (uxpShell && typeof (uxpShell as any).openExternal === "function") {
+            const err = await (uxpShell as any).openExternal(
+              "https://github.com/hcllmsx/momovoicesub",
+              "默默配音助手将打开 GitHub 开源仓库页面"
+            );
+            if (err && String(err).length > 0) {
+              showToast(`打开链接失败：${err}`, "error");
+            }
+          } else {
+            showToast("当前运行时不支持打开外部链接", "error");
+          }
+        });
+      }
     }
 
     const settings = await settingsStore.load();
@@ -2228,7 +2278,7 @@ function renderSubtitleList() {
           <sp-checkbox class="sub-row-checkbox" data-id="${item.id}" checked></sp-checkbox>
         </span>
         <div class="sub-col-text-area">
-          <sp-textfield class="sub-edit-input" data-id="${item.id}" value="${escapeHtml(displayText)}" placeholder="请输入字幕文字..."></sp-textfield>
+          <input class="sub-edit-input" type="text" data-id="${item.id}" value="${escapeHtml(displayText)}" placeholder="请输入字幕文字..." />
           <div class="sub-preview ${showPreview ? '' : 'hidden'}" data-id="${item.id}">${previewHtml}</div>
         </div>
         <span class="sub-col-time">${item.start.toFixed(2)}s ~ ${item.end.toFixed(2)}s</span>
@@ -2997,10 +3047,13 @@ function initDialogs() {
 // 绑定设定停顿与纠音按钮事件 (字幕页)
 // 使用 state.lastFocusedSubtitleId 追踪最后聚焦的字幕输入框，
 // 避免点击按钮后焦点转移到按钮导致 document.activeElement 失效
+// mousedown+preventDefault 阻止按钮抢夺焦点，确保文本框选区（selectionStart/selectionEnd）不丢失
+$("subtitleInsertPause")?.addEventListener("mousedown", (e: any) => { e.preventDefault(); });
 $("subtitleInsertPause")?.addEventListener("click", () => {
   handleSubtitleInsertPause();
 });
 
+$("subtitleSingleCorrect")?.addEventListener("mousedown", (e: any) => { e.preventDefault(); });
 $("subtitleSingleCorrect")?.addEventListener("click", () => {
   handleSubtitleSingleCorrect();
 });
@@ -3023,10 +3076,13 @@ $("manualText")?.addEventListener("click", () => recordManualSelection());
 $("manualText")?.addEventListener("select", () => recordManualSelection());
 $("manualText")?.addEventListener("blur", () => recordManualSelection());
 
+// mousedown+preventDefault 阻止按钮抢夺焦点，确保手动配音文本框选区不丢失
+$("manualInsertPause")?.addEventListener("mousedown", (e: any) => { e.preventDefault(); });
 $("manualInsertPause")?.addEventListener("click", () => {
   handleManualInsertPause();
 });
 
+$("manualSingleCorrect")?.addEventListener("mousedown", (e: any) => { e.preventDefault(); });
 $("manualSingleCorrect")?.addEventListener("click", () => {
   handleManualSingleCorrect();
 });
@@ -3323,6 +3379,47 @@ style,
 
 // 初始化弹窗关闭按钮事件（只需绑定一次）
 initDialogs();
+
+// ─── 预览层标签撤销：事件委托 ───
+// 字幕预览层（#subtitleListWrap 内的 .sub-preview）是动态渲染的，用事件委托绑定到父容器只需一次。
+// 点击标签上的 × 关闭按钮 → 调用 removeAnnotationByIndex 撤销该标注，同步更新文本框与预览层。
+$("subtitleListWrap")?.addEventListener("click", (e: any) => {
+  const removeBtn = e.target.closest(".ann-remove");
+  if (!removeBtn) return;
+  e.stopPropagation();
+  const idx = parseInt(removeBtn.getAttribute("data-idx") || "0", 10);
+  const previewEl = removeBtn.closest(".sub-preview");
+  if (!previewEl) return;
+  const id = parseInt(previewEl.getAttribute("data-id") || "0", 10);
+  const item = state.subtitleItems.find(s => s.id === id);
+  if (!item) return;
+  item.text = removeAnnotationByIndex(item.text || "", idx);
+  // 同步文本框显示（cleanText）
+  const input = document.querySelector(`.sub-edit-input[data-id="${id}"]`) as any;
+  if (input) {
+    const { cleanText } = parseAnnotations(item.text || "");
+    input.value = cleanText;
+  }
+  updateSubtitlePreview(id);
+  showToast("已撤销该标注", "info");
+});
+
+// 手动配音预览层（#manualTextHighlight）是静态元素，直接绑定。
+$("manualTextHighlight")?.addEventListener("click", (e: any) => {
+  const removeBtn = e.target.closest(".ann-remove");
+  if (!removeBtn) return;
+  e.stopPropagation();
+  const idx = parseInt(removeBtn.getAttribute("data-idx") || "0", 10);
+  state.manualTextWithAnnotations = removeAnnotationByIndex(state.manualTextWithAnnotations || "", idx);
+  const ta = $("manualText") as any;
+  if (ta) {
+    const { cleanText } = parseAnnotations(state.manualTextWithAnnotations);
+    ta.value = cleanText;
+  }
+  updateManualHighlighter();
+  persistManualText(state.manualTextWithAnnotations);
+  showToast("已撤销该标注", "info");
+});
 
 // 挂载总入口
 document.addEventListener("DOMContentLoaded", initPlugin);
