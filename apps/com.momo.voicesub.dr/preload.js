@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   testConnection: (settings) => ipcRenderer.invoke('tts:testConnection', settings),
   previewVoice: (shortName) => ipcRenderer.invoke('tts:previewVoice', shortName),
   getSubtitleItems: (trackIndex) => ipcRenderer.invoke('resolve:getSubtitleItems', trackIndex),
+  importSrt: () => ipcRenderer.invoke('resolve:importSrt'),
   getSummary: () => ipcRenderer.invoke('resolve:getSummary'),
   listSubtitleTracks: () => ipcRenderer.invoke('resolve:listSubtitleTracks'),
   listAudioTracks: () => ipcRenderer.invoke('resolve:listAudioTracks'),

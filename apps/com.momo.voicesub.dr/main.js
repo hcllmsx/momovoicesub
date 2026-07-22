@@ -223,13 +223,35 @@ function registerIpcHandlers() {
     return resolveAdapter.getSubtitleItems(trackIndex);
   });
 
+  registerLoggedHandler('resolve:importSrt', async () => {
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择 SRT 字幕文件',
+      filters: [{ name: 'SRT 字幕', extensions: ['srt'] }],
+      properties: ['openFile']
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths.length) {
+      return null;
+    }
+    const filePath = result.filePaths[0];
+    const content = await fs.readFile(filePath, 'utf8');
+    const { project } = await resolveAdapter.getProjectContext();
+    const fps = await resolveAdapter.getTimelineFps(project);
+    const items = resolveAdapter.parseSrt(content, fps);
+    if (!items || !items.length) {
+      throw new Error('SRT 文件解析失败，未识别到有效字幕条目。请检查文件格式。');
+    }
+    sendLog(`SRT 导入成功：${path.basename(filePath)}，共 ${items.length} 条字幕（fps=${fps}）`);
+    return { items, fileName: path.basename(filePath) };
+  });
+
   registerLoggedHandler('job:generateFromSubtitles', async (_event, payload) => {
     sendLog('开始字幕批量配音');
     const voiceSettings = normalizeVoiceSettings(payload.voiceSettings);
     if (payload.voiceSettings?.polyphonicDict) voiceSettings.polyphonicDict = payload.voiceSettings.polyphonicDict;
     if (payload.voiceSettings?.enablePolyphonic !== undefined) voiceSettings.enablePolyphonic = payload.voiceSettings.enablePolyphonic;
     const result = await resolveAdapter.generateFromSubtitleTrack({
-      subtitleTrackIndex: Number(payload.subtitleTrackIndex),
+      subtitleTrackIndex: payload.subtitleTrackIndex != null ? Number(payload.subtitleTrackIndex) : undefined,
       audioTrackIndex: payload.audioTrackIndex || 'auto',
       voiceSettings,
       overwriteMode: payload.overwriteMode || 'skip',

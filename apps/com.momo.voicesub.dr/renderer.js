@@ -300,6 +300,8 @@ const state = {
   selectedManualAudioTrack: 'auto',
   selectedManualOverwrite: 'allowDuplicate',
   loadedSubtitleTrack: null,
+  srtItems: [],
+  srtFileName: '',
   appVersion: '',
   initialized: false,
   disabledFrames: new Set()
@@ -1362,12 +1364,24 @@ function populateTrackTags() {
       t.classList.add('active');
       state.selectedSubtitleTrack = t.dataset.value;
       loadSubtitleTable();
+      updateImportSrtBtnVisibility();
     });
     if (trackContainer) trackContainer.appendChild(t);
+  }
+  // 已导入 SRT 时，在末尾追加「本地SRT」标签（作为虚拟字幕源，点击切换查看）
+  if (state.srtItems && state.srtItems.length) {
+    const srtTag = tag('📄 本地SRT', 'srt', state.selectedSubtitleTrack === 'srt');
+    srtTag.addEventListener('click', () => {
+      if (trackContainer) trackContainer.querySelectorAll('.tag').forEach(el => el.classList.remove('active'));
+      srtTag.classList.add('active');
+      switchToSrtMode();
+    });
+    if (trackContainer) trackContainer.appendChild(srtTag);
   }
   if (state.selectedSubtitleTrack && trackContainer && !trackContainer.querySelector('.active')) {
     state.selectedSubtitleTrack = null;
   }
+  updateImportSrtBtnVisibility();
 
   const audioContainer = $('subtitleAudioTrackTags');
   if (audioContainer) audioContainer.innerHTML = '';
@@ -1437,10 +1451,57 @@ function populateTrackTags() {
 
 // ─── Subtitle Table ───
 
+function updateImportSrtBtnVisibility() {
+  const btn = $('subtitleImportSrtBtn');
+  if (!btn) return;
+  // 仅在项目无字幕轨时显示「导入SRT」按钮（有字幕轨时直接用字幕轨即可）
+  if (state.subtitleTracks.length === 0) {
+    btn.classList.remove('hidden');
+  } else {
+    btn.classList.add('hidden');
+  }
+}
+
+function switchToSrtMode() {
+  state.selectedSubtitleTrack = 'srt';
+  state.loadedSubtitleTrack = 'srt';
+  state.subtitleItems = (state.srtItems || []).slice();
+  state.subtitleAnnotations = new Map();
+  state.disabledFrames = new Set();
+  for (const item of state.subtitleItems) {
+    state.subtitleAnnotations.set(item.startFrame, JSON.parse(JSON.stringify(item.annotations || [])));
+  }
+  renderSubtitleTable();
+  updateImportSrtBtnVisibility();
+}
+
+async function importSrtFile() {
+  try {
+    const result = await window.momoVoiceSub.importSrt();
+    if (!result || !result.items || !result.items.length) {
+      // 用户取消文件选择
+      return;
+    }
+    state.srtItems = result.items;
+    state.srtFileName = result.fileName || '';
+    switchToSrtMode();
+    // 刷新字幕轨区，显示「本地SRT」标签
+    populateTrackTags();
+    showToast(`SRT 导入成功：${result.items.length} 条字幕${state.srtFileName ? `（${state.srtFileName}）` : ''}`, 'ok');
+  } catch (error) {
+    log(`SRT 导入失败: ${friendlyErrorMessage(error)}`);
+    showToast(`SRT 导入失败: ${friendlyErrorMessage(error)}`, 'error');
+  }
+}
+
 async function loadSubtitleTable() {
   const wrap = $('subtitleTable');
   if (!state.selectedSubtitleTrack) {
     wrap.innerHTML = '<div class="table-placeholder">请选择字幕轨</div>';
+    return;
+  }
+  // SRT 模式：字幕列表由 switchToSrtMode/importSrtFile 负责渲染，此处直接返回
+  if (state.selectedSubtitleTrack === 'srt') {
     return;
   }
   try {
@@ -1465,7 +1526,10 @@ async function loadSubtitleTable() {
 function renderSubtitleTable() {
   const wrap = $('subtitleTable');
   if (!state.subtitleItems.length) {
-    wrap.innerHTML = '<div class="table-placeholder">该字幕轨没有字幕</div>';
+    const placeholderMsg = state.selectedSubtitleTrack === 'srt'
+      ? '请点击上方「📂 导入SRT」按钮选择字幕文件'
+      : '该字幕轨没有字幕';
+    wrap.innerHTML = `<div class="table-placeholder">${placeholderMsg}</div>`;
     return;
   }
 
@@ -2396,13 +2460,17 @@ async function generateSubtitles() {
       };
     });
 
-    const result = await window.momoVoiceSub.generateFromSubtitles({
-      subtitleTrackIndex: Number(state.selectedSubtitleTrack),
+    const payload = {
       audioTrackIndex: state.selectedAudioTrack,
       overwriteMode: state.selectedOverwrite,
       voiceSettings: voiceSettings('subtitle'),
       subtitleItems
-    });
+    };
+    // SRT 模式不传 subtitleTrackIndex（后端只用 subtitleItems）；字幕轨模式传索引
+    if (state.selectedSubtitleTrack !== 'srt') {
+      payload.subtitleTrackIndex = Number(state.selectedSubtitleTrack);
+    }
+    const result = await window.momoVoiceSub.generateFromSubtitles(payload);
 
     setResult('subtitleResult', `完成：共 ${result.total} 条，插入 ${result.inserted} 条，跳过 ${result.skipped} 条${disabledCount > 0 ? `，忽略已禁用 ${disabledCount} 条` : ''}。目标音频轨：${result.audioTrackIndex}`, 'ok');
     await refreshState();
@@ -3250,8 +3318,12 @@ async function refreshState() {
     captureSettingsBaseline();
     renderPolyDictTable();
 
-    if (state.selectedSubtitleTrack && state.subtitleTracks.some(t => String(t.index) === state.selectedSubtitleTrack)) {
+    if (state.selectedSubtitleTrack === 'srt') {
+      // SRT 模式：保持已有字幕列表不变，仅刷新按钮可见性
+      updateImportSrtBtnVisibility();
+    } else if (state.selectedSubtitleTrack && state.subtitleTracks.some(t => String(t.index) === state.selectedSubtitleTrack)) {
       loadSubtitleTable();
+      updateImportSrtBtnVisibility();
     }
   } catch (error) {
     log(friendlyErrorMessage(error));
@@ -3429,8 +3501,9 @@ function setupEvents() {
   
   $('subtitleSingleCorrect').addEventListener('click', handleSubtitleSingleCorrect);
   $('subtitleBatchCorrect').addEventListener('click', handleSubtitleBatchCorrect);
-  $('subtitleInsertPause').addEventListener('click', handleSubtitleInsertPause);
-  $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
+$('subtitleInsertPause').addEventListener('click', handleSubtitleInsertPause);
+$('subtitleImportSrtBtn')?.addEventListener('click', importSrtFile);
+$('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   $('subtitleModeLabel').addEventListener('click', () => {
     if (activeSubtitleFrame !== null) {
       activeSubtitleFrame = null;

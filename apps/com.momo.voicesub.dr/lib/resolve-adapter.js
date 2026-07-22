@@ -38,6 +38,21 @@ function textPreview(value, limit = TEXT_PREVIEW_LENGTH) {
   return compact.length > limit ? `${compact.slice(0, limit)}...` : compact;
 }
 
+/**
+ * 将 SRT 时间码（HH:MM:SS,mmm 或 HH:MM:SS.mmm）转换为秒（浮点数）。
+ * 解析失败返回 NaN，由调用方判断。
+ */
+function srtTimeToSeconds(str) {
+  const clean = String(str || '').trim().replace(',', '.');
+  const parts = clean.split(':');
+  if (parts.length !== 3) return NaN;
+  const hrs = parseFloat(parts[0]);
+  const mins = parseFloat(parts[1]);
+  const secs = parseFloat(parts[2]);
+  if (!Number.isFinite(hrs) || !Number.isFinite(mins) || !Number.isFinite(secs)) return NaN;
+  return hrs * 3600 + mins * 60 + secs;
+}
+
 function isMomoClipName(value) {
   return String(value || '').endsWith(CLIP_SUFFIX);
 }
@@ -651,6 +666,63 @@ class ResolveAdapter {
       });
     }
     return result;
+  }
+
+  /**
+   * 解析用户导入的本地 SRT 字幕文件内容，返回与 getSubtitleItems 一致结构的字幕项数组。
+   *
+   * SRT 时间码（HH:MM:SS,mmm）按当前时间线 fps 换算为帧，使得导入的 SRT 字幕
+   * 可以与「从字幕轨读取」的字幕项完全等同地用于批量配音生成。
+   *
+   * @param {string} srtContent SRT 文件文本内容
+   * @param {number} fps 当前时间线帧率（来自 getTimelineFps）
+   * @returns {Array<{index:number,text:string,startFrame:number,endFrame:number,durationFrames:number,annotations:[]}>}
+   */
+  parseSrt(srtContent, fps) {
+    const items = [];
+    const normalized = String(srtContent || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .trim();
+    if (!normalized) return items;
+
+    const safeFps = Number(fps) > 0 ? Number(fps) : 24;
+    const blocks = normalized.split(/\n\s*\n/);
+    let idCounter = 0;
+
+    for (const block of blocks) {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length < 2) continue;
+
+      const timeLineIndex = lines.findIndex((line) => line.includes('-->'));
+      if (timeLineIndex === -1) continue;
+
+      const timeStr = lines[timeLineIndex];
+      const parts = timeStr.split('-->').map((p) => p.trim());
+      if (parts.length !== 2) continue;
+
+      const startSec = srtTimeToSeconds(parts[0]);
+      const endSec = srtTimeToSeconds(parts[1]);
+      if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec < startSec) continue;
+
+      // SRT 文本可能跨多行，保留换行以兼容多行字幕（合成时会归一化为空格）
+      const text = lines.slice(timeLineIndex + 1).join('\n').trim();
+      if (!text) continue;
+
+      const startFrame = Math.round(startSec * safeFps);
+      const endFrame = Math.max(startFrame + 1, Math.round(endSec * safeFps));
+
+      items.push({
+        index: idCounter++,
+        text,
+        startFrame,
+        endFrame,
+        durationFrames: Math.max(1, endFrame - startFrame),
+        annotations: []
+      });
+    }
+
+    return items;
   }
 
   async generateFromSubtitleTrack({ subtitleTrackIndex, audioTrackIndex = 'auto', voiceSettings = {}, overwriteMode = 'skip', subtitleItems }) {
