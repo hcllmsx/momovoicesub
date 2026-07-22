@@ -1,0 +1,71 @@
+# ============================================================
+# 默默配音助手 — Release 工作流
+# 触发：推送 v* 标签时自动构建 exe 安装包并创建 GitHub Release
+#       也可通过 workflow_dispatch 手动触发（仅构建 + artifact，不发 Release）
+# ============================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# 创建 Release 必须有写权限，否则 action-gh-release 会 403
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # 安装 Node.js 并启用 npm 缓存（依据 PR 项目的 package-lock.json）
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/com.momo.voicesub.pr/package-lock.json
+
+      # npm ci 依据 lockfile 做可复现安装（build.ps1 检测到 node_modules 已存在会跳过自身安装）
+      - name: Install PR plugin dependencies
+        shell: pwsh
+        working-directory: apps/com.momo.voicesub.pr
+        run: npm ci
+
+      - name: Build PR plugin
+        shell: pwsh
+        working-directory: apps/com.momo.voicesub.pr
+        run: npm run build
+
+      # 安装 Inno Setup 6（choco 安装到 C:\Program Files (x86)\Inno Setup 6\，
+      # 恰好是 build.ps1 检测路径列表中的第二项）
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      # build.ps1 完成：读取 VERSION → payload 准备 → 版本号同步 → ISCC 编译
+      # CI 无达芬奇环境时自动跳过 WorkflowIntegration.node 复制（不影响最终用户）
+      - name: Build installer
+        shell: pwsh
+        run: pwsh -ExecutionPolicy Bypass -File installer/build.ps1
+
+      # 上传 artifact（即使非 tag 触发也可下载，便于测试）
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: momovoicesub-installer
+          path: _output/momovoicesub-setup-*.exe
+          if-no-files-found: error
+
+      # 仅 tag 推送时创建 Release；手动触发只构建不发布
+      - name: Create GitHub Release and upload
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          name: '默默配音助手 ${{ github.ref_name }}'
+          files: _output/momovoicesub-setup-*.exe
+          generate_release_notes: true
