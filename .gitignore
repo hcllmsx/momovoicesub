@@ -10,6 +10,7 @@ _temp/
 # Premiere Pro UXP Plugin
 apps/com.momo.voicesub.pr/node_modules/
 apps/com.momo.voicesub.pr/dist/
+apps/com.momo.voicesub.pr/dist-dev/
 
 # Installer build artifacts
 installer/payload/

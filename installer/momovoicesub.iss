@@ -80,6 +80,7 @@ Type: filesandordirs; Name: "{code:GetPrTargetDir}"
 var
   DrDetected, PrDetected, DrNodeFound: Boolean;
   DrVersionStr, PrVersionStr: String;
+  DeleteDrUserData, DeletePrUserData: Boolean;
 
 // ─── 检测 DaVinci Resolve ───
 procedure DetectDaVinci();
@@ -249,4 +250,117 @@ begin
   Memo := Memo + NewLine + '将安装:' + NewLine + MemoComponentsInfo;
 
   Result := Memo;
+end;
+
+// ─── 卸载开始前：分别询问是否删除 DR / PR 用户数据 ───
+function InitializeUninstall(): Boolean;
+var
+  DrDataDir, PrStorageRoot: String;
+  HasDrData, HasPrData: Boolean;
+  FindRec: TFindRec;
+  Msg: String;
+begin
+  Result := True;
+  DeleteDrUserData := False;
+  DeletePrUserData := False;
+
+  // DR 用户数据目录：%APPDATA%\momovoicesub
+  DrDataDir := ExpandConstant('{userappdata}\momovoicesub');
+  HasDrData := DirExists(DrDataDir);
+
+  // PR 用户数据目录：%APPDATA%\Adobe\UXP\PluginsStorage\PPRO\<PR版本>\External\com.momo.voicesub.pr
+  // 不同 PR 版本会有不同的 <PR版本> 子目录（如 25、26），需遍历所有版本
+  PrStorageRoot := ExpandConstant('{userappdata}\Adobe\UXP\PluginsStorage\PPRO');
+  HasPrData := False;
+  if DirExists(PrStorageRoot) then
+  begin
+    if FindFirst(AddBackslash(PrStorageRoot) + '*', FindRec) then
+    begin
+      try
+        repeat
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+          begin
+            if DirExists(AddBackslash(AddBackslash(PrStorageRoot) + FindRec.Name) + 'External\com.momo.voicesub.pr') then
+            begin
+              HasPrData := True;
+              Break;
+            end;
+          end;
+        until not FindNext(FindRec);
+      finally
+        FindClose(FindRec);
+      end;
+    end;
+  end;
+
+  // ─── 询问 DR ───
+  if HasDrData then
+  begin
+    Msg := '是否同时清除 DaVinci Resolve 版的用户数据？' + #13#10 + #13#10 +
+           '包括：Azure Speech Key、插件设置、多音字字典、TTS 音频缓存。' + #13#10 +
+           '位置：' + DrDataDir + #13#10 + #13#10 +
+           '· 是：彻底清除，重装后需重新填写 Key。' + #13#10 +
+           '· 否：保留，重装后 Key 和设置自动恢复。';
+    if MsgBox(Msg, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      DeleteDrUserData := True;
+  end;
+
+  // ─── 询问 PR ───
+  if HasPrData then
+  begin
+    Msg := '是否同时清除 Premiere Pro 版的用户数据（所有 PR 版本）？' + #13#10 + #13#10 +
+           '包括：Azure Speech Key、插件设置、多音字字典、TTS 音频缓存、localStorage。' + #13#10 +
+           '位置：' + PrStorageRoot + '\<PR版本>\External\com.momo.voicesub.pr' + #13#10 + #13#10 +
+           '· 是：彻底清除，重装后需重新填写 Key。' + #13#10 +
+           '· 否：保留，重装后 Key 和设置自动恢复。';
+    if MsgBox(Msg, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      DeletePrUserData := True;
+  end;
+end;
+
+// ─── 卸载过程中：根据用户勾选删除对应的用户数据 ───
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DrDataDir, PrStorageRoot, PrEntryPath: String;
+  FindRec: TFindRec;
+begin
+  if CurUninstallStep <> usUninstall then Exit;
+
+  // ─── 删除 DR 用户数据 ───
+  if DeleteDrUserData then
+  begin
+    DrDataDir := ExpandConstant('{userappdata}\momovoicesub');
+    if DirExists(DrDataDir) then
+    begin
+      DelTree(DrDataDir, True, True, True);
+      Log('已删除 DR 用户数据: ' + DrDataDir);
+    end;
+  end;
+
+  // ─── 删除 PR 用户数据（遍历所有 PR 版本目录）───
+  if DeletePrUserData then
+  begin
+    PrStorageRoot := ExpandConstant('{userappdata}\Adobe\UXP\PluginsStorage\PPRO');
+    if DirExists(PrStorageRoot) then
+    begin
+      if FindFirst(AddBackslash(PrStorageRoot) + '*', FindRec) then
+      begin
+        try
+          repeat
+            if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            begin
+              PrEntryPath := AddBackslash(AddBackslash(PrStorageRoot) + FindRec.Name) + 'External\com.momo.voicesub.pr';
+              if DirExists(PrEntryPath) then
+              begin
+                DelTree(PrEntryPath, True, True, True);
+                Log('已删除 PR 用户数据: ' + PrEntryPath);
+              end;
+            end;
+          until not FindNext(FindRec);
+        finally
+          FindClose(FindRec);
+        end;
+      end;
+    end;
+  end;
 end;

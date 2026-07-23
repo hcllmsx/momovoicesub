@@ -189,8 +189,6 @@ function toggleLogPanel() {
   // 首次显示时默认展开为大尺寸，无需用户再点"展开"按钮
   if (!wasVisible) {
     logEl.classList.add('expanded');
-    const btn = $('toggleExpandLog');
-    if (btn) btn.textContent = '收起';
   }
 }
 
@@ -3353,15 +3351,10 @@ function setupEvents() {
   $('exportLog').addEventListener('click', exportLog);
   $('clearLog').addEventListener('click', clearLog);
   $('toggleExpandLog').addEventListener('click', () => {
+    // 右上角按钮：直接关闭整个日志面板（而非收起/展开切换）
     const logPanel = document.querySelector('.log-panel');
     if (logPanel) {
-      if (logPanel.classList.contains('expanded')) {
-        logPanel.classList.remove('expanded');
-        $('toggleExpandLog').textContent = '展开';
-      } else {
-        logPanel.classList.add('expanded');
-        $('toggleExpandLog').textContent = '收起';
-      }
+      logPanel.classList.remove('visible');
     }
   });
 
@@ -3587,16 +3580,78 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
     });
   });
 
+  // 连接设置：自填 Key / 登录账号 选项卡切换
+  document.querySelectorAll('.auth-tab').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.auth-tab').forEach(item => item.classList.remove('active'));
+      document.querySelectorAll('.auth-panel').forEach(item => item.classList.remove('active'));
+      document.querySelectorAll('.auth-tab').forEach(item => item.setAttribute('aria-selected', 'false'));
+      button.classList.add('active');
+      button.setAttribute('aria-selected', 'true');
+      const panel = document.querySelector(`.auth-panel[data-auth-panel="${button.dataset.authTab}"]`);
+      if (panel) panel.classList.add('active');
+    });
+  });
+
+  // 登录弹窗：打开/关闭
+  const openLoginPopup = () => {
+    const popup = $('loginPopup');
+    if (!popup) return;
+    popup.classList.remove('hidden');
+    const emailInput = $('loginEmail');
+    if (emailInput) setTimeout(() => emailInput.focus(), 50);
+  };
+  const closeLoginPopup = () => {
+    const popup = $('loginPopup');
+    if (popup) popup.classList.add('hidden');
+  };
+  const openLoginPopupBtn = $('openLoginPopup');
+  if (openLoginPopupBtn) openLoginPopupBtn.addEventListener('click', openLoginPopup);
+  const loginPopupCloseBtn = $('loginPopupClose');
+  if (loginPopupCloseBtn) loginPopupCloseBtn.addEventListener('click', closeLoginPopup);
+
+  // 登录表单：仅做 UI 占位，未接真实接口时阻止默认提交
+  const signinForm = $('loginSigninForm');
+  if (signinForm) {
+    signinForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      log('[云端登录] UI 占位：尚未接入真实登录接口');
+    });
+  }
+  const wechatBtn = $('loginWechat');
+  if (wechatBtn) {
+    wechatBtn.addEventListener('click', () => {
+      log('[云端登录] UI 占位：微信扫码登录暂未启用');
+    });
+  }
+  // 登录弹窗：跳转到官网注册（占位，未接真实链接）
+  const signupWebLink = $('openSignupWeb');
+  if (signupWebLink) {
+    signupWebLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      log('[云端注册] 跳转到官网注册（占位）');
+      // 后续接入：window.momoVoiceSub.openExternal('https://momovoicesub.com/signup');
+    });
+  }
+
   window.addEventListener('beforeunload', () => {
     window.momoVoiceSub.cleanupResolveInterface();
   });
 
   window.momoVoiceSub.onLog((payload) => log(payload));
-  window.momoVoiceSub.onToggleLog(toggleLogPanel);
 
   document.addEventListener('click', (e) => {
     if (e.target === $('polyPopup')) $('polyPopup').classList.add('hidden');
     if (e.target === $('pausePopup')) $('pausePopup').classList.add('hidden');
+    if (e.target === $('loginPopup')) $('loginPopup').classList.add('hidden');
+  });
+
+  // Esc 键关闭登录弹窗
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const lp = $('loginPopup');
+      if (lp && !lp.classList.contains('hidden')) lp.classList.add('hidden');
+    }
   });
 }
 

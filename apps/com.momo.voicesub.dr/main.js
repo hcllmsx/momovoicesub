@@ -19,7 +19,22 @@ const { AzureTtsProvider } = require('./lib/azure-tts');
 const { ResolveAdapter } = require('./lib/resolve-adapter');
 const packageInfo = require('./package.json');
 
-const PLUGIN_ID = 'com.momo.voicesub.dr';
+// 从 manifest.xml 读取插件 Id，保证与达芬奇握手时使用的 id 与 manifest 一致。
+// dev 版安装脚本会把 manifest 的 Id 改为 com.momo.voicesub.dr.dev，
+// 若此处仍硬编码正式版 id，会导致 WorkflowIntegration.Initialize 握手失败
+// （报错 "Failed to initialize communication with host"）。
+function readPluginIdFromManifest() {
+  try {
+    const manifestPath = path.join(__dirname, 'manifest.xml');
+    const xml = require('fs').readFileSync(manifestPath, 'utf8');
+    const match = xml.match(/<Id>\s*([^<\s]+)\s*<\/Id>/);
+    if (match && match[1]) return match[1];
+  } catch (e) {
+    console.error('Failed to read plugin id from manifest.xml:', e);
+  }
+  return 'com.momo.voicesub.dr';
+}
+const PLUGIN_ID = readPluginIdFromManifest();
 const LOGO_PATH = path.join(__dirname, 'momovoicesub-logo.png');
 
 // 达芬奇内置 Electron 的 Node.js 版本检测。
@@ -385,13 +400,6 @@ function isAllowedShortcut(input) {
 
 function registerShortcutGate(window) {
   window.webContents.on('before-input-event', (event, input) => {
-    const key = String(input.key || '').toLowerCase();
-    if ((input.control || input.meta) && key === 'f9') {
-      event.preventDefault();
-      window.webContents.send('app:toggleLog');
-      return;
-    }
-
     if (!isAllowedShortcut(input)) {
       event.preventDefault();
     }

@@ -1,5 +1,7 @@
 # 默默配音助手Premiere Pro版本的开发脚本
 # 用于UDT开发环境：自动构建并同步版本号
+# 产出 dist-dev/ 目录（id=com.momo.voicesub.pr.dev，显示名「默默配音助手dev」），
+# 与正式安装版（dist/，id=com.momo.voicesub.pr）可同时存在。
 
 $ErrorActionPreference = "Stop"
 
@@ -84,14 +86,14 @@ try {
         }
     }
     
-    # 运行构建
-    npm run build
+    # 运行构建（dev 模式，产出 dist-dev/）
+    npm run build:dev
     if ($LASTEXITCODE -ne 0) {
-        throw "npm run build failed"
+        throw "npm run build:dev failed"
     }
     
     Write-Host "✅ 构建完成！"
-    Write-Host "UDT开发模式 - 插件已更新到 dist/ 目录"
+    Write-Host "UDT开发模式 - 插件已更新到 dist-dev/ 目录（默默配音助手dev）"
     Write-Host "打开 UXP Developer Tools 并重新加载插件即可测试"
 } catch {
     Write-Host "❌ 构建失败: $_"

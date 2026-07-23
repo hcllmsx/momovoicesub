@@ -30,8 +30,5 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   onLog: (callback) => {
     ipcRenderer.on('app:log', (_event, payload) => callback(payload));
-  },
-  onToggleLog: (callback) => {
-    ipcRenderer.on('app:toggleLog', () => callback());
   }
 });

@@ -2542,7 +2542,7 @@ body.app-busy * {
   color: var(--accent);
   position: relative;
   text-indent: -9999px;
-  /* 隐藏原本写在 HTML 里的“▶”字符 */
+  /* 隐藏原本写在 HTML 里的"▶"字符 */
   overflow: hidden;
 }
 
@@ -3218,4 +3218,449 @@ body.app-busy * {
 
 .add-pinyin-block-btn:active {
   transform: translateY(0);
+}
+/* ═══════════════════════════════════════════════
+   AUTH (云端登录 / 自填 Key 选项卡)
+   ═══════════════════════════════════════════════ */
+
+/* ─── 连接方式选项卡（自填 Key / 登录账号）─── */
+.auth-tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.auth-tab {
+  padding: 4px 14px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: calc(var(--radius) - 1px);
+  transition: all var(--transition);
+}
+
+.auth-tab:hover {
+  color: var(--ink);
+}
+
+.auth-tab.active {
+  color: var(--accent);
+  background: var(--surface);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.auth-panel {
+  display: none;
+}
+
+.auth-panel.active {
+  display: block;
+}
+
+/* ─── 账号面板：未登录 / 已登录两态 ─── */
+.account-state {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.account-state.hidden {
+  display: none;
+}
+
+.account-intro {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.account-intro strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.account-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.account-actions .btn {
+  flex: 1;
+  min-width: 110px;
+}
+
+/* 单个按钮不被 flex:1 拉满；多个按钮仍均分（>1 个时用 + 选择器匹配兄弟） */
+.account-actions .btn:only-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.account-user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #8a5cf6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.account-user-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-user-email {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-user-plan {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.account-user-plan .plan-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius);
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.account-actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 三宫格配额 */
+.quota-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.quota-cell {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.quota-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.quota-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.quota-value small {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+/* ─── 登录弹窗内部：登录/注册选项卡 ─── */
+.login-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px;
+  margin-bottom: 14px;
+}
+
+.login-tab {
+  flex: 1;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: calc(var(--radius) - 1px);
+  transition: all var(--transition);
+}
+
+.login-tab:hover {
+  color: var(--ink);
+}
+
+.login-tab.active {
+  color: var(--accent);
+  background: var(--surface);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-form.hidden {
+  display: none;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.login-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.login-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.login-field input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.login-extra-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: -2px;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-row input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.link-muted {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+
+.link-muted:hover {
+  color: var(--accent);
+}
+
+.login-submit {
+  margin-top: 4px;
+  width: 100%;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.login-oauth {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.oauth-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.oauth-dot--wechat {
+  background: #1aad19;
+}
+
+.login-tos {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+/* 配额：grid 容器（兼容 .account-quota-grid 别名） */
+.quota-grid,
+.account-quota-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.quota-unit {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+.quota-bar {
+  margin-top: 6px;
+  width: 100%;
+  height: 4px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.quota-bar-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #8a5cf6);
+  transition: width var(--transition);
+  border-radius: 2px;
+}
+
+/* ============================================================
+ * 连接设置 - 账号面板（云端登录占位）
+ * 兼容旧版 .account-intro；新结构为 .account-hero + .account-actions
+ * ============================================================ */
+.account-hero {
+  text-align: center;
+  padding: 14px 12px 8px;
+}
+
+.account-hero-icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 6px;
+  filter: grayscale(0.1);
+}
+
+.account-hero-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.account-hero-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* 账号面板底部说明（与登录弹窗底部行同步） */
+.account-footnote {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.6;
+  margin: 6px 0 0;
+}
+
+/* 登录弹窗 - 表单底部提示与强调链接 */
+.login-footnote {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
+
+.login-footnote a {
+  margin-left: 4px;
+}
+
+/* 强调链接（带 hover 下划线） */
+.link-accent {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color var(--transition);
+}
+
+.link-accent:hover {
+  text-decoration: underline;
+  color: var(--accent-strong, var(--accent));
+}
+
+/* 兜底：窄卡片时 auth-tabs 允许换行，避免挤压 */
+.auth-tabs {
+  flex-wrap: wrap;
+}
+
+/* 兜底：登录弹窗表单内行间距 */
+.login-form > .login-footnote:last-child {
+  margin-bottom: 4px;
 }

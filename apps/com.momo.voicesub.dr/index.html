@@ -252,31 +252,98 @@
             <div class="card-header">
               <span class="card-icon">🔌</span>
               <span>连接设置</span>
+              <div class="auth-tabs" role="tablist" aria-label="连接方式">
+                <button class="auth-tab active" data-auth-tab="apikey" role="tab" aria-selected="true">自填 Key</button>
+                <button class="auth-tab" data-auth-tab="account" role="tab" aria-selected="false">登录账号</button>
+              </div>
             </div>
-            <div class="connection-settings-row">
-              <div class="setting-col-region">
-                <label>Azure 区域</label>
-                <input id="azureRegion" type="text" placeholder="eastasia">
-              </div>
-              <div class="setting-col-endpoint">
-                <label>Azure Endpoint</label>
-                <input id="azureEndpoint" type="text" placeholder="可留空">
-              </div>
-              <div class="setting-col-key">
-                <div class="key-header-row">
-                  <label>Azure Speech Key</label>
-                  <label class="checkbox-row key-remember" title="保存密钥到本机加密存储">
-                    <input id="rememberKey" type="checkbox">
-                    <span>记住</span>
-                  </label>
+
+            <!-- 自填 Key 面板（保留原有逻辑，不做改动） -->
+            <div class="auth-panel active" data-auth-panel="apikey">
+              <div class="connection-settings-row">
+                <div class="setting-col-region">
+                  <label>Azure 区域</label>
+                  <input id="azureRegion" type="text" placeholder="eastasia">
                 </div>
-                <input id="azureKey" type="password" placeholder="留空不修改已保存密钥">
+                <div class="setting-col-endpoint">
+                  <label>Azure Endpoint</label>
+                  <input id="azureEndpoint" type="text" placeholder="可留空">
+                </div>
+                <div class="setting-col-key">
+                  <div class="key-header-row">
+                    <label>Azure Speech Key</label>
+                    <label class="checkbox-row key-remember" title="保存密钥到本机加密存储">
+                      <input id="rememberKey" type="checkbox">
+                      <span>记住</span>
+                    </label>
+                  </div>
+                  <input id="azureKey" type="password" placeholder="留空不修改已保存密钥">
+                </div>
+              </div>
+              <div class="card-footer settings-actions">
+                <button id="testAzure" class="btn btn-secondary">测试连接</button>
+                <button id="refreshVoices" class="btn btn-secondary">刷新音色</button>
+                <button id="saveSettings" class="btn btn-primary">保存设置</button>
               </div>
             </div>
-            <div class="card-footer settings-actions">
-              <button id="testAzure" class="btn btn-secondary">测试连接</button>
-              <button id="refreshVoices" class="btn btn-secondary">刷新音色</button>
-              <button id="saveSettings" class="btn btn-primary">保存设置</button>
+
+            <!-- 登录账号 面板（云端模式 · UI 占位） -->
+            <div class="auth-panel" data-auth-panel="account">
+              <div id="accountLoggedOut" class="account-state">
+                <div class="account-hero">
+                  <div class="account-hero-icon">☁️</div>
+                  <div class="account-hero-title">登录 MoMoVoiceSub 云端</div>
+                  <div class="account-hero-desc">免填 Key · 自动同步配额 · 跨设备共享缓存</div>
+                </div>
+                <div class="card-footer settings-actions account-actions">
+                  <button id="openLoginPopup" class="btn btn-primary">登录账号</button>
+                </div>
+                <p class="account-footnote">
+                  登录即代表同意 <a href="#" class="link-muted">《用户协议》</a> 与 <a href="#" class="link-muted">《隐私政策》</a>
+                </p>
+              </div>
+
+              <div id="accountLoggedIn" class="account-state hidden">
+                <div class="account-user-row">
+                  <div class="account-avatar">M</div>
+                  <div class="account-user-info">
+                    <div class="account-email" id="accountEmail">user@example.com</div>
+                    <div class="account-plan">
+                      <span class="plan-badge" id="accountPlanBadge">专业版</span>
+                      <span class="plan-expire" id="accountPlanExpire">有效期至 2026-12-31</span>
+                    </div>
+                  </div>
+                  <button id="accountLogout" class="btn btn-xs btn-ghost text-danger">退出登录</button>
+                </div>
+                <div class="account-quota-grid">
+                  <div class="quota-cell">
+                    <div class="quota-label">本月剩余字符</div>
+                    <div class="quota-value">
+                      <span id="quotaCharsLeft">—</span>
+                      <span class="quota-unit"> / <span id="quotaCharsTotal">—</span></span>
+                    </div>
+                    <div class="quota-bar"><div class="quota-bar-fill" id="quotaCharsBar"></div></div>
+                  </div>
+                  <div class="quota-cell">
+                    <div class="quota-label">已绑定设备</div>
+                    <div class="quota-value">
+                      <span id="quotaDevices">0</span>
+                      <span class="quota-unit"> / <span id="quotaDevicesMax">3</span> 台</span>
+                    </div>
+                  </div>
+                  <div class="quota-cell">
+                    <div class="quota-label">云端缓存命中</div>
+                    <div class="quota-value">
+                      <span id="quotaHitRate">0</span>
+                      <span class="quota-unit">%</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="card-footer settings-actions">
+                  <button id="refreshQuota" class="btn btn-secondary">刷新配额</button>
+                  <button id="openBuyPlan" class="btn btn-primary">续费 / 升级</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -358,7 +425,7 @@
         <div class="log-header">
           <span>运行日志</span>
           <div class="log-actions">
-            <button id="toggleExpandLog">展开</button>
+            <button id="toggleExpandLog">关闭</button>
             <button id="clearLog">清空</button>
             <button id="copyLog">复制</button>
             <button id="exportLog">导出</button>
@@ -456,6 +523,43 @@
       </div>
       <div class="popup-footer">
         <button id="batchCorrectConfirm" class="btn btn-primary">完成纠音</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 登录账号 弹窗（云端模式 · UI 占位） -->
+  <div id="loginPopup" class="popup-overlay hidden">
+    <div class="popup-panel popup-sm">
+      <div class="popup-header">
+        <span id="loginPopupTitle">登录 MoMoVoiceSub</span>
+        <button id="loginPopupClose" class="popup-close">×</button>
+      </div>
+      <div class="popup-body">
+        <form id="loginSigninForm" class="login-form" autocomplete="on">
+          <label class="login-field">
+            <span>邮箱</span>
+            <input id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false">
+          </label>
+          <label class="login-field">
+            <span>密码</span>
+            <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password">
+          </label>
+          <div class="login-extra-row">
+            <label class="checkbox-row">
+              <input type="checkbox" id="loginRemember" checked>
+              <span>保持登录</span>
+            </label>
+            <a href="#" class="link-muted" id="loginForgot">忘记密码？</a>
+          </div>
+          <button type="submit" class="btn btn-primary login-submit">登录</button>
+          <div class="login-divider"><span>第三方登录</span></div>
+          <button type="button" class="btn btn-secondary login-oauth" id="loginWechat">
+            <span class="oauth-dot oauth-dot--wechat"></span>微信扫码登录（占位）
+          </button>
+          <p class="login-footnote">
+            还没有账号？<a href="#" id="openSignupWeb" class="link-accent">去官网注册 →</a>
+          </p>
+        </form>
       </div>
     </div>
   </div>
