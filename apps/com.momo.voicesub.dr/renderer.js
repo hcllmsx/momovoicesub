@@ -3624,13 +3624,12 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
       log('[云端登录] UI 占位：微信扫码登录暂未启用');
     });
   }
-  // 登录弹窗：跳转到官网注册（占位，未接真实链接）
+  // 登录弹窗：跳转到官网注册
   const signupWebLink = $('openSignupWeb');
   if (signupWebLink) {
     signupWebLink.addEventListener('click', (e) => {
       e.preventDefault();
-      log('[云端注册] 跳转到官网注册（占位）');
-      // 后续接入：window.momoVoiceSub.openExternal('https://momovoicesub.com/signup');
+      window.momoVoiceSub.openExternal('https://space.bilibili.com/255947051');
     });
   }
 
