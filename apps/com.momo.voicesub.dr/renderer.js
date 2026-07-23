@@ -1383,7 +1383,7 @@ function renderSubtitleTable() {
     // 渲染时只将不含中括号等标记的纯净汉字填入 textarea 视图中，确保打字无光标漂移
     const { cleanText } = parseTextAndGenerateAnnotations(item.text);
     
-    html += `<tr data-frame="${item.startFrame}" class="${rowClass}" title="右键此列可临时禁用">
+    html += `<tr data-frame="${item.startFrame}" class="${rowClass}" title="右键以临时 禁用/启用 此列">
        <td class="subtitle-index">${item.index + 1}</td>
        <td class="subtitle-timecode">${tc}</td>
        <td class="subtitle-text">
