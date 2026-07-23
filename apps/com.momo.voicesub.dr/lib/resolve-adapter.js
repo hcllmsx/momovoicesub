@@ -149,7 +149,14 @@ class ResolveAdapter {
 
   async ensureTargetAudioTrack(preferredIndex) {
     const { timeline } = await this.getContext();
-    if (preferredIndex && preferredIndex !== 'auto') return Number(preferredIndex);
+    if (preferredIndex && preferredIndex !== 'auto') {
+      const idx = Number(preferredIndex);
+      const count = Number(await timeline.GetTrackCount('audio')) || 0;
+      if (idx < 1 || idx > count) {
+        throw new Error(`音频轨道 ${idx} 不存在。当前时间线共有 ${count} 条音频轨道，请刷新状态后重新选择目标轨道。`);
+      }
+      return idx;
+    }
 
     let count = Number(await timeline.GetTrackCount('audio')) || 0;
     for (let index = 1; index <= count; index += 1) {
@@ -526,7 +533,20 @@ class ResolveAdapter {
 
   async findGeneratedItemsAt(audioTrackIndex, startFrame) {
     const { timeline } = await this.getContext();
-    const items = await timeline.GetItemListInTrack('audio', audioTrackIndex) || [];
+    let items;
+    try {
+      items = await timeline.GetItemListInTrack('audio', audioTrackIndex) || [];
+    } catch (e) {
+      // DR Workflow Integration API 偶发 "Track with specified index does not exist" 错误，
+      // 即使轨道确实存在（GetTrackCount/GetTrackName 可正常返回）。
+      // 此处仅为插入前的预检查（查找已生成的 clip 用于 skip/replace），
+      // 容错为空数组，让后续 AppendToTimeline 决定真正的成功/失败。
+      const msg = String((e && e.message) || '');
+      if (/does not exist|errorCode.*8/i.test(msg)) {
+        return [];
+      }
+      throw e;
+    }
     const found = [];
 
     for (const item of items) {
@@ -557,18 +577,31 @@ class ResolveAdapter {
       : null;
     if (!rootFolder) return null;
 
-    const subFolders = typeof rootFolder.GetSubFolderList === 'function'
-      ? await rootFolder.GetSubFolderList() || []
-      : [];
-    const existing = subFolders.find(
-      (f) => typeof f.GetName === 'function' && (f.GetName() === MEDIAPOOL_FOLDER_NAME)
-    );
+    // DR API 的 folder.GetName() 返回 Promise，必须 await。
+    // Array.find 不支持 async 回调（回调返回 Promise 时永远 truthy），
+    // 因此用 for 循环逐个 await 比较。
+    const findFolder = async () => {
+      const subFolders = typeof rootFolder.GetSubFolderList === 'function'
+        ? await rootFolder.GetSubFolderList() || []
+        : [];
+      for (const f of subFolders) {
+        if (typeof f.GetName === 'function') {
+          const name = await f.GetName();
+          if (name === MEDIAPOOL_FOLDER_NAME) return f;
+        }
+      }
+      return null;
+    };
+
+    const existing = await findFolder();
     if (existing) return existing;
 
-    const created = mediaPool.AddSubFolder
-      ? await mediaPool.AddSubFolder(rootFolder, MEDIAPOOL_FOLDER_NAME)
-      : null;
-    return created;
+    if (mediaPool.AddSubFolder) {
+      // AddSubFolder 在同名文件夹已存在时可能返回 null，不依赖返回值，
+      // 创建后再次查找确认。
+      await mediaPool.AddSubFolder(rootFolder, MEDIAPOOL_FOLDER_NAME);
+    }
+    return await findFolder();
   }
 
   async importAudio(filePath, clipName, options = {}) {
@@ -579,6 +612,20 @@ class ResolveAdapter {
     }
 
     const targetFolder = await this.ensureMediaPoolFolder(mediaPool);
+
+    // DR 的 AddItemListToMediaPool(filePaths, folder) 第二参数在不同版本中行为不一致，
+    // 实际往往将文件导入到「媒体池当前选中的文件夹」而非参数指定的 folder。
+    // 首次创建 momo-Voicesub 时 AddSubFolder 会自动切换 currentFolder 到新文件夹，
+    // 所以第一次能正确导入；但文件夹已存在时仅返回 folder 对象、不切换 currentFolder，
+    // 若用户手动切到了根目录，音频就会导入到根目录。
+    // 解决：导入前显式 SetCurrentFolder 到目标文件夹（即用户说的"先打开文件夹再放入"）。
+    if (targetFolder && typeof mediaPool.SetCurrentFolder === 'function') {
+      try {
+        await mediaPool.SetCurrentFolder(targetFolder);
+      } catch {
+        // 部分 DR 版本可能不支持，忽略后由 AddItemListToMediaPool 的 folder 参数兜底。
+      }
+    }
 
     let mediaItems = await mediaStorage.AddItemListToMediaPool([filePath], targetFolder);
     let mediaPoolItem = mediaItems && mediaItems[0];

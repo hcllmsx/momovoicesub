@@ -2102,7 +2102,7 @@ function populateStyleTags(prefix, styles) {
   const container = $(`${prefix}StyleTags`);
   if (!container) return;
   container.innerHTML = '';
-  const defaultTag = tag('默认', '', !styles.length);
+  const defaultTag = tag('默认', '', true);
   defaultTag.addEventListener('click', () => {
     container.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
     defaultTag.classList.add('active');
@@ -2113,19 +2113,22 @@ function populateStyleTags(prefix, styles) {
   for (const style of styles) {
     const t = tag(styleCn(style), style);
     t.addEventListener('click', () => {
-      container.querySelectorAll('.tag').forEach(tag => tag.classList.remove('active'));
+      container.querySelectorAll('.tag').forEach(item => item.classList.remove('active'));
       t.classList.add('active');
       onStyleChange(prefix, style);
     });
     container.appendChild(t);
   }
+
+  // 默认选中“默认”风格，隐藏风格程度调节区
+  onStyleChange(prefix, '');
 }
 
 function populateRoleTags(prefix, roles) {
   const container = $(`${prefix}RoleTags`);
   if (!container) return;
   container.innerHTML = '';
-  const defaultTag = tag('默认', '', !roles.length);
+  const defaultTag = tag('默认', '', true);
   defaultTag.addEventListener('click', () => {
     container.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
     defaultTag.classList.add('active');
@@ -2134,7 +2137,7 @@ function populateRoleTags(prefix, roles) {
   for (const role of roles) {
     const t = tag(role, role);
     t.addEventListener('click', () => {
-      container.querySelectorAll('.tag').forEach(tag => tag.classList.remove('active'));
+      container.querySelectorAll('.tag').forEach(item => item.classList.remove('active'));
       t.classList.add('active');
     });
     container.appendChild(t);
@@ -2536,7 +2539,10 @@ function applyPresetToPanel(prefix, presetId) {
     styleBtn.classList.add('active');
     onStyleChange(prefix, preset.style);
   } else {
+    // preset 保存的风格在当前音色中不存在，回退选中“默认”
+    const defaultStyleBtn = document.querySelector(`#${prefix}StyleTags .tag[data-value=""]`);
     document.querySelectorAll(`#${prefix}StyleTags .tag`).forEach(b => b.classList.remove('active'));
+    if (defaultStyleBtn) defaultStyleBtn.classList.add('active');
     onStyleChange(prefix, '');
   }
   
@@ -2545,7 +2551,10 @@ function applyPresetToPanel(prefix, presetId) {
     document.querySelectorAll(`#${prefix}RoleTags .tag`).forEach(b => b.classList.remove('active'));
     roleBtn.classList.add('active');
   } else {
+    // preset 保存的角色在当前音色中不存在，回退选中“默认”
+    const defaultRoleBtn = document.querySelector(`#${prefix}RoleTags .tag[data-value=""]`);
     document.querySelectorAll(`#${prefix}RoleTags .tag`).forEach(b => b.classList.remove('active'));
+    if (defaultRoleBtn) defaultRoleBtn.classList.add('active');
   }
   
   const rate = $(`${prefix}Rate`);
