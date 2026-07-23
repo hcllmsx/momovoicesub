@@ -1383,15 +1383,15 @@ function renderSubtitleTable() {
     // 渲染时只将不含中括号等标记的纯净汉字填入 textarea 视图中，确保打字无光标漂移
     const { cleanText } = parseTextAndGenerateAnnotations(item.text);
     
-    html += `<tr data-frame="${item.startFrame}" class="${rowClass}">
+    html += `<tr data-frame="${item.startFrame}" class="${rowClass}" title="右键此列可临时禁用">
        <td class="subtitle-index">${item.index + 1}</td>
        <td class="subtitle-timecode">${tc}</td>
        <td class="subtitle-text">
          <div class="sub-textarea-wrap">
-           <textarea class="subtitle-text-input" spellcheck="false" data-frame="${item.startFrame}"${isDisabled ? ' disabled' : ''}>${escapeHtml(cleanText)}</textarea>
+           <textarea class="subtitle-text-input" spellcheck="false" title="" data-frame="${item.startFrame}"${isDisabled ? ' disabled' : ''}>${escapeHtml(cleanText)}</textarea>
          </div>
          <!-- 字幕行内效果效果预览卡片，默认隐藏，只有需要它显示时才按需显示 -->
-         <div class="subtitle-preview-box hidden" data-frame="${item.startFrame}"></div>
+         <div class="subtitle-preview-box hidden" title="" data-frame="${item.startFrame}"></div>
        </td>
      </tr>`;
   }
