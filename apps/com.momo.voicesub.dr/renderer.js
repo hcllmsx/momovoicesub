@@ -140,7 +140,9 @@ const state = {
   srtFileName: '',
   appVersion: '',
   initialized: false,
-  disabledFrames: new Set()
+  disabledFrames: new Set(),
+  // 当前 Resolve 时间线名，用于检测时间线切换并联动字幕列表
+  currentTimelineName: ''
 };
 
 const voicePickers = {};
@@ -1288,12 +1290,9 @@ function populateTrackTags() {
 function updateImportSrtBtnVisibility() {
   const btn = $('subtitleImportSrtBtn');
   if (!btn) return;
-  // 仅在项目无字幕轨时显示「导入SRT」按钮（有字幕轨时直接用字幕轨即可）
-  if (state.subtitleTracks.length === 0) {
-    btn.classList.remove('hidden');
-  } else {
-    btn.classList.add('hidden');
-  }
+  // 无论当前项目是否有字幕轨，都显示「导入SRT」按钮。
+  // 已有字幕轨时，仍可用 SRT 作为另一字幕源；再次导入会替换之前导入的 SRT。
+  btn.classList.remove('hidden');
 }
 
 function switchToSrtMode() {
@@ -3201,8 +3200,30 @@ async function refreshState() {
     state.voices = appState.settings.voices || [];
     state.subtitleTracks = appState.resolve.subtitleTracks || [];
     state.audioTracks = appState.resolve.audioTracks || [];
+
+    // 检测时间线切换：若与上次缓存的时间线名不同，则视为切到了新时间线，
+    // 此时 selectedSubtitleTrack / 已加载的字幕列表都应失效（已导入的 SRT 保留）。
+    const timelineChanged = !!appState.resolve.timelineName
+      && state.currentTimelineName
+      && state.currentTimelineName !== appState.resolve.timelineName;
+    state.currentTimelineName = appState.resolve.timelineName || '';
+
+    // 时间线切换后，若当前未处于 SRT 模式，则原 selectedSubtitleTrack 多半
+    // 不再属于新时间线，需重置；SRT 模式不受时间线切换影响，保留。
+    if (timelineChanged && state.selectedSubtitleTrack !== 'srt') {
+      state.selectedSubtitleTrack = null;
+      state.loadedSubtitleTrack = null;
+    }
+    // 选中字幕轨已不在新时间线里（或本身为 null）时，回退到第一条
     if (!state.selectedSubtitleTrack && state.subtitleTracks.length > 0) {
       state.selectedSubtitleTrack = String(state.subtitleTracks[0].index);
+    }
+    // 若选中了不存在的字幕轨（且不是 SRT 模式），清空选中
+    if (state.selectedSubtitleTrack
+      && state.selectedSubtitleTrack !== 'srt'
+      && !state.subtitleTracks.some(t => String(t.index) === state.selectedSubtitleTrack)) {
+      state.selectedSubtitleTrack = null;
+      state.loadedSubtitleTrack = null;
     }
     state.polyphonicDict = sanitizePolyphonicDict(appState.settings.polyphonicDict || []);
     // 加载内置多音字字典（仅加载一次，数据源为打包内的 polyphonic-builtin.json）
@@ -3272,6 +3293,16 @@ async function refreshState() {
       updateImportSrtBtnVisibility();
     } else if (state.selectedSubtitleTrack && state.subtitleTracks.some(t => String(t.index) === state.selectedSubtitleTrack)) {
       loadSubtitleTable();
+      updateImportSrtBtnVisibility();
+    } else {
+      // 当前时间线无字幕轨且未导入 SRT：清空残留字幕列表，显示「无字幕轨」占位
+      // 注意：已导入的 SRT 内容保留在 state.srtItems 中，重启后不再保留（符合需求）
+      state.subtitleItems = [];
+      state.subtitleAnnotations = new Map();
+      state.disabledFrames = new Set();
+      state.loadedSubtitleTrack = null;
+      const wrap = $('subtitleTable');
+      if (wrap) wrap.innerHTML = '<div class="table-placeholder">当前时间线无字幕轨，可点击「📂 导入SRT」加载本地字幕</div>';
       updateImportSrtBtnVisibility();
     }
   } catch (error) {
