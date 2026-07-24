@@ -3,7 +3,7 @@
     <Plugin>
         <Id>com.momo.voicesub.dr</Id>
         <Name>默默配音助手</Name>
-        <Version>26.7.24</Version>
+        <Version>26.7.25</Version>
         <Description>Generate Azure TTS voiceover from subtitles or text and insert it into the current DaVinci Resolve timeline.</Description>
         <Icon>momovoicesub-logo.png</Icon>
         <FilePath>main.js</FilePath>

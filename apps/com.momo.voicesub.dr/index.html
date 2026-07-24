@@ -14,16 +14,16 @@
       <img class="sidebar-logo" src="momovoicesub-logo.png" alt="">
 
       <nav class="sidebar-nav" aria-label="功能导航">
-        <button class="nav-btn active" data-tab="subtitles">
-          📄
-          <span class="nav-btn-label">读取字幕轨以自动配音</span>
+        <button class="nav-btn active" data-tab="subtitles" aria-label="自动配音" data-tooltip="读取字幕轨以自动配音">
+          <span class="nav-btn-icon">📄</span>
+          <span class="nav-btn-label">自动配音</span>
         </button>
-        <button class="nav-btn" data-tab="manual">
-          ✏️
-          <span class="nav-btn-label">输入文本以手动配音</span>
+        <button class="nav-btn" data-tab="manual" aria-label="手动配音" data-tooltip="输入文本以手动配音">
+          <span class="nav-btn-icon">✏️</span>
+          <span class="nav-btn-label">手动配音</span>
         </button>
-        <button class="nav-btn" data-tab="settings">
-          ⚙
+        <button class="nav-btn" data-tab="settings" aria-label="插件设置" data-tooltip="插件设置">
+          <span class="nav-btn-icon">⚙</span>
           <span class="nav-btn-label">插件设置</span>
         </button>
       </nav>
@@ -364,7 +364,6 @@
             </div>
             <div class="cache-body">
               <label>缓存目录<input id="cacheDir" type="text" readonly></label>
-              <p class="cache-note">不会删除试听缓存</p>
               <div class="btn-stack">
                 <button id="openCacheFolder" class="btn btn-secondary btn-sm">📂 打开缓存目录</button>
                 <button id="deleteUnusedCache" class="btn btn-secondary btn-sm">删除未使用缓存</button>

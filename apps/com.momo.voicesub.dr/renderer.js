@@ -3171,7 +3171,7 @@ async function deleteAllProjectCache() {
   log('准备删除全部项目缓存...');
   await runCacheAction({
     action: () => window.momoVoiceSub.deleteAllProjectCache(),
-    confirmMessage: '确定删除所有项目的配音缓存吗？',
+    confirmMessage: '确定删除所有项目的配音缓存吗？\n（不会删除试听缓存）',
     successMessage: (result) => `已删除所有项目缓存 ${result.deleted} 个文件。`
   });
 }
@@ -3196,6 +3196,10 @@ async function refreshState() {
   try {
     const appState = await window.momoVoiceSub.getState();
     state.appVersion = appState.version || '';
+    const settingsBtn = document.querySelector('.nav-btn[data-tab="settings"]');
+    if (settingsBtn && state.appVersion) {
+      settingsBtn.setAttribute('data-tooltip', `插件设置 v${state.appVersion}`);
+    }
     state.settings = appState.settings;
     state.voices = appState.settings.voices || [];
     state.subtitleTracks = appState.resolve.subtitleTracks || [];
@@ -3262,7 +3266,7 @@ async function refreshState() {
       dot.className = 'dot connected';
       const label = `${appState.resolve.projectName} / ${appState.resolve.timelineName}`;
       if (statusBtn) statusBtn.removeAttribute('title');
-      if (statusLabel) statusLabel.textContent = `${label} (点击刷新状态)`;
+      if (statusLabel) statusLabel.textContent = `${appState.resolve.timelineName} (点击刷新)`;
       if (pHeaderText) pHeaderText.textContent = label;
     } else {
       dot.className = 'dot error';
