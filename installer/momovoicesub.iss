@@ -4,7 +4,8 @@
 ; ───────────────────────────────────────────────────────────────────
 
 #define MyAppName "默默配音助手"
-#define MyAppVersion "0.26.722"
+#define MyAppVersion "1.26.7.25"
+#define PrPluginVersion "26.7.23"
 #define MyAppPublisher "hcllmsx"
 #define MyAppURL "https://github.com/hcllmsx/momovoicesub"
 
@@ -63,7 +64,7 @@ Source: "src\momovoicesub-favicon.ico"; DestDir: "{app}\src"; Flags: ignoreversi
 
 [Run]
 ; ─── PR: 注册到 PluginsInfo JSON ───
-Components: pr; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\pr-manage-json.ps1"" -Action install -Version ""{#MyAppVersion}"" -Name ""默默配音助手"" -HostMinVersion ""25.6.0"""; StatusMsg: "正在注册 Premiere Pro 插件..."; Flags: runhidden
+Components: pr; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\pr-manage-json.ps1"" -Action install -Version ""{#PrPluginVersion}"" -Name ""默默配音助手"" -HostMinVersion ""25.6.0"""; StatusMsg: "正在注册 Premiere Pro 插件..."; Flags: runhidden
 
 [UninstallRun]
 ; ─── PR: 从 PluginsInfo JSON 移除 ───
@@ -144,7 +145,7 @@ end;
 // ─── 获取 PR 插件目标目录 ───
 function GetPrTargetDir(Param: String): String;
 begin
-  Result := ExpandConstant('{userappdata}\Adobe\UXP\Plugins\External\com.momo.voicesub.pr_{#MyAppVersion}');
+  Result := ExpandConstant('{userappdata}\Adobe\UXP\Plugins\External\com.momo.voicesub.pr_{#PrPluginVersion}');
 end;
 
 // ─── 初始化：执行检测 ───

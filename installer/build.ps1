@@ -46,6 +46,7 @@ Write-Host ''
 Write-Host '[1/5] 读取版本号...' -ForegroundColor Yellow
 $drVersion = $null
 $prVersion = $null
+$setupVersion = $null
 foreach ($line in Get-Content -LiteralPath $versionFile -Encoding UTF8) {
     $trimmed = $line.Trim()
     if ($trimmed -like 'com.momo.voicesub.dr.version=*') {
@@ -54,14 +55,16 @@ foreach ($line in Get-Content -LiteralPath $versionFile -Encoding UTF8) {
     if ($trimmed -like 'com.momo.voicesub.pr.version=*') {
         $prVersion = $trimmed.Substring('com.momo.voicesub.pr.version='.Length).Trim()
     }
+    if ($trimmed -like 'com.momo.voicesub.setup.version=*') {
+        $setupVersion = $trimmed.Substring('com.momo.voicesub.setup.version='.Length).Trim()
+    }
 }
 if (-not $drVersion) { throw "VERSION 文件缺少 com.momo.voicesub.dr.version 条目" }
 if (-not $prVersion) { throw "VERSION 文件缺少 com.momo.voicesub.pr.version 条目" }
-if ($drVersion -ne $prVersion) {
-    throw "DR 版本 ($drVersion) 和 PR 版本 ($prVersion) 不一致，请先统一版本号"
-}
-$pluginVersion = $drVersion
-Write-Host "  版本号: $pluginVersion" -ForegroundColor Green
+if (-not $setupVersion) { throw "VERSION 文件缺少 com.momo.voicesub.setup.version 条目" }
+Write-Host "  DR 插件: $drVersion" -ForegroundColor Green
+Write-Host "  PR 插件: $prVersion" -ForegroundColor Green
+Write-Host "  安装包:  $setupVersion" -ForegroundColor Green
 
 # ─── 2. 构建 PR 版 ───
 Write-Host ''
@@ -125,9 +128,11 @@ if (Test-Path $officialNode) {
 Write-Host ''
 Write-Host '[4/5] 同步版本号到 .iss...' -ForegroundColor Yellow
 $issRaw = Get-Content -LiteralPath $issFile -Raw -Encoding UTF8
-$issRaw = $issRaw -replace '#define MyAppVersion "[^"]*"', "#define MyAppVersion `"$pluginVersion`""
+$issRaw = $issRaw -replace '#define MyAppVersion "[^"]*"', "#define MyAppVersion `"$setupVersion`""
+$issRaw = $issRaw -replace '#define PrPluginVersion "[^"]*"', "#define PrPluginVersion `"$prVersion`""
 Set-Content -LiteralPath $issFile -Value $issRaw -NoNewline -Encoding UTF8
-Write-Host "  .iss 版本号已同步: $pluginVersion" -ForegroundColor Green
+Write-Host "  安装包版本: $setupVersion" -ForegroundColor Green
+Write-Host "  PR 插件版本: $prVersion" -ForegroundColor Green
 
 # ─── 5. 编译 ───
 Write-Host ''
@@ -139,7 +144,7 @@ if (-not (Test-Path $outputDir)) {
 & $iscc /Q $issFile
 if ($LASTEXITCODE -ne 0) { throw "ISCC 编译失败 (exit code: $LASTEXITCODE)" }
 
-$exePath = Join-Path $outputDir "momovoicesub-setup-v$pluginVersion.exe"
+$exePath = Join-Path $outputDir "momovoicesub-setup-v$setupVersion.exe"
 if (Test-Path $exePath) {
     $size = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
     Write-Host ''
