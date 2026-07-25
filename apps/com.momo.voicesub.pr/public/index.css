@@ -1095,6 +1095,42 @@ body {
   opacity: 0.85;
 }
 
+/* 更新检查状态 */
+.settings-footer {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.update-status {
+  font-size: 11px;
+}
+.update-status-hidden {
+  display: none;
+}
+.update-status-checking {
+  color: var(--text-secondary);
+}
+.update-status-available {
+  color: #ff9800;
+}
+.update-status-error {
+  color: var(--text-secondary);
+}
+.update-link {
+  color: var(--accent-color, #4a9eff);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.update-link:hover {
+  opacity: 0.8;
+}
+/* 已是最新时仅版本号变绿，点击可检查更新 */
+.app-version-num.app-version-latest {
+  color: #4caf50;
+}
+#appVersion {
+  cursor: pointer;
+}
+
 .settings-body {
   padding: 18px 16px;
   display: flex;

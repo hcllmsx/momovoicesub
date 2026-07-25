@@ -2,7 +2,7 @@
 <html lang="zh-CN" spellcheck="false">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>默默配音助手</title>
   <link rel="stylesheet" href="css/styles.css">
@@ -415,6 +415,7 @@
           <!-- 设置页面底部版本号页脚 -->
           <div class="settings-footer">
             <span id="appVersion"></span>
+            <span id="updateStatus" class="update-status"></span>
           </div>
         </div>
       </section>

@@ -61,7 +61,11 @@ const state = {
   manualTextWithAnnotations: "" as string,
 
   // 内置多音字字典是否已展开（默认收起，只显示2行）
-  builtinPolyExpanded: false as boolean
+  builtinPolyExpanded: false as boolean,
+
+  // 更新检查
+  updateStatus: 'idle' as string, // idle | checking | latest | available | error
+  updateLatestVersion: '' as string
 };
 
 // ─── 音色选择器辅助定义（移植自达芬奇版 renderer.js） ───
@@ -599,6 +603,98 @@ function mergeSubtitleAnnotations(oldItems: any[], newItems: any[]): void {
   }
 }
 
+// ─── 检查更新 ───
+
+const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/hcllmsx/momovoicesub/main/VERSION';
+
+/** 比较两个版本号字符串（格式：主.次.修订），返回 1 表示 a > b，-1 表示 a < b，0 表示相等 */
+function compareVersion(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+async function checkForUpdate(manual = false) {
+  state.updateStatus = 'checking';
+  renderUpdateStatus();
+  try {
+    const resp = await fetch(UPDATE_CHECK_URL, { cache: 'no-cache' } as any);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const lines = text.split(/\r?\n/);
+    let remoteVersion = '';
+    for (const line of lines) {
+      const m = line.match(/^com\.momo\.voicesub\.pr\.version=(.+)/);
+      if (m) { remoteVersion = m[1].trim(); break; }
+    }
+    if (!remoteVersion) throw new Error('未找到远程 PR 版本号');
+    state.updateLatestVersion = remoteVersion;
+    const cmp = compareVersion(remoteVersion, __APP_VERSION__);
+    if (cmp > 0) {
+      state.updateStatus = 'available';
+    } else {
+      state.updateStatus = 'latest';
+      if (manual) showToast('已是最新版本', 'success');
+    }
+  } catch (e: any) {
+    console.warn('检查更新失败:', e && e.message ? e.message : e);
+    state.updateStatus = 'error';
+    if (manual) showToast('检查更新失败', 'error');
+  }
+  renderUpdateStatus();
+}
+
+function renderUpdateStatus() {
+  const el = document.getElementById('updateStatus');
+  const verNumEl = document.querySelector('#appVersion .app-version-num');
+  if (!el) return;
+  el.className = 'update-status';
+  // 重置版本号颜色
+  if (verNumEl) verNumEl.classList.remove('app-version-latest');
+  switch (state.updateStatus) {
+    case 'idle':
+      el.textContent = '';
+      el.className += ' update-status-hidden';
+      break;
+    case 'checking':
+      el.textContent = '检查更新中...';
+      el.className += ' update-status-checking';
+      break;
+    case 'latest':
+      // 已是最新：不显示额外文字，仅版本号变绿
+      if (verNumEl) verNumEl.classList.add('app-version-latest');
+      el.textContent = '';
+      el.className += ' update-status-hidden';
+      break;
+    case 'available':
+      el.innerHTML = `发现新版本 v${state.updateLatestVersion} — <a class="update-link" href="javascript:void(0)" id="updateLink">前往下载</a>`;
+      el.className += ' update-status-available';
+      break;
+    case 'error':
+      el.textContent = '';
+      el.className += ' update-status-hidden';
+      break;
+  }
+  const linkEl = document.getElementById('updateLink');
+  if (linkEl) {
+    linkEl.addEventListener('click', async () => {
+      if (uxpShell && typeof (uxpShell as any).openExternal === 'function') {
+        await (uxpShell as any).openExternal(
+          'https://github.com/hcllmsx/momovoicesub/releases/latest',
+          '打开 GitHub Releases 页面'
+        );
+      }
+    });
+  }
+}
+
 // ─── 初始化与连接 ───
 async function initPlugin() {
   try {
@@ -606,7 +702,7 @@ async function initPlugin() {
     // 「momoVoicesub」为指向 GitHub 仓库的超链接，点击调 shell.openExternal 打开浏览器
     const appVersionEl = $("appVersion");
     if (appVersionEl) {
-      appVersionEl.innerHTML = `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） v${__APP_VERSION__}`;
+      appVersionEl.innerHTML = `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） <span class="app-version-num">v${__APP_VERSION__}</span>`;
       const linkEl = $("appVersionLink");
       if (linkEl) {
         linkEl.addEventListener("click", async () => {
@@ -688,6 +784,17 @@ async function initPlugin() {
     // 恢复手动配音文本（与达芬奇版一致：不清空则跨会话保留）
     restoreManualText();
 
+    // 异步检查更新
+    checkForUpdate();
+    // 点击版本号手动检查更新（排除 momoVoicesub 链接点击）
+    const appVerEl = document.getElementById('appVersion');
+    if (appVerEl) {
+      appVerEl.addEventListener('click', (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (target && (target.id === 'appVersionLink' || target.closest('#appVersionLink'))) return;
+        checkForUpdate(true);
+      });
+    }
   } catch (err) {
     console.error("Init plugin failed:", err);
     showToast("初始化插件失败", "error");

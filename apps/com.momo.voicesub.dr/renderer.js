@@ -139,6 +139,8 @@ const state = {
   srtItems: [],
   srtFileName: '',
   appVersion: '',
+  updateStatus: 'idle', // idle | checking | latest | available | error
+  updateLatestVersion: '', // 远程最新版本号
   initialized: false,
   disabledFrames: new Set(),
   // 当前 Resolve 时间线名，用于检测时间线切换并联动字幕列表
@@ -3190,6 +3192,94 @@ async function openCacheFolder() {
   }
 }
 
+// ─── 检查更新 ───
+
+const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/hcllmsx/momovoicesub/main/VERSION';
+
+/** 比较两个版本号字符串（格式：主.次.修订），返回 1 表示 a > b，-1 表示 a < b，0 表示相等 */
+function compareVersion(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+async function checkForUpdate(manual = false) {
+  state.updateStatus = 'checking';
+  renderUpdateStatus();
+  try {
+    const resp = await fetch(UPDATE_CHECK_URL, { cache: 'no-cache' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const lines = text.split(/\r?\n/);
+    let remoteVersion = '';
+    for (const line of lines) {
+      const m = line.match(/^com\.momo\.voicesub\.dr\.version=(.+)/);
+      if (m) { remoteVersion = m[1].trim(); break; }
+    }
+    if (!remoteVersion) throw new Error('未找到远程 DR 版本号');
+    state.updateLatestVersion = remoteVersion;
+    const cmp = compareVersion(remoteVersion, state.appVersion);
+    if (cmp > 0) {
+      state.updateStatus = 'available';
+    } else {
+      state.updateStatus = 'latest';
+      if (manual) showToast('已是最新版本', 'ok');
+    }
+  } catch (e) {
+    log('检查更新失败: ' + (e && e.message ? e.message : e));
+    state.updateStatus = 'error';
+    if (manual) showToast('检查更新失败', 'error');
+  }
+  renderUpdateStatus();
+}
+
+function renderUpdateStatus() {
+  const el = document.getElementById('updateStatus');
+  const verNumEl = document.querySelector('#appVersion .app-version-num');
+  if (!el) return;
+  el.className = 'update-status';
+  // 重置版本号颜色
+  if (verNumEl) verNumEl.classList.remove('app-version-latest');
+  switch (state.updateStatus) {
+    case 'idle':
+      el.textContent = '';
+      el.className += ' update-status-hidden';
+      break;
+    case 'checking':
+      el.textContent = '检查更新中...';
+      el.className += ' update-status-checking';
+      break;
+    case 'latest':
+      // 已是最新：不显示额外文字，仅版本号变绿
+      if (verNumEl) verNumEl.classList.add('app-version-latest');
+      el.textContent = '';
+      el.className += ' update-status-hidden';
+      break;
+    case 'available':
+      el.innerHTML = `发现新版本 v${state.updateLatestVersion} — <a class="update-link" href="javascript:void(0)" id="updateLink">前往下载</a>`;
+      el.className += ' update-status-available';
+      break;
+    case 'error':
+      el.textContent = '';
+      el.className += ' update-status-hidden';
+      break;
+  }
+  // 为新版本绑定跳转链接
+  const linkEl = document.getElementById('updateLink');
+  if (linkEl) {
+    linkEl.addEventListener('click', () => {
+      window.momoVoiceSub.openExternal('https://github.com/hcllmsx/momovoicesub/releases/latest');
+    });
+  }
+}
+
 // ─── Refresh State ───
 
 async function refreshState() {
@@ -3244,7 +3334,7 @@ async function refreshState() {
     const appVersionEl = $('appVersion');
     if (appVersionEl) {
       appVersionEl.innerHTML = state.appVersion
-        ? `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） v${state.appVersion}`
+        ? `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） <span class="app-version-num">v${state.appVersion}</span>`
         : '';
       const linkEl = $('appVersionLink');
       if (linkEl) {
@@ -3730,6 +3820,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     await refreshState();
     renderQuickPolyList();
     updateManualHighlighter();
+    checkForUpdate(); // 启动后异步检查更新
+    // 点击版本号手动检查更新（排除 momoVoicesub 链接点击）
+    const appVerEl = document.getElementById('appVersion');
+    if (appVerEl) {
+      appVerEl.addEventListener('click', (e) => {
+        if (e.target && (e.target.id === 'appVersionLink' || (e.target).closest('#appVersionLink'))) return;
+        checkForUpdate(true);
+      });
+    }
     log('插件已启动');
   } catch (error) {
     $('resolveStatus').textContent = friendlyErrorMessage(error);
