@@ -389,7 +389,7 @@ function extractSubtitleFromBinary(bytes: Uint8Array): string {
 
 export class PremiereAdapter {
   /**
-   * 每个 Sequence（按 guid）记住「默默配音」目标音频轨索引，避免批量配音时每条音频都新建一条轨道。
+   * 每个 Sequence（按 guid）记住目标音频轨索引，避免批量配音时每条音频都新建一条轨道。
    * PR 的音频轨在 UI 上不允许重命名（都是 A1/A2/A3...），所以无法靠名称识别，只能靠会话内记忆。
    */
   private momoTrackBySeqGuid = new Map<string, number>();
@@ -518,12 +518,11 @@ export class PremiereAdapter {
   }
 
   /**
-   * 确保当前序列存在「默默配音」目标音频轨，返回其索引。
+   * 确保当前序列存在目标音频轨，返回其索引。
    *
    * 策略（PR 音频轨 UI 不允许重命名，都是 A1/A2/A3...，所以靠会话内 Map 记忆）：
-   * 1. 用 sequence.guid 作为 key 查 Map，命中且轨道仍存在则返回
-   * 2. 扫描所有音频轨，若有名为「默默配音」的（API 重命名在 26.3+ 可能生效），记住并返回
-   * 3. 否则目标索引 = 当前音频轨数（createOverwriteItemAction 传入该值会自动新建一条 A{N+1}），记住并返回
+   * 1. 用 sequence.guid 作为 key 查 Map，命中则返回
+   * 2. 否则目标索引 = 当前音频轨数（createOverwriteItemAction 传入该值会自动新建一条 A{N+1}），记住并返回
    *
    * 这样在单次会话内，批量配音只会新建一条轨道，所有音频都插入到这条轨道上。
    */
@@ -545,16 +544,7 @@ export class PremiereAdapter {
       return remembered;
     }
 
-    // 2. 检查是否有名为「默默配音」的轨道（万一 API 重命名生效了）
-    for (let i = 0; i < audioCount; i++) {
-      const track = await sequence.getAudioTrack(i);
-      if (track && track.name === "默默配音") {
-        this.momoTrackBySeqGuid.set(seqGuid, i);
-        return i;
-      }
-    }
-
-    // 3. 用 audioCount 作为目标索引（PR 会自动新建 A{audioCount+1}）
+    // 2. 用 audioCount 作为目标索引（PR 会自动新建 A{audioCount+1}）
     const newTrackIndex = audioCount;
     this.momoTrackBySeqGuid.set(seqGuid, newTrackIndex);
     console.log(`[Momo] 将为序列「${sequence.name}」新建音频轨 A${newTrackIndex + 1}（索引 ${newTrackIndex}）`);

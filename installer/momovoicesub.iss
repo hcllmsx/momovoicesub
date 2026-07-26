@@ -4,8 +4,8 @@
 ; ───────────────────────────────────────────────────────────────────
 
 #define MyAppName "默默配音助手"
-#define MyAppVersion "1.26.7.25"
-#define PrPluginVersion "26.7.23"
+#define MyAppVersion "26.7.25"
+#define PrPluginVersion "26.7.25"
 #define MyAppPublisher "hcllmsx"
 #define MyAppURL "https://github.com/hcllmsx/momovoicesub"
 
@@ -70,18 +70,17 @@ Components: pr; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPo
 ; ─── PR: 从 PluginsInfo JSON 移除 ───
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\src\pr-manage-json.ps1"" -Action uninstall"; RunOnceId: "RemovePrJson"; Flags: runhidden
 
-[UninstallDelete]
-; ─── DR: 删除插件目录 ───
-Type: filesandordirs; Name: "{code:GetDrTargetDir}"
-; ─── PR: 删除插件目录 ───
-Type: filesandordirs; Name: "{code:GetPrTargetDir}"
-
 [Code]
 // ─── 全局变量 ───
 var
   DrDetected, PrDetected, DrNodeFound: Boolean;
   DrVersionStr, PrVersionStr: String;
   DeleteDrUserData, DeletePrUserData: Boolean;
+  // 卸载向导表单控件（全局，供事件处理过程访问）
+  UninstForm: TForm;
+  UninstMainPanel: TPanel;
+  UninstDrDataChk, UninstPrDataChk: TCheckBox;
+  UninstDrDataLabel, UninstPrDataLabel: TLabel;
 
 // ─── 检测 DaVinci Resolve ───
 procedure DetectDaVinci();
@@ -253,69 +252,133 @@ begin
   Result := Memo;
 end;
 
-// ─── 卸载开始前：分别询问是否删除 DR / PR 用户数据 ───
+// ─── 卸载开始前：单页向导选择是否删除用户数据 ───
 function InitializeUninstall(): Boolean;
 var
-  DrDataDir, PrStorageRoot: String;
-  HasDrData, HasPrData: Boolean;
-  FindRec: TFindRec;
-  Msg: String;
+  FormWidth, FormHeight: Integer;
+  ClientW, ClientH, ContentH, ButtonAreaH: Integer;
+  ModalResult: Integer;
+  TitleLabel, DescLabel: TLabel;
+  CancelBtn, OkBtn: TButton;
+  ButtonPanel: TPanel;
 begin
   Result := True;
   DeleteDrUserData := False;
   DeletePrUserData := False;
 
-  // DR 用户数据目录：%APPDATA%\momovoicesub
-  DrDataDir := ExpandConstant('{userappdata}\momovoicesub');
-  HasDrData := DirExists(DrDataDir);
+  FormWidth := ScaleX(520);
+  FormHeight := ScaleY(320);
 
-  // PR 用户数据目录：%APPDATA%\Adobe\UXP\PluginsStorage\PPRO\<PR版本>\External\com.momo.voicesub.pr
-  // 不同 PR 版本会有不同的 <PR版本> 子目录（如 25、26），需遍历所有版本
-  PrStorageRoot := ExpandConstant('{userappdata}\Adobe\UXP\PluginsStorage\PPRO');
-  HasPrData := False;
-  if DirExists(PrStorageRoot) then
-  begin
-    if FindFirst(AddBackslash(PrStorageRoot) + '*', FindRec) then
+  UninstForm := TForm.Create(nil);
+  try
+    UninstForm.Caption := '默默配音助手 - 卸载选项';
+    UninstForm.Width := FormWidth;
+    UninstForm.Height := FormHeight;
+    UninstForm.Position := poScreenCenter;
+    // 固定大小对话框，不可拉宽拉高
+    UninstForm.BorderStyle := bsDialog;
+    UninstForm.BorderIcons := [biSystemMenu];
+    UninstForm.Font.Size := 9;
+
+    // ─── 读取 ClientWidth / ClientHeight（手动布局）───
+    ClientW := UninstForm.ClientWidth;
+    ClientH := UninstForm.ClientHeight;
+    ButtonAreaH := ScaleY(50);
+    ContentH := ClientH - ButtonAreaH;
+
+    // ─── 底部按钮容器 ───
+    ButtonPanel := TPanel.Create(UninstForm);
+    ButtonPanel.Parent := UninstForm;
+    ButtonPanel.SetBounds(0, ContentH, ClientW, ButtonAreaH);
+    ButtonPanel.BevelOuter := bvNone;
+
+    // === 主面板 ===
+    UninstMainPanel := TPanel.Create(UninstForm);
+    UninstMainPanel.Parent := UninstForm;
+    UninstMainPanel.SetBounds(0, 0, ClientW, ContentH);
+    UninstMainPanel.BevelOuter := bvNone;
+
+    // 标题
+    TitleLabel := TLabel.Create(UninstForm);
+    TitleLabel.Parent := UninstMainPanel;
+    TitleLabel.SetBounds(ScaleX(20), ScaleY(20), ClientW - ScaleX(40), ScaleY(24));
+    TitleLabel.AutoSize := False;
+    TitleLabel.Font.Size := 11;
+    TitleLabel.Font.Style := [fsBold];
+    TitleLabel.Caption := '请选择是否同时删除用户数据：';
+
+    // 描述
+    DescLabel := TLabel.Create(UninstForm);
+    DescLabel.Parent := UninstMainPanel;
+    DescLabel.SetBounds(ScaleX(20), ScaleY(54), ClientW - ScaleX(40), ScaleY(40));
+    DescLabel.AutoSize := False;
+    DescLabel.WordWrap := True;
+    DescLabel.Caption := '用户数据包括 Azure Speech Key、插件设置、多音字字典、TTS 音频缓存等。保留则重装后自动恢复，删除则需重新填写。';
+
+    // DR 用户数据选项（始终显示）
+    UninstDrDataChk := TCheckBox.Create(UninstForm);
+    UninstDrDataChk.Parent := UninstMainPanel;
+    UninstDrDataChk.SetBounds(ScaleX(24), ScaleY(110), ClientW - ScaleX(48), ScaleY(20));
+    UninstDrDataChk.Caption := '删除 DaVinci Resolve 版用户数据';
+    UninstDrDataChk.Checked := False;
+
+    UninstDrDataLabel := TLabel.Create(UninstForm);
+    UninstDrDataLabel.Parent := UninstMainPanel;
+    UninstDrDataLabel.SetBounds(ScaleX(44), ScaleY(132), ClientW - ScaleX(68), ScaleY(40));
+    UninstDrDataLabel.AutoSize := False;
+    UninstDrDataLabel.WordWrap := True;
+    UninstDrDataLabel.Font.Color := clGrayText;
+    UninstDrDataLabel.Caption := '包括：Azure Speech Key、插件设置、多音字字典、TTS 音频缓存';
+
+    // PR 用户数据选项（始终显示）
+    UninstPrDataChk := TCheckBox.Create(UninstForm);
+    UninstPrDataChk.Parent := UninstMainPanel;
+    UninstPrDataChk.SetBounds(ScaleX(24), ScaleY(180), ClientW - ScaleX(48), ScaleY(20));
+    UninstPrDataChk.Caption := '删除 Premiere Pro 版用户数据（所有 PR 版本）';
+    UninstPrDataChk.Checked := False;
+
+    UninstPrDataLabel := TLabel.Create(UninstForm);
+    UninstPrDataLabel.Parent := UninstMainPanel;
+    UninstPrDataLabel.SetBounds(ScaleX(44), ScaleY(202), ClientW - ScaleX(68), ScaleY(40));
+    UninstPrDataLabel.AutoSize := False;
+    UninstPrDataLabel.WordWrap := True;
+    UninstPrDataLabel.Font.Color := clGrayText;
+    UninstPrDataLabel.Caption := '包括：Azure Speech Key、插件设置、多音字字典、TTS 音频缓存、localStorage';
+
+    // === 按钮 ===
+    // 取消按钮
+    CancelBtn := TButton.Create(UninstForm);
+    CancelBtn.Parent := ButtonPanel;
+    CancelBtn.SetBounds(ClientW - ScaleX(184), ScaleY(11), ScaleX(80), ScaleY(28));
+    CancelBtn.Caption := '取消';
+    CancelBtn.Cancel := True;
+    CancelBtn.ModalResult := mrCancel;
+
+    // 开始卸载按钮
+    OkBtn := TButton.Create(UninstForm);
+    OkBtn.Parent := ButtonPanel;
+    OkBtn.SetBounds(ClientW - ScaleX(96), ScaleY(11), ScaleX(80), ScaleY(28));
+    OkBtn.Caption := '开始卸载';
+    OkBtn.Default := True;
+    OkBtn.ModalResult := mrOk;
+
+    // === 显示表单 ===
+    ModalResult := UninstForm.ShowModal;
+
+    if ModalResult = mrOk then
     begin
-      try
-        repeat
-          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
-          begin
-            if DirExists(AddBackslash(AddBackslash(PrStorageRoot) + FindRec.Name) + 'External\com.momo.voicesub.pr') then
-            begin
-              HasPrData := True;
-              Break;
-            end;
-          end;
-        until not FindNext(FindRec);
-      finally
-        FindClose(FindRec);
-      end;
+      // 用户点击「开始卸载」，读取勾选状态
+      DeleteDrUserData := UninstDrDataChk.Checked;
+      DeletePrUserData := UninstPrDataChk.Checked;
+      Result := True;
+    end
+    else
+    begin
+      // 用户点击「取消」→ 取消整个卸载
+      Result := False;
     end;
-  end;
-
-  // ─── 询问 DR ───
-  if HasDrData then
-  begin
-    Msg := '是否同时清除 DaVinci Resolve 版的用户数据？' + #13#10 + #13#10 +
-           '包括：Azure Speech Key、插件设置、多音字字典、TTS 音频缓存。' + #13#10 +
-           '位置：' + DrDataDir + #13#10 + #13#10 +
-           '· 是：彻底清除，重装后需重新填写 Key。' + #13#10 +
-           '· 否：保留，重装后 Key 和设置自动恢复。';
-    if MsgBox(Msg, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
-      DeleteDrUserData := True;
-  end;
-
-  // ─── 询问 PR ───
-  if HasPrData then
-  begin
-    Msg := '是否同时清除 Premiere Pro 版的用户数据（所有 PR 版本）？' + #13#10 + #13#10 +
-           '包括：Azure Speech Key、插件设置、多音字字典、TTS 音频缓存、localStorage。' + #13#10 +
-           '位置：' + PrStorageRoot + '\<PR版本>\External\com.momo.voicesub.pr' + #13#10 + #13#10 +
-           '· 是：彻底清除，重装后需重新填写 Key。' + #13#10 +
-           '· 否：保留，重装后 Key 和设置自动恢复。';
-    if MsgBox(Msg, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
-      DeletePrUserData := True;
+  finally
+    UninstForm.Free;
   end;
 end;
 
