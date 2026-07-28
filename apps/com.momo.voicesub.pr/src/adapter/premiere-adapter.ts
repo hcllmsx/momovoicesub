@@ -750,11 +750,11 @@ export class PremiereAdapter {
       if (rawData instanceof ArrayBuffer) {
         arrayBuffer = rawData;
       } else if (rawData instanceof Uint8Array) {
-        arrayBuffer = rawData.buffer.slice(rawData.byteOffset, rawData.byteOffset + rawData.byteLength);
+        arrayBuffer = (rawData.buffer as ArrayBuffer).slice(rawData.byteOffset, rawData.byteOffset + rawData.byteLength);
       } else if (rawData && typeof rawData === 'object' && 'buffer' in rawData) {
         // Node.js Buffer
         const u8 = new Uint8Array(rawData);
-        arrayBuffer = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+        arrayBuffer = (u8.buffer as ArrayBuffer).slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
       } else {
         arrayBuffer = new ArrayBuffer(0);
       }

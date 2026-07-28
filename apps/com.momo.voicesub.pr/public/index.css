@@ -660,11 +660,7 @@ body {
 .vp-filter-search {
   width: 100%;
   min-height: 28px;
-  /* UXP 不支持 outline / box-shadow，移除原生聚焦黑边靠改用 sp-textfield 组件（见 HTML） */
-}
-
-.vp-filter-search:focus {
-  /* UXP 不支持 box-shadow，聚焦样式由 sp-textfield 组件原生提供 */
+  /* UXP 不支持 outline / box-shadow，聚焦样式由 sp-textfield 组件原生提供 */
 }
 
 .vp-filter-rows {
