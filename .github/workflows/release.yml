@@ -1,6 +1,6 @@
 # ============================================================
 # 默默配音助手 — Release 工作流
-# 触发：推送 v* 标签时自动构建 exe 安装包并创建 GitHub Release
+# 触发：推送 v* 标签时自动构建 DR/PR 两个安装包并创建 GitHub Release
 #       也可通过 workflow_dispatch 手动触发（仅构建 + artifact，不发 Release）
 # ============================================================
 name: Release
@@ -47,18 +47,25 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      # build.ps1 完成：读取 VERSION → payload 准备 → 版本号同步 → ISCC 编译
+      # build.ps1 完成：读取 VERSION → 准备 payload → 版本号同步 → ISCC 编译 → 输出两个 exe
       # CI 无达芬奇环境时自动跳过 WorkflowIntegration.node 复制（不影响最终用户）
-      - name: Build installer
+      - name: Build installers
         shell: pwsh
         run: pwsh -ExecutionPolicy Bypass -File installer/build.ps1
 
-      # 上传 artifact（即使非 tag 触发也可下载，便于测试）
-      - name: Upload installer artifact
+      # 上传两个 artifact（即使非 tag 触发也可下载，便于测试）
+      - name: Upload DR installer artifact
         uses: actions/upload-artifact@v7
         with:
-          name: momovoicesub-installer
-          path: _output/momovoicesub-setup-*.exe
+          name: momovoicesub-dr-installer
+          path: _output/momovoicesub-dr-setup-*.exe
+          if-no-files-found: error
+
+      - name: Upload PR installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: momovoicesub-pr-installer
+          path: _output/momovoicesub-pr-setup-*.exe
           if-no-files-found: error
 
       # 仅 tag 推送时创建 Release；手动触发只构建不发布
@@ -67,4 +74,6 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           name: '默默配音助手 ${{ github.ref_name }}'
-          files: _output/momovoicesub-setup-*.exe
+          files: |
+            _output/momovoicesub-dr-setup-*.exe
+            _output/momovoicesub-pr-setup-*.exe
