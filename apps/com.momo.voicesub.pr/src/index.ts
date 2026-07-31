@@ -190,13 +190,23 @@ function isChineseLocale(locale: string): boolean {
   return !!locale && (locale.startsWith('zh-') || locale.startsWith('yue-') || locale.startsWith('wuu-'));
 }
 
-/** 根据风格名归类情感强度 */
-function emotionCat(style: string): string {
-  const strong = new Set(['angry', 'excited', 'fearful', 'terrified', 'shouting', 'unfriendly', 'cheerful', 'envy', 'narration-sports-excited', 'live-commercial', 'sports_commentary_excited', 'advertisement_upbeat']);
-  const emotional = new Set(['sad', 'sorrowful', 'calm', 'hopeful', 'serious', 'lyrical', 'narration-professional', 'narration-relaxed', 'embarrassed', 'whispering', 'depressed', 'affectionate', 'disgruntled', 'poetry-reading', 'documentary-narration']);
-  if (strong.has(style)) return 'strong';
-  if (emotional.has(style)) return 'emotional';
-  return 'normal';
+/**
+ * 按 Azure 官方音色技术模型分类。
+ *
+ * - HD 高清音色：ShortName 含 ":"（DragonHD 系列，如 Yunye:DragonHDFlashLatestNeural）
+ * - 多语言音色：ShortName 含 Multilingual
+ * - 多情感音色：有 StyleList（支持情感样式切换）
+ * - 标准神经音色：其他普通 Neural 音色
+ *
+ * 判断顺序很重要：HD 优先（HD 音色也可能有 styles），
+ * 然后多语言，然后多情感，最后标准。
+ */
+function voiceTypeCat(voice: any): string {
+  const sn = voice.shortName || '';
+  if (sn.includes(':')) return 'hd';
+  if (/Multilingual/i.test(sn)) return 'multilingual';
+  if (voice.styles && voice.styles.length > 0) return 'expressive';
+  return 'standard';
 }
 
 // ─── 帮助函数 ───
@@ -1050,7 +1060,7 @@ interface VoicePageState {
   filterLocaleGroup: string;
   filterLocaleSub: string | null;
   filterGender: string;
-  filterEmotion: string;
+  filterVoiceType: string;
   showFavoritesOnly: boolean;
   returnTab: string;
   built: boolean;
@@ -1061,7 +1071,7 @@ const voicePage: VoicePageState = {
   filterLocaleGroup: 'zh',
   filterLocaleSub: null,
   filterGender: 'all',
-  filterEmotion: 'all',
+  filterVoiceType: 'all',
   showFavoritesOnly: false,
   returnTab: 'subtitles',
   built: false,
@@ -1125,9 +1135,8 @@ function filteredVoices(): VoiceInfo[] {
     }
     if (voicePage.filterGender !== 'all' && v.gender !== voicePage.filterGender) return false;
     if (voicePage.showFavoritesOnly && !state.favoriteVoices.includes(v.shortName)) return false;
-    if (voicePage.filterEmotion !== 'all') {
-      const hasMatchingStyle = (v.styles || []).some(s => emotionCat(s) === voicePage.filterEmotion);
-      if (!hasMatchingStyle) return false;
+    if (voicePage.filterVoiceType !== 'all') {
+      if (voiceTypeCat(v) !== voicePage.filterVoiceType) return false;
     }
     return true;
   });
@@ -1256,11 +1265,12 @@ return `
         <span class="vp-tag${voicePage.filterGender === 'Male' ? ' active' : ''}" data-gender="Male">男声</span>
       </div>
       <div class="vp-filter-group">
-        <span class="vp-filter-label">情感</span>
-        <span class="vp-tag${voicePage.filterEmotion === 'all' ? ' active' : ''}" data-emotion="all">全部</span>
-        <span class="vp-tag${voicePage.filterEmotion === 'strong' ? ' active' : ''}" data-emotion="strong">超强情感</span>
-        <span class="vp-tag${voicePage.filterEmotion === 'emotional' ? ' active' : ''}" data-emotion="emotional">有情感</span>
-        <span class="vp-tag${voicePage.filterEmotion === 'normal' ? ' active' : ''}" data-emotion="normal">普通</span>
+        <span class="vp-filter-label">类型</span>
+        <span class="vp-tag${voicePage.filterVoiceType === 'all' ? ' active' : ''}" data-voice-type="all">全部</span>
+        <span class="vp-tag${voicePage.filterVoiceType === 'hd' ? ' active' : ''}" data-voice-type="hd">高清 HD</span>
+        <span class="vp-tag${voicePage.filterVoiceType === 'expressive' ? ' active' : ''}" data-voice-type="expressive">多情感</span>
+        <span class="vp-tag${voicePage.filterVoiceType === 'multilingual' ? ' active' : ''}" data-voice-type="multilingual">多语言</span>
+        <span class="vp-tag${voicePage.filterVoiceType === 'standard' ? ' active' : ''}" data-voice-type="standard">标准</span>
       </div>
       <div class="vp-fav-btn${voicePage.showFavoritesOnly ? ' active' : ''}" role="button" tabindex="0">❤ 收藏</div>
     </div>
@@ -1297,11 +1307,11 @@ function bindFilterEvents() {
     });
   });
 
-  container.querySelectorAll('[data-emotion]').forEach(el => {
+  container.querySelectorAll('[data-voice-type]').forEach(el => {
     el.addEventListener('click', () => {
-      container.querySelectorAll('[data-emotion]').forEach(t => t.classList.remove('active'));
+      container.querySelectorAll('[data-voice-type]').forEach(t => t.classList.remove('active'));
       el.classList.add('active');
-      voicePage.filterEmotion = (el as HTMLElement).dataset.emotion || 'all';
+      voicePage.filterVoiceType = (el as HTMLElement).dataset.voiceType || 'all';
       renderVoiceGrid();
     });
   });

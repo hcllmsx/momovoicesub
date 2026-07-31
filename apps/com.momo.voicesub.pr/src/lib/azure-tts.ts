@@ -451,7 +451,8 @@ export class AzureTtsProvider {
       gender: voice.Gender,
       styles: voice.StyleList || [],
       roles: voice.RoleList || [],
-      wordsPerMinute: Number.parseInt(voice.WordsPerMinute || '0', 10) || null
+      wordsPerMinute: Number.parseInt(voice.WordsPerMinute || '0', 10) || null,
+      voiceType: voice.VoiceType
     }));
   }
 

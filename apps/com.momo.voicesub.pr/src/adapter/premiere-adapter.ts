@@ -676,6 +676,18 @@ export class PremiereAdapter {
       const project = await ppro.Project.getActiveProject();
       if (!project) return [];
 
+      // 获取活动序列 GUID，用于在 .prproj 中精确定位该序列的字幕轨
+      // （避免多序列时按全局索引误选到其他序列的字幕轨）
+      // 注意：sequence.guid 是 Guid 对象（非 string），需调用 toString() 获取字符串表示
+      let activeSequenceGuid = "";
+      try {
+        const seq = await project.getActiveSequence();
+        if (seq && seq.guid) {
+          const g = seq.guid;
+          activeSequenceGuid = typeof g === "string" ? g : (typeof g.toString === "function" ? g.toString() : String(g));
+        }
+      } catch (_) {}
+
       const projectPath = (project as any).path;
       if (!projectPath) {
         console.warn("[Momo] Project path is empty, cannot read .prproj");
@@ -698,7 +710,7 @@ export class PremiereAdapter {
       }
 
       // 解析字幕项（时间 + 文字）
-      const items = this.parseSubtitlesFromPrprojXml(xmlText, captionTrackIndex);
+      const items = this.parseSubtitlesFromPrprojXml(xmlText, captionTrackIndex, activeSequenceGuid);
       console.log(`[Momo] Extracted ${items.length} caption items from .prproj`);
 
       return items;
@@ -794,7 +806,7 @@ export class PremiereAdapter {
    * @param xmlText .prproj 解压后的 XML 文本
    * @param captionTrackIndex 目标字幕轨索引
    */
-  private parseSubtitlesFromPrprojXml(xmlText: string, captionTrackIndex: number): SubtitleItem[] {
+  private parseSubtitlesFromPrprojXml(xmlText: string, captionTrackIndex: number, activeSequenceGuid: string = ""): SubtitleItem[] {
     // ── 第 1 步：建立 ObjectID -> 元素 XML 的映射 ──
     // 用于通过 BlockVectorItem.ObjectRef="M" / TrackItem.ObjectRef="N" 找到对应元素
     // 注意：只有带 ObjectID 属性的元素才会进入此映射（CaptionDataClipTrack 只有 ObjectUID，不在此映射中）
@@ -810,16 +822,46 @@ export class PremiereAdapter {
     }
     console.log(`[Momo] Parsed ${objectById.size} objects with ObjectID.`);
 
-    // ── 第 2 步：按 ObjectUID 定位所有 CaptionDataClipTrack 的完整 XML ──
-    // CaptionDataClipTrack 只有 ObjectUID，没有 ObjectID，需要单独处理
-    // 按文件中出现顺序收集（通常与 DataTrackGroup 中 Track 的 Index 顺序一致）
-    const captionTrackXmls: string[] = [];
-    const ctTrackRegex = /<CaptionDataClipTrack\s+ObjectUID="([^"]+)"[^>]*>([\s\S]*?)<\/CaptionDataClipTrack>/g;
-    let ctMatch: RegExpExecArray | null;
-    while ((ctMatch = ctTrackRegex.exec(xmlText)) !== null) {
-      captionTrackXmls.push(ctMatch[0]);
+    // ── 第 1.5 步：建立 ObjectUID -> 元素 XML 的映射 ──
+    // 用于通过 Sequence.guid / DataTrackGroup.Tracks.Track.ObjectURef 定位 Sequence 和 CaptionDataClipTrack
+    // 注意：只有带 ObjectUID 属性且有闭合标签的元素才会进入此映射
+    const normalizeGuid = (s: string) => s.replace(/[{}]/g, "").trim().toLowerCase();
+    const objectByUid = new Map<string, string>();
+    const objectUidRegex = /<(\w+)\s+ObjectUID="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g;
+    let objUidMatch: RegExpExecArray | null;
+    while ((objUidMatch = objectUidRegex.exec(xmlText)) !== null) {
+      const tag = objUidMatch[1];
+      const objUid = objUidMatch[2];
+      const inner = objUidMatch[3];
+      objectByUid.set(normalizeGuid(objUid), `<${tag} ObjectUID="${objUid}">${inner}</${tag}>`);
     }
-    console.log(`[Momo] Found ${captionTrackXmls.length} CaptionDataClipTrack(s).`);
+
+    // ── 第 2 步：定位 CaptionDataClipTrack ──
+    // 优先基于活动序列 GUID 精确定位该序列下的字幕轨（避免多序列时按全局索引误选）
+    // 失败则回退到全局收集所有 CaptionDataClipTrack（按文件出现顺序，向后兼容）
+    let captionTrackXmls: string[] = [];
+    let locatedBySequence = false;
+
+    const targetSeqGuid = normalizeGuid(activeSequenceGuid);
+    if (targetSeqGuid) {
+      const seqTracks = this.findCaptionTracksForActiveSequence(objectById, objectByUid, targetSeqGuid);
+      if (seqTracks && seqTracks.length > 0) {
+        captionTrackXmls = seqTracks;
+        locatedBySequence = true;
+        console.log(`[Momo] Located ${captionTrackXmls.length} CaptionDataClipTrack(s) by active sequence GUID.`);
+      }
+    }
+
+    if (!locatedBySequence) {
+      // 回退：全局收集所有 CaptionDataClipTrack（不区分序列）
+      // 注意：多序列场景下此回退可能选中错误序列的字幕轨，仅作为 GUID 定位失败时的兜底
+      const ctTrackRegex = /<CaptionDataClipTrack\s+ObjectUID="([^"]+)"[^>]*>([\s\S]*?)<\/CaptionDataClipTrack>/g;
+      let ctMatch: RegExpExecArray | null;
+      while ((ctMatch = ctTrackRegex.exec(xmlText)) !== null) {
+        captionTrackXmls.push(ctMatch[0]);
+      }
+      console.log(`[Momo] Fallback: found ${captionTrackXmls.length} CaptionDataClipTrack(s) globally.`);
+    }
 
     if (captionTrackXmls.length === 0) {
       // 诊断：搜索所有 Caption 开头的标签，帮助识别 SRT 导入等非标准格式
@@ -931,6 +973,103 @@ export class PremiereAdapter {
 
     items.sort((a, b) => a.start - b.start);
     return items;
+  }
+
+  /**
+   * 在 .prproj XML 中定位指定活动序列的所有 CaptionDataClipTrack，按 Track Index 顺序返回。
+   *
+   * 解析链路（基于 .prproj 的对象引用关系）：
+   *   <Sequence ObjectUID="<seqGuid>"> → <TrackGroups>
+   *     → <TrackGroup Index="N"><Second ObjectRef="<dataTrackGroupObjId>"/></TrackGroup>
+   *     → 通过 ObjectRef 在 objectById 中找到 <DataTrackGroup ObjectID="<id>">
+   *     → <Tracks><Track Index="N" ObjectURef="<captionTrackGuid>"/></Tracks>
+   *     → 通过 ObjectURef 在 objectByUid 中找到 <CaptionDataClipTrack ObjectUID="<guid>">
+   *
+   * 这样可以精确锁定当前活动序列下的字幕轨，避免多序列场景下按全局索引误选
+   * 到其他序列的字幕轨（captionTrackIndex 是当前序列内的局部索引，不是全局索引）。
+   *
+   * @param objectById ObjectID(数字) -> 元素 XML 的映射
+   * @param objectByUid ObjectUID(GUID，已归一化) -> 元素 XML 的映射
+   * @param targetSeqGuid 已归一化的活动序列 GUID
+   * @returns 该序列下的 CaptionDataClipTrack XML 数组（按 Track Index 升序）；定位失败返回 null
+   */
+  private findCaptionTracksForActiveSequence(
+    objectById: Map<string, string>,
+    objectByUid: Map<string, string>,
+    targetSeqGuid: string
+  ): string[] | null {
+    // 1. 定位活动序列的 XML
+    const seqXml = objectByUid.get(targetSeqGuid);
+    if (!seqXml) {
+      // 打印 .prproj 中所有 Sequence 的 ObjectUID，方便对比 UXP 返回的 guid 是否一致
+      const allSeqGuids: string[] = [];
+      for (const [uid, xml] of objectByUid) {
+        if (xml.startsWith("<Sequence ")) {
+          allSeqGuids.push(uid);
+        }
+      }
+      console.warn(`[Momo] 在 .prproj 中未找到活动序列 GUID=${targetSeqGuid}；.prproj 中的 Sequence GUID: [${allSeqGuids.join(", ")}]`);
+      return null;
+    }
+
+    // 2. 从 Sequence 的 TrackGroups 中找所有 TrackGroup 的 (Index, ObjectRef)
+    //    结构：<TrackGroup Version="1" Index="N"><First>...</First><Second ObjectRef="X"/></TrackGroup>
+    const trackGroupRefs: { index: number; objectRef: string }[] = [];
+    const tgRegex = /<TrackGroup\s+Version="1"\s+Index="(\d+)"[^>]*>[\s\S]*?<Second\s+ObjectRef="(\d+)"\s*\/?>/g;
+    let tgMatch: RegExpExecArray | null;
+    while ((tgMatch = tgRegex.exec(seqXml)) !== null) {
+      trackGroupRefs.push({ index: parseInt(tgMatch[1], 10), objectRef: tgMatch[2] });
+    }
+    if (trackGroupRefs.length === 0) {
+      console.warn("[Momo] 活动序列中未找到 TrackGroup");
+      return null;
+    }
+
+    // 3. 遍历 TrackGroup，通过 ObjectRef 找到引用的对象，判断是否为 DataTrackGroup
+    //    DataTrackGroup 承载字幕轨（CaptionDataClipTrack）
+    let dataTrackGroupXml: string | null = null;
+    for (const ref of trackGroupRefs) {
+      const groupXml = objectById.get(ref.objectRef) || "";
+      if (groupXml.startsWith("<DataTrackGroup")) {
+        dataTrackGroupXml = groupXml;
+        break;
+      }
+    }
+    if (!dataTrackGroupXml) {
+      console.warn("[Momo] 活动序列中未找到 DataTrackGroup（无字幕轨组）");
+      return null;
+    }
+
+    // 4. 从 DataTrackGroup 的 Tracks 中按 Index 收集 CaptionDataClipTrack 的 ObjectURef
+    //    结构：<Tracks><Track Index="N" ObjectURef="<guid>"/></Tracks>
+    const trackRefs: { index: number; guid: string }[] = [];
+    const trackRegex = /<Track\s+Index="(\d+)"\s+ObjectURef="([^"]+)"\s*\/?>/g;
+    let trackMatch: RegExpExecArray | null;
+    while ((trackMatch = trackRegex.exec(dataTrackGroupXml)) !== null) {
+      trackRefs.push({ index: parseInt(trackMatch[1], 10), guid: trackMatch[2] });
+    }
+    if (trackRefs.length === 0) {
+      console.warn("[Momo] DataTrackGroup 的 Tracks 中未找到字幕轨");
+      return null;
+    }
+
+    // 按 Track Index 升序排序，与 UXP API 的 captionTrackIndex 对齐
+    trackRefs.sort((a, b) => a.index - b.index);
+
+    // 5. 用 ObjectURef 在 objectByUid 中定位 CaptionDataClipTrack 元素
+    const normalizeGuid = (s: string) => s.replace(/[{}]/g, "").trim().toLowerCase();
+    const captionTracks: string[] = [];
+    for (const ref of trackRefs) {
+      const normalizedGuid = normalizeGuid(ref.guid);
+      const ctXml = objectByUid.get(normalizedGuid) || "";
+      if (ctXml) {
+        captionTracks.push(ctXml);
+      } else {
+        console.warn(`[Momo] 未找到 CaptionDataClipTrack ObjectUID=${ref.guid}（DataTrackGroup 引用失效）`);
+      }
+    }
+
+    return captionTracks.length > 0 ? captionTracks : null;
   }
 
   /**
