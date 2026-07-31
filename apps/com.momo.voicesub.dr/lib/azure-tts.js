@@ -369,7 +369,8 @@ class AzureTtsProvider {
       gender: voice.Gender,
       styles: voice.StyleList || [],
       roles: voice.RoleList || [],
-      wordsPerMinute: Number.parseInt(voice.WordsPerMinute || '0', 10) || null
+      wordsPerMinute: Number.parseInt(voice.WordsPerMinute || '0', 10) || null,
+      voiceType: voice.VoiceType
     }));
   }
 
@@ -498,7 +499,8 @@ class AzureTtsProvider {
     });
 
     const wavBuffer = Buffer.from(await response.arrayBuffer());
-    const fileName = `preview_${shortName}.wav`;
+    const safeShortName = String(shortName || '').replace(/[:<>"/\\|?*]/g, '_');
+    const fileName = `preview_${safeShortName}.wav`;
     await fs.writeFile(path.join(previewCacheDir, fileName), wavBuffer);
 
     index.entries[shortName] = {

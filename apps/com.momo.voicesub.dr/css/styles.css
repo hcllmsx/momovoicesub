@@ -99,9 +99,49 @@ button:disabled {
   opacity: 0.45;
 }
 
+/* ═══════════════════════════════════════════════
+   按钮加载动画（配音处理中）
+   ═══════════════════════════════════════════════ */
+.btn-loading {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btnSpin 0.7s linear infinite;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.btn-loading-text {
+  font-size: 12px;
+}
+
+@keyframes btnSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 兼容：btn-secondary 上的 spinner 用深色边框 */
+.btn-secondary.btn-loading .btn-spinner {
+  border-color: rgba(55, 110, 210, 0.25);
+  border-top-color: var(--accent);
+}
+
 body.app-busy,
 body.app-busy * {
-  cursor: wait !important;
+  /* 已废弃：不再使用全屏 cursor:wait，改为按钮上的旋转加载动画 */
+  /* cursor: wait !important; */
 }
 
 ::-webkit-scrollbar {
@@ -3372,6 +3412,29 @@ body.app-busy * {
 
 .account-state.hidden {
   display: none;
+}
+
+/* 加载态：插件启动时查询云端登录状态的过渡占位 */
+.account-loading {
+  align-items: center;
+  justify-content: center;
+  padding: 32px 12px;
+  gap: 10px;
+}
+
+.account-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: btnSpin 0.7s linear infinite;
+  box-sizing: border-box;
+}
+
+.account-loading-text {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .account-intro {

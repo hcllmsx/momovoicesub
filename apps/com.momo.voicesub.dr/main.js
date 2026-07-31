@@ -17,6 +17,10 @@ const WorkflowIntegration = require('./WorkflowIntegration.node');
 const { SettingsStore } = require('./lib/settings-store');
 const { AzureTtsProvider } = require('./lib/azure-tts');
 const { ResolveAdapter } = require('./lib/resolve-adapter');
+const { CloudClient } = require('./lib/cloud-client');
+const { CloudStore } = require('./lib/cloud-store');
+const { CloudTtsProvider } = require('./lib/cloud-tts-provider');
+const { DelegatingTtsProvider } = require('./lib/delegating-tts-provider');
 const packageInfo = require('./package.json');
 
 // 从 manifest.xml 读取插件 Id，保证与达芬奇握手时使用的 id 与 manifest 一致。
@@ -57,6 +61,9 @@ let projectManagerObj = null;
 let settingsStore = null;
 let ttsProvider = null;
 let resolveAdapter = null;
+let cloudClient = null;
+let cloudStore = null;
+let cloudTtsProvider = null;
 
 function sendLog(message, detail = '', level = 'info') {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -133,11 +140,29 @@ async function cleanupResolveInterface() {
 function initServices() {
   const appDataDir = path.join(app.getPath('appData'), 'momovoicesub');
   settingsStore = new SettingsStore({ appDataDir, safeStorage });
-  ttsProvider = new AzureTtsProvider({
+
+  const azureProvider = new AzureTtsProvider({
     getSettings: () => settingsStore.load(),
     getAzureKey: () => settingsStore.getAzureKey(),
     fetchImpl: globalThis.fetch
   });
+
+  cloudClient = new CloudClient({ fetchImpl: globalThis.fetch });
+  cloudStore = new CloudStore({ appDataDir, safeStorage });
+  cloudTtsProvider = new CloudTtsProvider({
+    cloudClient,
+    cloudStore,
+    cacheDir: path.join(appDataDir, 'cache')
+  });
+
+  // 委托 provider：有自填 key 走 AzureTtsProvider，否则登录了云端走 CloudTtsProvider
+  ttsProvider = new DelegatingTtsProvider({
+    azureProvider,
+    cloudProvider: cloudTtsProvider,
+    cloudStore,
+    getAzureKey: () => settingsStore.getAzureKey()
+  });
+
   resolveAdapter = new ResolveAdapter({
     getResolve,
     ttsProvider,
@@ -235,6 +260,161 @@ function registerIpcHandlers() {
     }
     await settingsStore.save({ favoriteVoices: favorites });
     return favorites;
+  });
+
+  // ═══ Cloud 账号相关 IPC ═══
+
+  registerLoggedHandler('cloud:login', async (_event, { email, password }) => {
+    if (!email || !password) throw new Error('邮箱和密码不能为空');
+    const result = await cloudClient.login(email, password);
+    // 从 token 里解出 email（login 返回不含 email，用 JWT payload）
+    let userEmail = email;
+    try {
+      const payload = JSON.parse(Buffer.from(result.access_token.split('.')[1], 'base64').toString('utf8'));
+      userEmail = payload.email || email;
+    } catch {}
+
+    await cloudStore.saveToken({
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
+      email: userEmail,
+      is_admin: result.is_admin,
+      nickname: result.nickname,
+    });
+    sendLog(`云端登录成功：${userEmail}${result.is_admin ? ' (管理员)' : ''}`);
+
+    // 登录成功后自动注册设备，让 Web 端“设备绑定管理”立刻看到此设备
+    try {
+      const deviceFp = await cloudStore.getDeviceFp();
+      await cloudClient.registerDevice(result.access_token, deviceFp);
+      sendLog(`设备已自动注册：${deviceFp.slice(0, 16)}...`);
+    } catch (err) {
+      sendLog(`设备自动注册失败（不影响登录）：${err.message || err}`, '', 'error');
+    }
+
+    return {
+      ok: true,
+      email: userEmail,
+      is_admin: result.is_admin,
+      nickname: result.nickname,
+    };
+  });
+
+  registerLoggedHandler('cloud:logout', async () => {
+    await cloudStore.clearToken();
+    sendLog('已退出云端登录');
+    return { ok: true };
+  });
+
+  registerLoggedHandler('cloud:registerDevice', async () => {
+    const tokenData = await cloudStore.loadToken();
+    if (!tokenData?.access_token) {
+      throw new Error('未登录云端账号');
+    }
+    const deviceFp = await cloudStore.getDeviceFp();
+    await cloudClient.registerDevice(tokenData.access_token, deviceFp);
+    sendLog(`设备已注册：${deviceFp.slice(0, 16)}...`);
+    return { ok: true, device_fp: deviceFp };
+  });
+
+  registerLoggedHandler('cloud:getState', async () => {
+    const tokenData = await cloudStore.loadToken();
+    if (!tokenData?.access_token) {
+      return { isLoggedIn: false };
+    }
+    return {
+      isLoggedIn: true,
+      email: tokenData.email || '',
+      is_admin: tokenData.is_admin || false,
+      nickname: tokenData.nickname || '',
+    };
+  });
+
+  // ═══ Cloud token 自动刷新 ═══
+  // access_token 过期时（API 返回 401），用 refresh_token 刷新新 token 并重试一次。
+  // 刷新失败（refresh_token 也过期）才清除登录状态，避免频繁被登出。
+
+  let _refreshingPromise = null;
+
+  async function ensureValidToken() {
+    const tokenData = await cloudStore.loadToken();
+    if (!tokenData?.access_token) {
+      return { token: null, tokenData: null, refreshed: false };
+    }
+    return { token: tokenData.access_token, tokenData, refreshed: false };
+  }
+
+  /**
+   * 用 refresh_token 刷新 access_token，写入存储并返回新 token。
+   * 并发调用时复用同一个 Promise（避免多条字幕同时 401 时重复刷新）。
+   */
+  async function doRefreshToken(tokenData) {
+    if (!tokenData?.refresh_token) {
+      throw Object.assign(new Error('NO_REFRESH_TOKEN'), { code: 'NO_REFRESH_TOKEN' });
+    }
+    if (_refreshingPromise) return _refreshingPromise;
+
+    _refreshingPromise = (async () => {
+      const refreshed = await cloudClient.refreshToken(tokenData.refresh_token);
+      await cloudStore.saveToken({
+        access_token: refreshed.access_token,
+        refresh_token: refreshed.refresh_token,
+        email: tokenData.email || '',
+        is_admin: refreshed.is_admin || tokenData.is_admin || false,
+        nickname: tokenData.nickname || '',
+      });
+      sendLog('云端 token 已自动刷新');
+      return refreshed.access_token;
+    })().finally(() => { _refreshingPromise = null; });
+
+    return _refreshingPromise;
+  }
+
+  registerLoggedHandler('cloud:getQuota', async () => {
+    let tokenData = await cloudStore.loadToken();
+    if (!tokenData?.access_token) {
+      return { isLoggedIn: false };
+    }
+    try {
+      const quota = await cloudClient.getQuota(tokenData.access_token);
+      return { isLoggedIn: true, quota };
+    } catch (err) {
+      if (err.code === 'TOKEN_EXPIRED') {
+        // access_token 过期，尝试用 refresh_token 刷新
+        try {
+          const newToken = await doRefreshToken(tokenData);
+          const quota = await cloudClient.getQuota(newToken);
+          return { isLoggedIn: true, quota };
+        } catch (refreshErr) {
+          // refresh_token 也失效了，才真正清除登录
+          await cloudStore.clearToken();
+          return { isLoggedIn: false, error: 'TOKEN_EXPIRED' };
+        }
+      }
+      throw err;
+    }
+  });
+
+  registerLoggedHandler('cloud:refreshVoices', async () => {
+    let tokenData = await cloudStore.loadToken();
+    if (!tokenData?.access_token) {
+      throw new Error('未登录云端账号');
+    }
+    try {
+      const voices = await cloudClient.listVoices(tokenData.access_token);
+      await settingsStore.save({ voices });
+      sendLog(`已从云端刷新 ${voices.length} 个音色`);
+      return voices;
+    } catch (err) {
+      if (err.code === 'TOKEN_EXPIRED') {
+        const newToken = await doRefreshToken(tokenData);
+        const voices = await cloudClient.listVoices(newToken);
+        await settingsStore.save({ voices });
+        sendLog(`已从云端刷新 ${voices.length} 个音色`);
+        return voices;
+      }
+      throw err;
+    }
   });
 
   registerLoggedHandler('resolve:getSummary', async () => resolveAdapter.getSummary());

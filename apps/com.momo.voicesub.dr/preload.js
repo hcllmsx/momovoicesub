@@ -28,6 +28,13 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   confirm: (options) => ipcRenderer.invoke('app:confirm', options),
   cleanupResolveInterface: () => ipcRenderer.invoke('resolve:cleanupResolveInterface'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  // Cloud 账号
+  cloudLogin: (email, password) => ipcRenderer.invoke('cloud:login', { email, password }),
+  cloudLogout: () => ipcRenderer.invoke('cloud:logout'),
+  cloudGetState: () => ipcRenderer.invoke('cloud:getState'),
+  cloudGetQuota: () => ipcRenderer.invoke('cloud:getQuota'),
+  cloudRefreshVoices: () => ipcRenderer.invoke('cloud:refreshVoices'),
+  cloudRegisterDevice: () => ipcRenderer.invoke('cloud:registerDevice'),
   onLog: (callback) => {
     ipcRenderer.on('app:log', (_event, payload) => callback(payload));
   }

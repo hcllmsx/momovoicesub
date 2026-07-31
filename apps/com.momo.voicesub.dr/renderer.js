@@ -35,10 +35,11 @@ const STYLE_CN = {
   'sports_commentary': '体育评论', 'sports_commentary_excited': '激动评论'
 };
 
-const EMOTION_CATS = {
-  'strong': '超强情感',
-  'emotional': '有情感',
-  'normal': '普通'
+const VOICE_TYPE_CATS = {
+  'hd': '高清 HD',
+  'expressive': '多情感',
+  'multilingual': '多语言',
+  'standard': '标准'
 };
 
 function escHtml(s) {
@@ -173,7 +174,27 @@ function friendlyErrorMessage(error) {
   if (/Failed to append audio to timeline/i.test(message)) return '音频已生成，但插入时间线失败。请检查目标音频轨是否锁定或不可用。';
   if (/Azure Speech key is required/i.test(message)) return '请先在设置中填写 Azure Speech Key。';
   if (/Azure region or endpoint is required/i.test(message)) return '请先在设置中填写 Azure 区域或 Endpoint。';
+  // 云端鉴权相关错误
+  if (/TOKEN_EXPIRED/.test(message)) return '云端登录已过期，请重新登录。';
+  if (/NOT_LOGGED_IN|未登录云端账号/.test(message)) return '请先登录云端账号。';
+  if (/BANNED|账号已被封禁/.test(message)) return '账号已被封禁，请联系管理员。';
+  if (/设备数已达上限/.test(message)) return message; // 设备数超限，原样返回（已含中文说明）
   return message;
+}
+
+/**
+ * 检测是否是云端鉴权错误（token 过期 / 未登录），是则弹登录窗口
+ * @returns {boolean} 是否为鉴权错误
+ */
+function handleCloudAuthError(error) {
+  const msg = typeof error === 'string' ? error : (error?.message || '');
+  if (/TOKEN_EXPIRED|NOT_LOGGED_IN|未登录云端账号/.test(msg)) {
+    showToast('请先登录云端账号', 'info');
+    const popup = $('loginPopup');
+    if (popup) popup.classList.remove('hidden');
+    return true;
+  }
+  return false;
 }
 
 function log(message) {
@@ -198,14 +219,33 @@ function toggleLogPanel() {
 
 function styleCn(style) { return STYLE_CN[style] || style; }
 
-function setBusy(isBusy) {
+function setBusy(isBusy, btnId) {
   state.busy = isBusy;
-  if (isBusy) {
-    document.body.classList.add('app-busy');
-  } else {
-    document.body.classList.remove('app-busy');
-  }
+  // 不再使用全屏 cursor:wait（体验差），改为在触发按钮上显示旋转加载动画
+  // 保留所有按钮 disabled，防止并发操作
   document.querySelectorAll('button').forEach((b) => { b.disabled = isBusy; });
+
+  // 给触发按钮加 loading 状态（旋转动画 + 文字保留）
+  // 优先用传入的 btnId，否则找当前 active tab 的主操作按钮
+  const targetBtnId = btnId
+    || (state.currentTab === 'manual' ? 'insertManual' : 'generateSubtitles');
+  const btn = $(targetBtnId);
+  if (btn) {
+    if (isBusy) {
+      btn.classList.add('btn-loading');
+      // 保存原始文字，加 spinner
+      if (!btn.dataset.originalText) {
+        btn.dataset.originalText = btn.textContent;
+      }
+      btn.innerHTML = '<span class="btn-spinner"></span><span class="btn-loading-text">处理中...</span>';
+    } else {
+      btn.classList.remove('btn-loading');
+      if (btn.dataset.originalText) {
+        btn.textContent = btn.dataset.originalText;
+        delete btn.dataset.originalText;
+      }
+    }
+  }
 }
 
 function setResult(id, message, kind = '', autoCloseMs = 0) {
@@ -728,7 +768,7 @@ function createVoicePicker(container, options) {
   let filterLocaleGroup = 'zh';
   let filterLocaleSub = null;
   let filterGender = 'all';
-  let filterEmotion = 'all';
+  let filterVoiceType = 'all';
   let filterStyle = 'all';
   let showFavoritesOnly = false;
   let voices = options.voices || [];
@@ -812,12 +852,23 @@ function createVoicePicker(container, options) {
     return Array.from(styleSet).sort();
   }
 
-  function emotionCat(style) {
-    const strong = new Set(['angry', 'excited', 'fearful', 'terrified', 'shouting', 'unfriendly', 'cheerful', 'envy', 'narration-sports-excited', 'live-commercial', 'sports_commentary_excited', 'advertisement_upbeat']);
-    const emotional = new Set(['sad', 'sorrowful', 'calm', 'hopeful', 'serious', 'lyrical', 'narration-professional', 'narration-relaxed', 'embarrassed', 'whispering', 'depressed', 'affectionate', 'disgruntled', 'poetry-reading', 'documentary-narration']);
-    if (strong.has(style)) return 'strong';
-    if (emotional.has(style)) return 'emotional';
-    return 'normal';
+  /**
+   * 按 Azure 官方音色技术模型分类。
+   *
+   * - HD 高清音色：ShortName 含 ":"（DragonHD 系列，如 Yunye:DragonHDFlashLatestNeural）
+   * - 多语言音色：ShortName 含 Multilingual
+   * - 多情感音色：有 StyleList（支持情感样式切换）
+   * - 标准神经音色：其他普通 Neural 音色
+   *
+   * 判断顺序很重要：HD 优先（HD 音色也可能有 styles），
+   * 然后多语言，然后多情感，最后标准。
+   */
+  function voiceTypeCat(voice) {
+    const sn = voice.shortName || '';
+    if (sn.includes(':')) return 'hd';
+    if (/Multilingual/i.test(sn)) return 'multilingual';
+    if (voice.styles && voice.styles.length > 0) return 'expressive';
+    return 'standard';
   }
 
   function filteredVoices() {
@@ -846,9 +897,8 @@ function createVoicePicker(container, options) {
       }
       if (filterGender !== 'all' && v.gender !== filterGender) return false;
       if (showFavoritesOnly && !favorites.includes(v.shortName)) return false;
-      if (filterEmotion !== 'all') {
-        const hasMatchingStyle = (v.styles || []).some(s => emotionCat(s) === filterEmotion);
-        if (!hasMatchingStyle) return false;
+      if (filterVoiceType !== 'all') {
+        if (voiceTypeCat(v) !== filterVoiceType) return false;
       }
       if (filterStyle !== 'all') {
         if (!(v.styles || []).includes(filterStyle)) return false;
@@ -1031,11 +1081,12 @@ function createVoicePicker(container, options) {
           <span class="tag${filterGender === 'Male' ? ' active' : ''}" data-gender="Male">男声</span>
         </div>
         <div class="vp-filter-group">
-          <span class="vp-filter-label">情感</span>
-          <span class="tag${filterEmotion === 'all' ? ' active' : ''}" data-emotion="all">全部</span>
-          <span class="tag${filterEmotion === 'strong' ? ' active' : ''}" data-emotion="strong">超强情感</span>
-          <span class="tag${filterEmotion === 'emotional' ? ' active' : ''}" data-emotion="emotional">有情感</span>
-          <span class="tag${filterEmotion === 'normal' ? ' active' : ''}" data-emotion="normal">普通</span>
+          <span class="vp-filter-label">类型</span>
+          <span class="tag${filterVoiceType === 'all' ? ' active' : ''}" data-voice-type="all">全部</span>
+          <span class="tag${filterVoiceType === 'hd' ? ' active' : ''}" data-voice-type="hd">高清 HD</span>
+          <span class="tag${filterVoiceType === 'expressive' ? ' active' : ''}" data-voice-type="expressive">多情感</span>
+          <span class="tag${filterVoiceType === 'multilingual' ? ' active' : ''}" data-voice-type="multilingual">多语言</span>
+          <span class="tag${filterVoiceType === 'standard' ? ' active' : ''}" data-voice-type="standard">标准</span>
         </div>
         <button class="vp-fav-btn${showFavoritesOnly ? ' active' : ''}">❤ 收藏</button>
       </div>
@@ -1079,11 +1130,11 @@ function createVoicePicker(container, options) {
       });
     });
 
-    container.querySelectorAll('[data-emotion]').forEach(el => {
+    container.querySelectorAll('[data-voice-type]').forEach(el => {
       el.addEventListener('click', () => {
-        container.querySelectorAll('[data-emotion]').forEach(t => t.classList.remove('active'));
+        container.querySelectorAll('[data-voice-type]').forEach(t => t.classList.remove('active'));
         el.classList.add('active');
-        filterEmotion = el.dataset.emotion;
+        filterVoiceType = el.dataset.voiceType;
         renderGrid();
       });
     });
@@ -2238,8 +2289,12 @@ function playPreview(shortName) {
     })
     .catch((error) => {
       if (btn) btn.classList.remove('loading', 'playing');
-      log(`试听失败: ${friendlyErrorMessage(error)}`);
-      showToast(`试听失败: ${friendlyErrorMessage(error)}`, 'error');
+      if (handleCloudAuthError(error)) {
+        showToast('试听失败：请先登录云端账号', 'error');
+      } else {
+        log(`试听失败: ${friendlyErrorMessage(error)}`);
+        showToast(`试听失败: ${friendlyErrorMessage(error)}`, 'error');
+      }
     });
 }
 
@@ -2313,7 +2368,11 @@ async function generateSubtitles() {
     setResult('subtitleResult', `完成：共 ${result.total} 条，插入 ${result.inserted} 条，跳过 ${result.skipped} 条${disabledCount > 0 ? `，忽略已禁用 ${disabledCount} 条` : ''}。目标音频轨：${result.audioTrackIndex}`, 'ok');
     await refreshState();
   } catch (error) {
-    setResult('subtitleResult', friendlyErrorMessage(error), 'error');
+    if (handleCloudAuthError(error)) {
+      setResult('subtitleResult', '云端登录已过期，请重新登录后重试。', 'error');
+    } else {
+      setResult('subtitleResult', friendlyErrorMessage(error), 'error');
+    }
   } finally {
     setBusy(false);
   }
@@ -2346,7 +2405,11 @@ async function insertManual() {
     setResult('manualResult', `已插入到 ${result.currentTimecode}（帧 ${result.recordFrame}），目标音频轨：${result.audioTrackIndex}`, 'ok');
     await refreshState();
   } catch (error) {
-    setResult('manualResult', friendlyErrorMessage(error), 'error');
+    if (handleCloudAuthError(error)) {
+      setResult('manualResult', '云端登录已过期，请重新登录后重试。', 'error');
+    } else {
+      setResult('manualResult', friendlyErrorMessage(error), 'error');
+    }
   } finally {
     setBusy(false);
   }
@@ -2812,7 +2875,11 @@ async function refreshVoices() {
     populateVoices();
     setResult('settingsResult', `已刷新 ${state.voices.length} 个音色。`, 'ok');
   } catch (error) {
-    setResult('settingsResult', friendlyErrorMessage(error), 'error');
+    if (handleCloudAuthError(error)) {
+      setResult('settingsResult', '云端登录已过期，请重新登录。', 'error');
+    } else {
+      setResult('settingsResult', friendlyErrorMessage(error), 'error');
+    }
   } finally {
     setBusy(false);
   }
@@ -3453,6 +3520,12 @@ function setupEvents() {
       document.querySelectorAll('.tab-panel').forEach(item => item.classList.remove('active'));
       button.classList.add('active');
       $(button.dataset.tab).classList.add('active');
+
+      // 切到设置页时，根据登录状态自动切换"连接设置"选项卡：
+      // 已登录云端 → 显示"登录账号"面板；未登录 → 显示"自填 Key"面板
+      if (button.dataset.tab === 'settings') {
+        autoSelectAuthTab();
+      }
     });
   });
 
@@ -3744,28 +3817,258 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   const loginPopupCloseBtn = $('loginPopupClose');
   if (loginPopupCloseBtn) loginPopupCloseBtn.addEventListener('click', closeLoginPopup);
 
-  // 登录表单：仅做 UI 占位，未接真实接口时阻止默认提交
+  // ═══ 云端账号：刷新账号状态 + 配额显示 ═══
+
+  /**
+   * 根据认证状态自动切换"连接设置"的选项卡：
+   *   1. 有自填 Azure Key → "自填 Key"（优先级最高，配音走本地 key 路线）
+   *   2. 无自填 key + 已登录云端 → "登录账号"
+   *   3. 都没有 → "自填 Key"（默认，引导用户填写）
+   * 仅在用户切到设置页时触发，不干扰用户手动切换。
+   */
+  async function autoSelectAuthTab() {
+    try {
+      const hasAzureKey = state.settings?.hasAzureKey;
+      if (hasAzureKey) {
+        const tabBtn = document.querySelector('.auth-tab[data-auth-tab="apikey"]');
+        if (tabBtn && !tabBtn.classList.contains('active')) tabBtn.click();
+        return;
+      }
+      const cloudState = await window.momoVoiceSub.cloudGetState();
+      const targetTab = cloudState.isLoggedIn ? 'account' : 'apikey';
+      const tabBtn = document.querySelector(`.auth-tab[data-auth-tab="${targetTab}"]`);
+      if (tabBtn && !tabBtn.classList.contains('active')) {
+        tabBtn.click();
+      }
+    } catch {
+      // 查询失败时不干扰默认状态（保持"自填 Key"激活）
+    }
+  }
+
+  async function refreshCloudAccount() {
+    const loadingDiv = $('accountLoading');
+    const loggedOutDiv = $('accountLoggedOut');
+    const loggedInDiv = $('accountLoggedIn');
+    if (!loggedOutDiv || !loggedInDiv) return;
+
+    // 进入加载态：隐藏 loggedOut/loggedIn，显示 loading
+    // 避免 DOMContentLoaded 后异步查询期间闪现"登录账号"按钮
+    if (loadingDiv) loadingDiv.classList.remove('hidden');
+    loggedOutDiv.classList.add('hidden');
+    loggedInDiv.classList.add('hidden');
+
+    try {
+      const state = await window.momoVoiceSub.cloudGetState();
+      if (!state.isLoggedIn) {
+        if (loadingDiv) loadingDiv.classList.add('hidden');
+        loggedOutDiv.classList.remove('hidden');
+        return;
+      }
+
+      // 已登录，获取配额
+      const quotaRes = await window.momoVoiceSub.cloudGetQuota();
+      if (!quotaRes.isLoggedIn) {
+        // token 过期
+        if (loadingDiv) loadingDiv.classList.add('hidden');
+        loggedOutDiv.classList.remove('hidden');
+        showToast('登录已过期，请重新登录', 'info');
+        openLoginPopup();
+        return;
+      }
+
+      if (loadingDiv) loadingDiv.classList.add('hidden');
+      loggedOutDiv.classList.add('hidden');
+      loggedInDiv.classList.remove('hidden');
+
+      // 更新账号信息
+      const emailEl = $('accountEmail');
+      if (emailEl) emailEl.textContent = state.email || quotaRes.quota?.email || 'user@example.com';
+
+      const planBadge = $('accountPlanBadge');
+      if (planBadge) {
+        const plan = quotaRes.quota?.plan || 'free';
+        planBadge.textContent = plan === 'free' ? '免费版' : (plan === 'pro' ? '专业版' : plan);
+      }
+
+      const planExpire = $('accountPlanExpire');
+      if (planExpire) {
+        const exp = quotaRes.quota?.expires_at;
+        planExpire.textContent = exp ? `有效期至 ${new Date(exp).toLocaleDateString()}` : '长期有效';
+      }
+
+      // 更新配额显示
+      const std = quotaRes.quota?.std_chars;
+      if (std) {
+        const leftEl = $('quotaCharsLeft');
+        const totalEl = $('quotaCharsTotal');
+        const barEl = $('quotaCharsBar');
+        if (leftEl) leftEl.textContent = (std.remaining ?? 0).toLocaleString();
+        if (totalEl) totalEl.textContent = (std.total ?? 0).toLocaleString();
+        if (barEl && std.total > 0) {
+          const pct = Math.max(0, Math.min(100, (std.remaining / std.total) * 100));
+          barEl.style.width = `${pct}%`;
+        }
+      }
+
+      // 神经语音（终身）配额
+      const neural = quotaRes.quota?.neural_chars;
+      if (neural) {
+        const nLeftEl = $('quotaNeuralLeft');
+        const nTotalEl = $('quotaNeuralTotal');
+        const nBarEl = $('quotaNeuralBar');
+        if (nLeftEl) nLeftEl.textContent = (neural.remaining ?? 0).toLocaleString();
+        if (nTotalEl) nTotalEl.textContent = (neural.total ?? 0).toLocaleString();
+        if (nBarEl && neural.total > 0) {
+          const nPct = Math.max(0, Math.min(100, (neural.remaining / neural.total) * 100));
+          nBarEl.style.width = `${nPct}%`;
+        }
+      }
+
+      const dev = quotaRes.quota?.devices;
+      if (dev) {
+        const devEl = $('quotaDevices');
+        const devMaxEl = $('quotaDevicesMax');
+        if (devEl) devEl.textContent = String(dev.count ?? 0);
+        if (devMaxEl) devMaxEl.textContent = dev.is_unlimited ? '无限制' : String(dev.max ?? 0);
+      }
+
+      // 已登录状态下，后台静默注册/刷新设备绑定（确保 Web 端能看到本机）
+      window.momoVoiceSub.cloudRegisterDevice().catch(err => {
+        log(`[云端] 设备注册失败: ${err.message}`);
+      });
+    } catch (err) {
+      log(`[云端] 刷新账号状态失败: ${err.message}`);
+      // 查询失败时降级为未登录状态（隐藏 loading，显示登录按钮）
+      if (loadingDiv) loadingDiv.classList.add('hidden');
+      loggedOutDiv.classList.remove('hidden');
+      loggedInDiv.classList.add('hidden');
+    }
+  }
+
+  // ═══ 登录表单：调用云端 API ═══
   const signinForm = $('loginSigninForm');
   if (signinForm) {
-    signinForm.addEventListener('submit', (e) => {
+    signinForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      log('[云端登录] UI 占位：尚未接入真实登录接口');
+      const email = $('loginEmail')?.value?.trim();
+      const password = $('loginPassword')?.value;
+      if (!email || !password) {
+        showToast('请输入邮箱和密码', 'error');
+        return;
+      }
+
+      const submitBtn = signinForm.querySelector('.login-submit');
+      const originalText = submitBtn?.textContent;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '登录中...';
+      }
+
+      try {
+        await window.momoVoiceSub.cloudLogin(email, password);
+        showToast('登录成功', 'ok');
+        closeLoginPopup();
+        if ($('loginPassword')) $('loginPassword').value = '';
+        await refreshCloudAccount();
+        // 自动切换到"登录账号"面板
+        const accountTab = document.querySelector('.auth-tab[data-auth-tab="account"]');
+        if (accountTab) accountTab.click();
+      } catch (err) {
+        showToast(err.message || '登录失败', 'error');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText || '登录';
+        }
+      }
     });
   }
+
+  // 微信登录（暂未启用）
   const wechatBtn = $('loginWechat');
   if (wechatBtn) {
     wechatBtn.addEventListener('click', () => {
-      log('[云端登录] UI 占位：微信扫码登录暂未启用');
+      showToast('微信扫码登录暂未启用，请用邮箱登录', 'info');
     });
   }
-  // 登录弹窗：跳转到官网注册
+
+  // 跳转到官网注册
   const signupWebLink = $('openSignupWeb');
   if (signupWebLink) {
     signupWebLink.addEventListener('click', (e) => {
       e.preventDefault();
-      window.momoVoiceSub.openExternal('https://space.bilibili.com/255947051');
+      window.momoVoiceSub.openExternal('https://momovoicesub.sxrec.com/login');
     });
   }
+
+  // 忘记密码 → 跳转官网
+  const forgotLink = $('loginForgot');
+  if (forgotLink) {
+    forgotLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.momoVoiceSub.openExternal('https://momovoicesub.sxrec.com/login');
+    });
+  }
+
+  // 退出登录
+  const logoutBtn = $('accountLogout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      const confirmed = await window.momoVoiceSub.confirm({ message: '确认退出云端登录？' });
+      if (!confirmed) return;
+      await window.momoVoiceSub.cloudLogout();
+      await refreshCloudAccount();
+      showToast('已退出登录', 'info');
+    });
+  }
+
+  // 刷新配额
+  const refreshQuotaBtn = $('refreshQuota');
+  if (refreshQuotaBtn) {
+    refreshQuotaBtn.addEventListener('click', async () => {
+      refreshQuotaBtn.disabled = true;
+      try {
+        await refreshCloudAccount();
+        showToast('配额已刷新', 'ok');
+      } catch (err) {
+        showToast(err.message || '刷新失败', 'error');
+      } finally {
+        refreshQuotaBtn.disabled = false;
+      }
+    });
+  }
+
+  // 续费/升级 → 跳转官网
+  const buyPlanBtn = $('openBuyPlan');
+  if (buyPlanBtn) {
+    buyPlanBtn.addEventListener('click', () => {
+      window.momoVoiceSub.openExternal('https://momovoicesub.sxrec.com/pricing');
+    });
+  }
+
+  // 刷新音色（云端模式）
+  const cloudRefreshVoicesBtn = $('cloudRefreshVoicesBtn');
+  if (cloudRefreshVoicesBtn) {
+    cloudRefreshVoicesBtn.addEventListener('click', async () => {
+      cloudRefreshVoicesBtn.disabled = true;
+      const originalText = cloudRefreshVoicesBtn.textContent;
+      cloudRefreshVoicesBtn.textContent = '刷新中...';
+      try {
+        const voices = await window.momoVoiceSub.cloudRefreshVoices();
+        state.voices = voices;
+        populateVoices();
+        showToast(`已刷新 ${voices.length} 个音色`, 'ok');
+      } catch (err) {
+        showToast(err.message || '刷新音色失败', 'error');
+      } finally {
+        cloudRefreshVoicesBtn.disabled = false;
+        cloudRefreshVoicesBtn.textContent = originalText || '刷新音色';
+      }
+    });
+  }
+
+  // 初始化时检查云端登录状态
+  refreshCloudAccount().catch(err => log(`[云端] 初始化失败: ${err.message}`));
 
   window.addEventListener('beforeunload', () => {
     window.momoVoiceSub.cleanupResolveInterface();

@@ -808,7 +808,7 @@ class ResolveAdapter {
       }
 
       const maxFrames = sub.durationFrames;
-      const cacheKey = sha1(JSON.stringify({ mode: 'subtitle', text, voiceSettings, annotations: sub.annotations }));
+      const cacheKey = sha1(JSON.stringify({ mode: 'subtitle', text, voiceSettings, annotations: sub.annotations, v: 2 }));
       const speakerName = await voiceDisplayName(this.settingsStore, voiceSettings.voice);
       const clipName = `${sub.startFrame}_${sanitizeName(textPreview(text))}_${speakerName}_momo`;
 
@@ -884,7 +884,7 @@ class ResolveAdapter {
       await project.GetSetting('timelineFrameRate'),
       startFrame
     );
-    const cacheKey = sha1(JSON.stringify({ manual: true, text, voiceSettings }));
+    const cacheKey = sha1(JSON.stringify({ manual: true, text, voiceSettings, v: 2 }));
     const speakerName = await voiceDisplayName(this.settingsStore, voiceSettings.voice);
     const clipName = `${recordFrame}_${sanitizeName(textPreview(text))}_${speakerName}_momo`;
 

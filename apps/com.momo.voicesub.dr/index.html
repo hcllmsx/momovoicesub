@@ -2,7 +2,7 @@
 <html lang="zh-CN" spellcheck="false">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://momovoicesub-api.sxrec.com https://momovoicesub.sxrec.com">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>默默配音助手</title>
   <link rel="stylesheet" href="css/styles.css">
@@ -289,7 +289,11 @@
 
             <!-- 登录账号 面板（云端模式 · UI 占位） -->
             <div class="auth-panel" data-auth-panel="account">
-              <div id="accountLoggedOut" class="account-state">
+              <div id="accountLoading" class="account-state account-loading">
+                <div class="account-loading-spinner"></div>
+                <div class="account-loading-text">正在加载登录状态…</div>
+              </div>
+              <div id="accountLoggedOut" class="account-state hidden">
                 <div class="account-hero">
                   <div class="account-hero-icon">☁️</div>
                   <div class="account-hero-title">登录 MoMoVoiceSub 云端</div>
@@ -317,12 +321,20 @@
                 </div>
                 <div class="account-quota-grid">
                   <div class="quota-cell">
-                    <div class="quota-label">本月剩余字符</div>
+                    <div class="quota-label">标准语音（本月）</div>
                     <div class="quota-value">
                       <span id="quotaCharsLeft">—</span>
-                      <span class="quota-unit"> / <span id="quotaCharsTotal">—</span></span>
+                      <span class="quota-unit"> / <span id="quotaCharsTotal">—</span> 字符</span>
                     </div>
                     <div class="quota-bar"><div class="quota-bar-fill" id="quotaCharsBar"></div></div>
+                  </div>
+                  <div class="quota-cell">
+                    <div class="quota-label">神经语音（终身）</div>
+                    <div class="quota-value">
+                      <span id="quotaNeuralLeft">—</span>
+                      <span class="quota-unit"> / <span id="quotaNeuralTotal">—</span> 字符</span>
+                    </div>
+                    <div class="quota-bar"><div class="quota-bar-fill" id="quotaNeuralBar"></div></div>
                   </div>
                   <div class="quota-cell">
                     <div class="quota-label">已绑定设备</div>
@@ -331,16 +343,10 @@
                       <span class="quota-unit"> / <span id="quotaDevicesMax">3</span> 台</span>
                     </div>
                   </div>
-                  <div class="quota-cell">
-                    <div class="quota-label">云端缓存命中</div>
-                    <div class="quota-value">
-                      <span id="quotaHitRate">0</span>
-                      <span class="quota-unit">%</span>
-                    </div>
-                  </div>
                 </div>
                 <div class="card-footer settings-actions">
                   <button id="refreshQuota" class="btn btn-secondary">刷新配额</button>
+                  <button id="cloudRefreshVoicesBtn" class="btn btn-secondary">刷新音色</button>
                   <button id="openBuyPlan" class="btn btn-primary">续费 / 升级</button>
                 </div>
               </div>
@@ -565,5 +571,6 @@
   </div>
 
   <script src="renderer.js"></script>
+
 </body>
 </html>
