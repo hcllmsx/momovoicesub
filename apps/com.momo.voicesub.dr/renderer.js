@@ -135,7 +135,7 @@ const state = {
   selectedAudioTrack: 'auto',
   selectedOverwrite: 'skip',
   selectedManualAudioTrack: 'auto',
-  selectedManualOverwrite: 'allowDuplicate',
+  selectedManualOverwrite: 'skip',
   loadedSubtitleTrack: null,
   srtItems: [],
   srtFileName: '',
@@ -144,6 +144,8 @@ const state = {
   updateLatestVersion: '', // 远程最新版本号
   initialized: false,
   disabledFrames: new Set(),
+  // 当前激活的标签页 ID（subtitles / manual / settings），供 setBusy 定位触发按钮
+  currentTab: 'subtitles',
   // 当前 Resolve 时间线名，用于检测时间线切换并联动字幕列表
   currentTimelineName: ''
 };
@@ -1393,12 +1395,33 @@ async function loadSubtitleTable() {
   try {
     // 仅在切换字幕轨时重置禁用集合，同一字幕轨的多次加载（如生成完成后刷新）应保留禁用状态
     const trackChanged = state.loadedSubtitleTrack !== state.selectedSubtitleTrack;
-    state.subtitleItems = await window.momoVoiceSub.getSubtitleItems(Number(state.selectedSubtitleTrack));
-    state.subtitleAnnotations = new Map();
+    const freshItems = await window.momoVoiceSub.getSubtitleItems(Number(state.selectedSubtitleTrack));
+
     if (trackChanged) {
+      // 切换到新字幕轨：完全使用 DR 返回的数据
+      state.subtitleItems = freshItems;
+      state.subtitleAnnotations = new Map();
       state.disabledFrames = new Set();
+    } else {
+      // 同一字幕轨刷新（如配音完成后自动刷新）：
+      // DR 返回的是纯文本，若直接覆盖会丢失 item.text 中内联的 [拼音] / [pause:] 标注。
+      // 以 DR 返回的结构（帧号、时间码等）为准，但若本地已有标注/编辑过的文本则保留。
+      const oldByFrame = new Map();
+      for (const old of state.subtitleItems) {
+        oldByFrame.set(old.startFrame, old);
+      }
+      state.subtitleItems = freshItems.map(fresh => {
+        const old = oldByFrame.get(fresh.startFrame);
+        if (old && old.text && old.text !== fresh.text) {
+          // 本地文本与 DR 返回不同 → 用户在插件内做过纠音标注或编辑，保留本地版本
+          return { ...fresh, text: old.text };
+        }
+        return fresh;
+      });
     }
+
     state.loadedSubtitleTrack = state.selectedSubtitleTrack;
+    state.subtitleAnnotations = new Map();
     for (const item of state.subtitleItems) {
       state.subtitleAnnotations.set(item.startFrame, JSON.parse(JSON.stringify(item.annotations || [])));
     }
@@ -2258,7 +2281,7 @@ function populateVoices() {
 
 function playPreview(shortName) {
   const audio = $('previewAudio');
-  
+
   // 1. 停止当前正在播放的音频并重置所有试听按钮状态
   audio.pause();
   document.querySelectorAll('.vp-card-preview-btn').forEach((b) => {
@@ -2268,34 +2291,50 @@ function playPreview(shortName) {
   const btn = document.querySelector(`.vp-card[data-short-name="${shortName}"] .vp-card-preview-btn`);
   if (btn) btn.classList.add('loading');
 
-  window.momoVoiceSub.previewVoice(shortName)
-    .then((dataUri) => {
-      // 检查此时按钮是否依然属于当前试听
-      if (btn && !btn.classList.contains('loading')) return;
+  // 记录本次试听标识，防止快速连续点击时旧请求覆盖新状态
+  const previewToken = shortName + '|' + Date.now();
+  if (btn) btn.dataset.previewToken = previewToken;
 
-      audio.src = dataUri;
-      audio.onplaying = () => {
-        if (btn && btn.classList.contains('loading')) {
-          btn.classList.remove('loading');
-          btn.classList.add('playing');
-        }
-      };
-      audio.onended = () => {
-        if (btn) btn.classList.remove('loading', 'playing');
-      };
-      audio.play().catch(() => {
-        if (btn) btn.classList.remove('loading', 'playing');
-      });
-    })
-    .catch((error) => {
-      if (btn) btn.classList.remove('loading', 'playing');
-      if (handleCloudAuthError(error)) {
-        showToast('试听失败：请先登录云端账号', 'error');
-      } else {
-        log(`试听失败: ${friendlyErrorMessage(error)}`);
-        showToast(`试听失败: ${friendlyErrorMessage(error)}`, 'error');
-      }
+  // 用双重 rAF 确保浏览器先完成 loading 状态的绘制，再发起 IPC 调用。
+  // 否则缓存命中时 IPC 在同一帧内返回，loading class 还没来得及绘制就被移除，
+  // 用户看不到任何转圈动画。
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      // 如果用户在 rAF 期间又点了别的试听按钮，放弃本次请求
+      if (btn && btn.dataset.previewToken !== previewToken) return;
+
+      window.momoVoiceSub.previewVoice(shortName)
+        .then((dataUri) => {
+          // 检查此时按钮是否依然属于当前试听
+          if (btn && (btn.dataset.previewToken !== previewToken || !btn.classList.contains('loading'))) return;
+
+          audio.src = dataUri;
+          audio.onplaying = () => {
+            if (btn && btn.dataset.previewToken === previewToken && btn.classList.contains('loading')) {
+              btn.classList.remove('loading');
+              btn.classList.add('playing');
+            }
+          };
+          audio.onended = () => {
+            if (btn) btn.classList.remove('loading', 'playing');
+          };
+          audio.play().catch(() => {
+            if (btn) btn.classList.remove('loading', 'playing');
+          });
+        })
+        .catch((error) => {
+          if (btn && btn.dataset.previewToken === previewToken) {
+            btn.classList.remove('loading', 'playing');
+          }
+          if (handleCloudAuthError(error)) {
+            showToast('试听失败：请先登录云端账号', 'error');
+          } else {
+            log(`试听失败: ${friendlyErrorMessage(error)}`);
+            showToast(`试听失败: ${friendlyErrorMessage(error)}`, 'error');
+          }
+        });
     });
+  });
 }
 
 // ─── Voice Settings ───
@@ -3520,6 +3559,9 @@ function setupEvents() {
       document.querySelectorAll('.tab-panel').forEach(item => item.classList.remove('active'));
       button.classList.add('active');
       $(button.dataset.tab).classList.add('active');
+
+      // 跟踪当前激活的标签页，供 setBusy 选择正确的触发按钮
+      state.currentTab = button.dataset.tab;
 
       // 切到设置页时，根据登录状态自动切换"连接设置"选项卡：
       // 已登录云端 → 显示"登录账号"面板；未登录 → 显示"自填 Key"面板

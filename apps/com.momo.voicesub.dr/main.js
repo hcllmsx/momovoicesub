@@ -81,7 +81,33 @@ function summarizePayload(payload) {
   const copy = JSON.parse(JSON.stringify(payload));
   if (copy.azureKey) copy.azureKey = '[redacted]';
   if (copy.settings?.azureKey) copy.settings.azureKey = '[redacted]';
+  // 精简日志中过长的数组字段，避免多音字字典/字幕列表刷屏（仅影响日志摘要，不影响实际 payload）
+  truncateForLog(copy);
   return JSON.stringify(copy);
+}
+
+/**
+ * 递归遍历对象，将过长的数组字段替换为 "[N items]" 占位符。
+ * 仅针对已知的大体积字段（polyphonicDict / subtitleItems / voices / annotations），
+ * 其他小数组保留原样，确保日志仍可读且不丢关键信息。
+ */
+function truncateForLog(obj) {
+  if (!obj || typeof obj !== 'object') return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      if (item && typeof item === 'object') truncateForLog(item);
+    }
+    return;
+  }
+  const KEYS_TO_TRUNCATE = new Set(['polyphonicDict', 'subtitleItems', 'voices', 'builtinPolyDict']);
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (Array.isArray(val) && KEYS_TO_TRUNCATE.has(key) && val.length > 0) {
+      obj[key] = `[${val.length} items]`;
+    } else if (val && typeof val === 'object') {
+      truncateForLog(val);
+    }
+  }
 }
 
 function registerLoggedHandler(channel, handler) {
