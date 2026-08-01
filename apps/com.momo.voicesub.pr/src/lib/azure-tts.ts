@@ -2,6 +2,7 @@
 import uxp from "uxp";
 import { wavDurationFrames } from "./wav";
 import { sha1Hex } from "./sha1";
+import { buildPreviewText } from "./preview-text";
 import polyphonicBuiltin from "./polyphonic-builtin.json";
 
 const storage = uxp.storage;
@@ -693,13 +694,7 @@ export class AzureTtsProvider {
       previewFolder = await dataFolder.createFolder('preview');
     }
 
-    const isChinese = locale && (String(locale).startsWith('zh-') || String(locale).startsWith('yue-') || String(locale).startsWith('wuu-'));
-    const rawName = localName || displayName || '';
-    const cleanName = rawName.replace(/\b(Dragon|HD|Flash|Latest|Neural|Multilingual|Online|TTS|V\d+|\d+[KkMm]Hz)\b/g, '').replace(/\s{2,}/g, ' ').trim();
-
-    const previewText = isChinese
-      ? `你好，感谢使用默默配音助手，${cleanName}很高兴为你服务。`
-      : `Hello, thank you for using MOMO VoiceSub. ${cleanName} is very glad to serve you.`;
+    const previewText = buildPreviewText({ locale, localName, displayName });
 
     const index = await this.readPreviewCacheIndex(previewFolder);
     const cached = index.entries[shortName];

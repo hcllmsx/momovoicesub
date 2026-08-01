@@ -190,6 +190,41 @@ class CloudClient {
   }
 
   /**
+   * 获取预生成的试听音频（公开接口，不需要 token，不消耗配额）。
+   *
+   * 云端已通过管理员脚本预生成所有音色的试听音频并存储在 Supabase Storage。
+   * 此接口直接返回预生成的音频，不经过 Azure TTS，不消耗用户配额。
+   *
+   * @param {string} shortName 音色短名
+   * @returns {Promise<{wavBuffer: Buffer|null}>}
+   *   - wavBuffer 非空：成功获取预生成音频
+   *   - wavBuffer 为 null：云端尚未预生成此音色，调用方应回退到 synthesize()
+   */
+  async fetchPreview(shortName) {
+    try {
+      const encoded = encodeURIComponent(shortName);
+      const response = await this.fetchImpl(
+        `${this.baseUrl}/api/tts/preview/${encoded}`,
+        { method: 'GET' }
+      );
+
+      // 404 = 尚未预生成；其他非 200 也视为不可用，统一回退
+      if (!response.ok) {
+        return { wavBuffer: null };
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+        return { wavBuffer: null };
+      }
+      return { wavBuffer: Buffer.from(arrayBuffer) };
+    } catch {
+      // 网络异常等，回退到 synthesize
+      return { wavBuffer: null };
+    }
+  }
+
+  /**
    * 从已读取的 ArrayBuffer 尝试解析 JSON（失败返回空对象）
    */
   _tryParseJson(arrayBuffer) {

@@ -1,5 +1,6 @@
 'use strict';
 
+const { buildPreviewText } = require('./preview-text');
 const crypto = require('crypto');
 const fs = (() => {
   try { return require('fs/promises'); } catch (_) {
@@ -457,15 +458,7 @@ class AzureTtsProvider {
     const previewCacheDir = path.join(targetDir, 'preview');
     await fs.mkdir(previewCacheDir, { recursive: true });
 
-    const isChinese = locale && (String(locale).startsWith('zh-') || String(locale).startsWith('yue-') || String(locale).startsWith('wuu-'));
-
-    // 移除技术后缀（Dragon、HD、Flash、Latest 等），避免 TTS 读出奇怪词语
-    const rawName = localName || displayName || '';
-    const cleanName = rawName.replace(/\b(Dragon|HD|Flash|Latest|Neural|Multilingual|Online|TTS|V\d+|\d+[KkMm]Hz)\b/g, '').replace(/\s{2,}/g, ' ').trim();
-
-    const previewText = isChinese
-      ? `你好，感谢使用默默配音助手，${cleanName}很高兴为你服务。`
-      : `Hello, thank you for using MOMO VoiceSub. ${cleanName} is very glad to serve you.`;
+    const previewText = buildPreviewText({ locale, localName, displayName });
 
     const index = await this.readPreviewCacheIndex(previewCacheDir);
     const cached = index.entries[shortName];

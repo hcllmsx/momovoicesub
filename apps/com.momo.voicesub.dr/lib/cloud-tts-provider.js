@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildPreviewText } = require('./preview-text');
+
 /**
  * 云端 TTS Provider
  * 与 AzureTtsProvider 接口相同，但通过云端 API 合成（无需本地 Azure Key）
@@ -211,13 +213,7 @@ class CloudTtsProvider {
     const previewCacheDir = path.join(targetDir, 'preview');
     await fs.mkdir(previewCacheDir, { recursive: true });
 
-    const isChinese = locale && (String(locale).startsWith('zh-') || String(locale).startsWith('yue-') || String(locale).startsWith('wuu-'));
-    const rawName = localName || displayName || '';
-    const cleanName = rawName.replace(/\b(Dragon|HD|Flash|Latest|Neural|Multilingual|Online|TTS|V\d+|\d+[KkMm]Hz)\b/g, '').replace(/\s{2,}/g, ' ').trim();
-
-    const previewText = isChinese
-      ? `你好，感谢使用默默配音助手，${cleanName}很高兴为你服务。`
-      : `Hello, thank you for using MOMO VoiceSub. ${cleanName} is very glad to serve you.`;
+    const previewText = buildPreviewText({ locale, localName, displayName });
 
     // 检查预览缓存
     const index = await readCacheIndex(path.join(previewCacheDir, 'preview-index.json'));
@@ -232,7 +228,34 @@ class CloudTtsProvider {
       } catch {}
     }
 
-    // 调用云端 API
+    // 优先尝试从云端预生成音频下载（公开接口，不需要登录，不消耗配额）
+    // 云端已预先合成好所有音色的试听音频，存放在 Supabase Storage
+    // 这样试听不会消耗用户的 Azure 配额
+    try {
+      const { wavBuffer: previewBuffer } = await this.cloudClient.fetchPreview(shortName);
+      if (previewBuffer && previewBuffer.length > 0) {
+        const safeShortName = String(shortName || '').replace(/[:<>"/\\|?*]/g, '_');
+        const fileName = `preview_${safeShortName}.wav`;
+        await fs.writeFile(path.join(previewCacheDir, fileName), previewBuffer);
+
+        index.entries[shortName] = {
+          file: fileName, shortName,
+          localName: localName || displayName || shortName,
+          text: previewText,
+          createdAt: new Date().toISOString(),
+          lastPreviewedAt: new Date().toISOString(),
+          source: 'previews'
+        };
+        await writeCacheIndex(path.join(previewCacheDir, 'preview-index.json'), index);
+
+        return { wavBuffer: previewBuffer, cacheHit: false };
+      }
+    } catch {
+      // 预览接口不可用，回退到实时合成
+    }
+
+    // 回退：调用云端 API 实时合成（会消耗配额）
+    // 仅当云端尚未预生成此音色、或预览接口不可用时才走到这里
     const tokenData = await this.cloudStore.loadToken();
     if (!tokenData?.access_token) {
       throw new Error('未登录云端账号');
@@ -254,7 +277,8 @@ class CloudTtsProvider {
       localName: localName || displayName || shortName,
       text: previewText,
       createdAt: new Date().toISOString(),
-      lastPreviewedAt: new Date().toISOString()
+      lastPreviewedAt: new Date().toISOString(),
+      source: 'synthesize'
     };
     await writeCacheIndex(path.join(previewCacheDir, 'preview-index.json'), index);
 
