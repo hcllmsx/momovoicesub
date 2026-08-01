@@ -2,10 +2,10 @@
 
 /**
  * 云端 API 客户端
- * 负责与 momovoicesub-api.sxrec.com 通信
+ * 负责与 momovoicesub.sxrec.com 通信（API 与 Web 同域名，/api/* 路径走 Cloud Functions）
  */
 
-const DEFAULT_BASE_URL = 'https://momovoicesub-api.sxrec.com';
+const DEFAULT_BASE_URL = 'https://momovoicesub.sxrec.com';
 
 class CloudClient {
   constructor({ baseUrl, fetchImpl = globalThis.fetch } = {}) {
