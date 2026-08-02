@@ -155,38 +155,77 @@ class CloudClient {
   }
 
   /**
+   * 判断错误是否为瞬态网络错误（值得重试）。
+   * 典型场景：Node.js undici 连接池复用时 body 流损坏（"Body is unusable"）、
+   * TCP 连接重置、超时等。这些错误重试一次通常即可成功。
+   */
+  _isTransientNetworkError(err) {
+    const msg = (err && err.message) || String(err);
+    return /Body is unusable|Body has already been read|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|socket hang up|UND_ERR|network|Network Error/i.test(msg);
+  }
+
+  /**
    * 合成语音
    * @returns {Promise<Buffer>} WAV 音频
+   *
+   * 内置瞬态网络错误自动重试（最多 2 次），应对 Node.js undici 连接池复用
+   * 导致的 "Body is unusable: Body has already been read" 等瞬态错误。
+   * 鉴权类错误（401/403）不重试，直接抛出由上层处理。
    */
   async synthesize(token, payload) {
-    const response = await this._request('/api/tts/synthesize', {
-      method: 'POST',
-      token,
-      body: payload,
-    });
+    let lastErr;
+    const maxRetries = 2;
 
-    // 先一次性读取 body 为 ArrayBuffer，避免不同分支重复读取导致
-    // "Body is unusable: Body has already been read" 错误
-    const arrayBuffer = await response.arrayBuffer();
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this._request('/api/tts/synthesize', {
+          method: 'POST',
+          token,
+          body: payload,
+        });
 
-    if (response.status === 401) {
-      const err = new Error('TOKEN_EXPIRED');
-      err.code = 'TOKEN_EXPIRED';
-      throw err;
-    }
-    if (response.status === 403) {
-      const data = this._tryParseJson(arrayBuffer);
-      const err = new Error(data.error || '账号已被封禁');
-      err.code = 'BANNED';
-      err.banned_until = data.banned_until;
-      throw err;
-    }
-    if (!response.ok) {
-      const data = this._tryParseJson(arrayBuffer);
-      throw new Error(data.error || `合成失败 (${response.status})`);
+        // 先一次性读取 body 为 ArrayBuffer，避免不同分支重复读取导致
+        // "Body is unusable: Body has already been read" 错误
+        const arrayBuffer = await response.arrayBuffer();
+
+        if (response.status === 401) {
+          const err = new Error('TOKEN_EXPIRED');
+          err.code = 'TOKEN_EXPIRED';
+          throw err;
+        }
+        if (response.status === 403) {
+          const data = this._tryParseJson(arrayBuffer);
+          const err = new Error(data.error || '账号已被封禁');
+          err.code = 'BANNED';
+          err.banned_until = data.banned_until;
+          throw err;
+        }
+        if (!response.ok) {
+          const data = this._tryParseJson(arrayBuffer);
+          // 服务端错误（5xx）可能是瞬态的，也值得重试
+          if (response.status >= 500 && attempt < maxRetries) {
+            lastErr = new Error(data.error || `合成失败 (${response.status})`);
+            await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(data.error || `合成失败 (${response.status})`);
+        }
+
+        return Buffer.from(arrayBuffer);
+      } catch (err) {
+        // 鉴权类错误不重试，直接抛出
+        if (err.code === 'TOKEN_EXPIRED' || err.code === 'BANNED') throw err;
+        // 瞬态网络错误重试
+        if (this._isTransientNetworkError(err) && attempt < maxRetries) {
+          lastErr = err;
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
     }
 
-    return Buffer.from(arrayBuffer);
+    throw lastErr || new Error('合成失败');
   }
 
   /**

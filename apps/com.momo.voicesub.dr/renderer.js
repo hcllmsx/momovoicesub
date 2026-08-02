@@ -181,6 +181,10 @@ function friendlyErrorMessage(error) {
   if (/NOT_LOGGED_IN|未登录云端账号/.test(message)) return '请先登录云端账号。';
   if (/BANNED|账号已被封禁/.test(message)) return '账号已被封禁，请联系管理员。';
   if (/设备数已达上限/.test(message)) return message; // 设备数超限，原样返回（已含中文说明）
+  // 瞬态网络错误（连接池复用、流损坏、超时等），重试通常即可解决
+  if (/Body is unusable|Body has already been read|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|UND_ERR|network|网络/i.test(message)) {
+    return message + '\n\n这是网络瞬时波动导致的，请尝试重新生成。';
+  }
   return message;
 }
 
