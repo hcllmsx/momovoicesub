@@ -2,7 +2,7 @@
 <html lang="zh-CN" spellcheck="false">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://momovoicesub.sxrec.com">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://momovoicesub.sxrec.com http://localhost:3000 http://localhost:3001">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>默默配音助手</title>
   <link rel="stylesheet" href="css/styles.css">
@@ -303,7 +303,7 @@
                   <button id="openLoginPopup" class="btn btn-primary">登录账号</button>
                 </div>
                 <p class="account-footnote">
-                  登录即代表同意 <a href="#" class="link-muted">《用户协议》</a> 与 <a href="#" class="link-muted">《隐私政策》</a>
+                  登录即代表同意 <a href="#" class="link-muted" id="openTerms">《用户协议》</a> 与 <a href="#" class="link-muted" id="openPrivacy">《隐私政策》</a>
                 </p>
               </div>
 
@@ -317,11 +317,10 @@
                       <span class="plan-expire" id="accountPlanExpire">有效期至 2026-12-31</span>
                     </div>
                   </div>
-                  <button id="accountLogout" class="btn btn-xs btn-ghost text-danger">退出登录</button>
                 </div>
                 <div class="account-quota-grid">
                   <div class="quota-cell">
-                    <div class="quota-label">标准语音（本月）</div>
+                    <div class="quota-label" id="quotaStdLabel">标准语音（本月）</div>
                     <div class="quota-value">
                       <span id="quotaCharsLeft">—</span>
                       <span class="quota-unit"> / <span id="quotaCharsTotal">—</span> 字符</span>
@@ -329,7 +328,7 @@
                     <div class="quota-bar"><div class="quota-bar-fill" id="quotaCharsBar"></div></div>
                   </div>
                   <div class="quota-cell">
-                    <div class="quota-label">神经语音（终身）</div>
+                    <div class="quota-label" id="quotaNeuralLabel">神经语音（终身）</div>
                     <div class="quota-value">
                       <span id="quotaNeuralLeft">—</span>
                       <span class="quota-unit"> / <span id="quotaNeuralTotal">—</span> 字符</span>
@@ -348,6 +347,8 @@
                   <button id="refreshQuota" class="btn btn-secondary">刷新配额</button>
                   <button id="cloudRefreshVoicesBtn" class="btn btn-secondary">刷新音色</button>
                   <button id="openBuyPlan" class="btn btn-primary">续费 / 升级</button>
+                  <span class="btn-separator"></span>
+                  <button id="accountLogout" class="btn btn-ghost btn-xs">退出登录</button>
                 </div>
               </div>
             </div>

@@ -114,12 +114,13 @@ class CloudClient {
   /**
    * 注册/刷新当前设备指纹
    * 让 Web 端的"设备绑定管理"看到此设备
+   * 自动携带 client_type='dr' 标识来源客户端
    */
   async registerDevice(token, deviceFp) {
     const response = await this._request('/api/account/devices', {
       method: 'POST',
       token,
-      body: { device_fp: deviceFp },
+      body: { device_fp: deviceFp, client_type: 'dr' },
     });
 
     const data = await this._parseJson(response);

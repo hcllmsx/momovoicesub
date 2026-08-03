@@ -772,7 +772,7 @@ function createVoicePicker(container, options) {
   let pendingSelected = selected;
   let filterText = '';
   let filterLocaleGroup = 'zh';
-  let filterLocaleSub = null;
+  let filterLocaleSub = 'zh-CN';
   let filterGender = 'all';
   let filterVoiceType = 'all';
   let filterStyle = 'all';
@@ -3945,6 +3945,8 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
       // 更新配额显示
       const std = quotaRes.quota?.std_chars;
       if (std) {
+        const stdLabelEl = $('quotaStdLabel');
+        if (stdLabelEl) stdLabelEl.textContent = `标准语音（${std.reset_period === 'monthly' ? '本月' : '终身'}）`;
         const leftEl = $('quotaCharsLeft');
         const totalEl = $('quotaCharsTotal');
         const barEl = $('quotaCharsBar');
@@ -3956,9 +3958,11 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
         }
       }
 
-      // 神经语音（终身）配额
+      // 神经语音配额
       const neural = quotaRes.quota?.neural_chars;
       if (neural) {
+        const neuralLabelEl = $('quotaNeuralLabel');
+        if (neuralLabelEl) neuralLabelEl.textContent = `神经语音（${neural.reset_period === 'monthly' ? '本月' : '终身'}）`;
         const nLeftEl = $('quotaNeuralLeft');
         const nTotalEl = $('quotaNeuralTotal');
         const nBarEl = $('quotaNeuralBar');
@@ -4043,7 +4047,7 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   if (signupWebLink) {
     signupWebLink.addEventListener('click', (e) => {
       e.preventDefault();
-      window.momoVoiceSub.openExternal('https://momovoicesub.sxrec.com/login');
+      window.momoVoiceSub.openExternal(window.momoVoiceSub.webBaseUrl + '/login');
     });
   }
 
@@ -4052,7 +4056,25 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   if (forgotLink) {
     forgotLink.addEventListener('click', (e) => {
       e.preventDefault();
-      window.momoVoiceSub.openExternal('https://momovoicesub.sxrec.com/login');
+      window.momoVoiceSub.openExternal(window.momoVoiceSub.webBaseUrl + '/login');
+    });
+  }
+
+  // 用户协议 → 在浏览器打开
+  const termsLink = $('openTerms');
+  if (termsLink) {
+    termsLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.momoVoiceSub.openExternal(window.momoVoiceSub.webBaseUrl + '/terms');
+    });
+  }
+
+  // 隐私政策 → 在浏览器打开
+  const privacyLink = $('openPrivacy');
+  if (privacyLink) {
+    privacyLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.momoVoiceSub.openExternal(window.momoVoiceSub.webBaseUrl + '/privacy');
     });
   }
 
@@ -4088,7 +4110,7 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   const buyPlanBtn = $('openBuyPlan');
   if (buyPlanBtn) {
     buyPlanBtn.addEventListener('click', () => {
-      window.momoVoiceSub.openExternal('https://momovoicesub.sxrec.com/pricing');
+      window.momoVoiceSub.openExternal(window.momoVoiceSub.webBaseUrl + '/pricing');
     });
   }
 

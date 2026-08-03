@@ -41,6 +41,14 @@ function readPluginIdFromManifest() {
 const PLUGIN_ID = readPluginIdFromManifest();
 const LOGO_PATH = path.join(__dirname, 'momovoicesub-logo.png');
 
+// 根据 manifest Id 自动切换环境：dev 版（Id 以 .dev 结尾）连本地，正式版连生产域名。
+// dr-install.ps1 安装 dev 版时会改写 manifest 的 Id 为 com.momo.voicesub.dr.dev，
+// 源码保持正式版不变，此处根据 Id 自动判断。
+const IS_DEV = PLUGIN_ID.endsWith('.dev');
+const API_BASE_URL = IS_DEV ? 'http://localhost:3000' : 'https://momovoicesub.sxrec.com';
+const WEB_BASE_URL = IS_DEV ? 'http://localhost:3001' : 'https://momovoicesub.sxrec.com';
+console.log(`[Env] 运行环境: ${IS_DEV ? 'DEV (本地)' : 'PROD (生产)'}, API=${API_BASE_URL}, WEB=${WEB_BASE_URL}`);
+
 // 达芬奇内置 Electron 的 Node.js 版本检测。
 // fs/promises 与可选链等语法需要 Node 14+。低于此版本时向用户给出升级提示。
 const NODE_MAJOR = Number(process.versions.node.split('.')[0]) || 0;
@@ -173,7 +181,7 @@ function initServices() {
     fetchImpl: globalThis.fetch
   });
 
-  cloudClient = new CloudClient({ fetchImpl: globalThis.fetch });
+  cloudClient = new CloudClient({ baseUrl: API_BASE_URL, fetchImpl: globalThis.fetch });
   cloudStore = new CloudStore({ appDataDir, safeStorage });
   cloudTtsProvider = new CloudTtsProvider({
     cloudClient,
@@ -625,7 +633,9 @@ function createWindow() {
     title: '默默配音助手',
     icon: LOGO_PATH,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      // 通过 additionalArguments 把环境信息传给 preload，避免 preload 中 require('fs') 在 sandbox 模式下失败
+      additionalArguments: [`--momo-env=${IS_DEV ? 'dev' : 'prod'}`]
     }
   });
 

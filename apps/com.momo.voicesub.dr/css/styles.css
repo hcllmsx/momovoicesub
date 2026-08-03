@@ -3476,10 +3476,10 @@ body.app-busy * {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  padding: 4px 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 .account-avatar {
@@ -3494,6 +3494,45 @@ body.app-busy * {
   font-weight: 600;
   font-size: 16px;
   flex-shrink: 0;
+}
+
+.account-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.account-email {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.account-plan {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.account-plan .plan-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius);
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.account-plan .plan-expire {
+  color: var(--muted);
 }
 
 .account-user-meta {

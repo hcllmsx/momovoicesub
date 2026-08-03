@@ -181,6 +181,7 @@ class CloudTtsProvider {
       volume: volume || '100%',
       outputFormat,
       device_fp: deviceFp,
+      client_type: 'dr',
     });
 
     await fs.writeFile(filePath, audioBuffer);
@@ -266,6 +267,7 @@ class CloudTtsProvider {
       text: previewText,
       voice: shortName,
       device_fp: deviceFp,
+      client_type: 'dr',
     });
 
     const safeShortName = String(shortName || '').replace(/[:<>"/\\|?*]/g, '_');
