@@ -1069,7 +1069,7 @@ interface VoicePageState {
 const voicePage: VoicePageState = {
   filterText: '',
   filterLocaleGroup: 'zh',
-  filterLocaleSub: null,
+  filterLocaleSub: 'zh-CN',
   filterGender: 'all',
   filterVoiceType: 'all',
   showFavoritesOnly: false,
