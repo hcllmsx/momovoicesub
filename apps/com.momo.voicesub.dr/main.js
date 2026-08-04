@@ -317,12 +317,19 @@ function registerIpcHandlers() {
     });
     sendLog(`云端登录成功：${userEmail}${result.is_admin ? ' (管理员)' : ''}`);
 
-    // 登录成功后自动注册设备，让 Web 端“设备绑定管理”立刻看到此设备
+    // 登录成功后强制注册设备（设备数/跨账号数超限时阻断登录，防止批量换号白嫖）
     try {
       const deviceFp = await cloudStore.getDeviceFp();
       await cloudClient.registerDevice(result.access_token, deviceFp);
       sendLog(`设备已自动注册：${deviceFp.slice(0, 16)}...`);
     } catch (err) {
+      // 设备限制类错误 → 清除已保存的 token，拒绝登录
+      if (err.code === 'DEVICE_LIMIT' || err.status === 403) {
+        await cloudStore.clearToken();
+        sendLog(`登录被拒绝（设备限制）：${err.message || err}`, '', 'error');
+        throw new Error('此设备已登录过多账号，白嫖不要太狠啦，行行好');
+      }
+      // 其他错误（网络抖动、服务端 500 等）→ 不影响登录，降级处理
       sendLog(`设备自动注册失败（不影响登录）：${err.message || err}`, '', 'error');
     }
 
@@ -336,7 +343,9 @@ function registerIpcHandlers() {
 
   registerLoggedHandler('cloud:logout', async () => {
     await cloudStore.clearToken();
-    sendLog('已退出云端登录');
+    // 退出登录时同步清空云端拉取的音色列表，避免退出后音色仍在但配音不可用
+    await settingsStore.save({ voices: [] });
+    sendLog('已退出云端登录（音色列表已清空）');
     return { ok: true };
   });
 

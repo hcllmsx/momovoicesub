@@ -130,7 +130,11 @@ class CloudClient {
       throw err;
     }
     if (!response.ok) {
-      throw new Error(data.error || `注册设备失败 (${response.status})`);
+      const err = new Error(data.error || `注册设备失败 (${response.status})`);
+      // 传递服务端的 code（如 DEVICE_LIMIT）和 HTTP 状态码，便于上层区分处理
+      err.code = data.code || null;
+      err.status = response.status;
+      throw err;
     }
 
     return data;

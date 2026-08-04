@@ -259,6 +259,91 @@ function setResult(id, message, kind = '', autoCloseMs = 0) {
   showToast(message, kind);
 }
 
+/**
+ * 自定义确认对话框（替代原生 dialog.showMessageBox）
+ * @param {object} options
+ * @param {string} options.message - 主提示文案
+ * @param {string} [options.detail] - 补充说明
+ * @param {string} [options.confirmText='确定'] - 确认按钮文字
+ * @param {string} [options.cancelText='取消'] - 取消按钮文字
+ * @param {boolean} [options.danger=false] - 是否为危险操作（确认按钮显示红色）
+ * @returns {Promise<boolean>} 用户点击确定返回 true，取消返回 false
+ */
+function showConfirmDialog({ message, detail, confirmText = '确定', cancelText = '取消', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'popup-overlay confirm-dialog-overlay';
+
+    const panel = document.createElement('div');
+    panel.className = 'popup-panel popup-sm confirm-dialog-panel';
+
+    const iconWrap = document.createElement('div');
+    iconWrap.className = danger ? 'confirm-dialog-icon danger' : 'confirm-dialog-icon';
+    iconWrap.innerHTML = danger
+      ? '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>'
+      : '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
+
+    const content = document.createElement('div');
+    content.className = 'confirm-dialog-content';
+    const msgEl = document.createElement('div');
+    msgEl.className = 'confirm-dialog-message';
+    msgEl.textContent = message || '确定执行这个操作吗？';
+    content.appendChild(msgEl);
+    if (detail) {
+      const detailEl = document.createElement('div');
+      detailEl.className = 'confirm-dialog-detail';
+      detailEl.textContent = detail;
+      content.appendChild(detailEl);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'confirm-dialog-body';
+    body.appendChild(iconWrap);
+    body.appendChild(content);
+
+    const actions = document.createElement('div');
+    actions.className = 'confirm-dialog-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = cancelText;
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+    confirmBtn.textContent = confirmText;
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+
+    panel.appendChild(body);
+    panel.appendChild(actions);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    let settled = false;
+    function close(result) {
+      if (settled) return;
+      settled = true;
+      overlay.remove();
+      document.removeEventListener('keydown', escHandler);
+      resolve(result);
+    }
+    function escHandler(e) {
+      if (e.key === 'Escape') close(false);
+    }
+
+    cancelBtn.addEventListener('click', () => close(false));
+    confirmBtn.addEventListener('click', () => close(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
+    document.addEventListener('keydown', escHandler);
+
+    // 自动聚焦确认按钮，回车直接确认
+    requestAnimationFrame(() => {
+      confirmBtn.focus();
+    });
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); close(true); }
+    });
+  });
+}
+
 // 汉语拼音标调转换函数：将带声调数字的拼音（如 da 4）智能自动换算生成为带标准声调符号的拼音（如 dà）
 function phoneticToPinyin(phoneticStr) {
   const cleaned = phoneticStr.trim().toLowerCase().replace(/\s+/g, '');
@@ -974,6 +1059,14 @@ function createVoicePicker(container, options) {
     const grid = container.querySelector('.vp-grid');
     const filtered = filteredVoices();
     grid.innerHTML = '';
+    if (!voices.length) {
+      // 音色列表完全为空（未登录云端且未填 Azure key）
+      const empty = document.createElement('div');
+      empty.className = 'vp-grid-empty';
+      empty.textContent = '请自填 key 或者登录账号以刷新音色列表';
+      grid.appendChild(empty);
+      return;
+    }
     if (!filtered.length) {
       const empty = document.createElement('div');
       empty.className = 'vp-grid-empty';
@@ -4011,7 +4104,8 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
       const originalText = submitBtn?.textContent;
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = '登录中...';
+        submitBtn.classList.add('btn-loading');
+        submitBtn.innerHTML = '<span class="btn-spinner"></span><span class="btn-loading-text">登录中...</span>';
       }
 
       try {
@@ -4028,6 +4122,7 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
       } finally {
         if (submitBtn) {
           submitBtn.disabled = false;
+          submitBtn.classList.remove('btn-loading');
           submitBtn.textContent = originalText || '登录';
         }
       }
@@ -4082,9 +4177,17 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   const logoutBtn = $('accountLogout');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
-      const confirmed = await window.momoVoiceSub.confirm({ message: '确认退出云端登录？' });
+      const confirmed = await showConfirmDialog({
+        message: '确认退出云端登录？',
+        detail: '退出后将无法使用云端配音配额，音色列表也会被清空。',
+        confirmText: '退出登录',
+        danger: true,
+      });
       if (!confirmed) return;
       await window.momoVoiceSub.cloudLogout();
+      // 退出后清空内存中的音色列表并重绘，让 UI 与实际可用状态一致
+      state.voices = [];
+      populateVoices();
       await refreshCloudAccount();
       showToast('已退出登录', 'info');
     });
