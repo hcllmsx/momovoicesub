@@ -1,5 +1,8 @@
 .arts/
 .codeartsdoer/
+
+# Auto-generated file integrity snapshot (Merkle)
+.merkle-snapshot.json
 开发日志.txt
 dev-readme.md
 apps/com.momo.voicesub.dr/WorkflowIntegration.node
