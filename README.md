@@ -2,9 +2,9 @@
 
 一个面向 DaVinci Resolve 和 Premiere Pro 的自动配音插件，基于 Azure Speech Service 把字幕或手动输入的文字转换为配音，并直接插入到时间线。
 
-![DaVinci Resolve 版](docs/momovoicesub-dr-v0.26.722.webp)
+![DaVinci Resolve 版](docs/momovoicesub-dr-v26.8.4.webp)
 
-![Premiere Pro 版](docs/momovoicesub-pr-v0.26.722.webp)
+![Premiere Pro 版](docs/momovoicesub-pr-v26.7.22.webp)
 
 ## 功能
 
