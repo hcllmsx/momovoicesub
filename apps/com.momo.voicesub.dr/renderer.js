@@ -174,8 +174,8 @@ function friendlyErrorMessage(error) {
   if (/GetCurrentTimecode|Not supported on current page/i.test(message)) return '当前页面不能读取播放头位置。请切换到"快编"或"剪辑"页面后再插入配音。';
   if (/Failed to import audio/i.test(message)) return message.replace(/Failed to import audio:/i, '导入音频失败：');
   if (/Failed to append audio to timeline/i.test(message)) return '音频已生成，但插入时间线失败。请检查目标音频轨是否锁定或不可用。';
-  if (/Azure Speech key is required/i.test(message)) return '请先在设置中填写 Azure Speech Key。';
-  if (/Azure region or endpoint is required/i.test(message)) return '请先在设置中填写 Azure 区域或 Endpoint。';
+  if (/Azure Speech key is required/i.test(message)) return '请先在设置中填写 密钥。';
+  if (/Azure region or endpoint is required/i.test(message)) return '请先在设置中填写 位置/区域。';
   // 云端鉴权相关错误
   if (/TOKEN_EXPIRED/.test(message)) return '云端登录已过期，请重新登录。';
   if (/NOT_LOGGED_IN|未登录云端账号/.test(message)) return '请先登录云端账号。';
@@ -2817,7 +2817,6 @@ async function savePresetFromPanel(prefix) {
 function loadSettingsToForm() {
   const settings = state.settings || {};
   $('azureRegion').value = settings.region || '';
-  $('azureEndpoint').value = settings.endpoint || '';
   $('rememberKey').checked = Boolean(settings.rememberKey);
   $('cacheDir').value = settings.cacheDir || '';
   if (settings.hasAzureKey) {
@@ -2928,7 +2927,6 @@ function loadSettingsToForm() {
 function settingsSnapshotFromForm() {
   return {
     region: $('azureRegion').value.trim(),
-    endpoint: $('azureEndpoint').value.trim(),
     rememberKey: $('rememberKey').checked,
     azureKeyDraft: $('azureKey').value.trim()
   };
@@ -2953,7 +2951,7 @@ function updateSaveButton() {
 function readSettingsFromForm(includeKey = true) {
   const settings = {
     region: $('azureRegion').value.trim(),
-    endpoint: $('azureEndpoint').value.trim(),
+    endpoint: state.settings?.endpoint || '',
     rememberKey: $('rememberKey').checked,
     defaultVoice: state.defaultPresetId ? (state.presets.find(p => p.id === state.defaultPresetId)?.voice || 'zh-CN-XiaoxiaoNeural') : 'zh-CN-XiaoxiaoNeural',
     presets: state.presets,
@@ -3862,7 +3860,7 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
     });
   }
 
-  for (const id of ['azureRegion', 'azureEndpoint', 'azureKey', 'rememberKey']) {
+  for (const id of ['azureRegion', 'azureKey', 'rememberKey']) {
     $(id).addEventListener('input', updateSaveButton);
     $(id).addEventListener('change', updateSaveButton);
   }

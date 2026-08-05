@@ -71,10 +71,10 @@ function friendlyErrorMessage(error) {
     return '音频已生成，但插入时间线失败。请检查目标音频轨是否锁定或不可用。';
   }
   if (/Azure Speech key is required/i.test(message)) {
-    return '请先在设置中填写 Azure Speech Key。';
+    return '请先在设置中填写 密钥。';
   }
   if (/Azure region or endpoint is required/i.test(message)) {
-    return '请先在设置中填写 Azure 区域或 Endpoint。';
+    return '请先在设置中填写 位置/区域。';
   }
 
   return message;

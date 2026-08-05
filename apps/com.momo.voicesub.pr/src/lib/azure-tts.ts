@@ -119,6 +119,17 @@ function normalizeEndpoint(settings: any = {}) {
         voicesUrl: explicit.replace(/\/cognitiveservices\/v1$/i, '/cognitiveservices/voices/list')
       };
     }
+    // Azure 门户"终结点"（https://{region}.api.cognitive.microsoft.com）是通用 Cognitive Services 端点，
+    // 并非 TTS 专用端点——直接拼 /cognitiveservices/v1 会请求失败。
+    // 从主机名提取区域，改走 TTS 专用端点 {region}.tts.speech.microsoft.com。
+    const portalMatch = explicit.match(/^https?:\/\/([a-z0-9-]+)\.api\.cognitive\.microsoft\.com(?:\/|$)/i);
+    if (portalMatch) {
+      const r = portalMatch[1].toLowerCase();
+      return {
+        synthUrl: `https://${r}.tts.speech.microsoft.com/cognitiveservices/v1`,
+        voicesUrl: `https://${r}.tts.speech.microsoft.com/cognitiveservices/voices/list`
+      };
+    }
     if (/\.cognitiveservices\.azure\.com$/i.test(explicit)) {
       return {
         synthUrl: `${explicit}/cognitiveservices/v1`,

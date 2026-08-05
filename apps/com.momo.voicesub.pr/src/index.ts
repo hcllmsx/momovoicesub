@@ -756,9 +756,6 @@ async function initPlugin() {
     const regionInput = $("settingRegion") as any;
     if (regionInput) regionInput.value = settings.region || "eastasia";
 
-    const endpointInput = $("settingEndpoint") as any;
-    if (endpointInput) endpointInput.value = settings.endpoint || "";
-
     state.presets = ensureDefaultPreset(settings);
     state.defaultPresetId = settings.defaultPresetId || 'preset-default';
 
@@ -850,30 +847,28 @@ async function syncWithPremiere() {
       const firstTrackIndex = state.captionTracks[0].index;
       await autoLoadSubtitleTrack(firstTrackIndex);
     } else if (state.captionTracks.length === 0) {
-      // 没有字幕轨
-      if (state.activeCaptionTrackIndex >= 0) {
-        // 之前选中了某个字幕轨，现在该轨道没了（如切换序列），切回手动模式
+      // 没有字幕轨：切到手动模式（-1），确保下拉默认选中「无字幕轨(手动SRT模式)」
+      if (state.activeCaptionTrackIndex !== -1) {
+        if (state.activeCaptionTrackIndex >= 0) {
+          // 之前选中了某个字幕轨，现在该轨道没了（如切换序列），恢复手动 SRT 备份（若有）
+          state.subtitleItems = state.manualSrtItemsBackup.slice();
+          renderSubtitleList();
+        }
         state.activeCaptionTrackIndex = -1;
-        // 恢复手动 SRT 备份（若有），避免字幕列表被清空
-        state.subtitleItems = state.manualSrtItemsBackup.slice();
-        renderSubtitleList();
       }
-      // 注意：若已经是手动模式（activeCaptionTrackIndex === -1），保留当前 subtitleItems
-      // （可能是用户手动导入的 SRT），不因音频轨数量变化等无关刷新而清空
+      // 同步 picker 选中状态到「无字幕轨(手动SRT模式)」
+      const subtitleDropdown = $("subtitleTrackDropdown") as any;
+      if (subtitleDropdown) setPickerValue(subtitleDropdown, "-1");
       updateImportSrtBtnVisibility();
     }
   }
 }
 
-// 仅在「无字幕轨 (手动SRT模式)」时显示「导入本地 SRT」按钮
+// 始终显示「导入SRT」按钮：有字幕轨时可用于补全/替换文字，无字幕轨时用于加载本地字幕
 function updateImportSrtBtnVisibility() {
   const btn = $("subtitleImportSrtBtn");
   if (!btn) return;
-  if (state.activeCaptionTrackIndex === -1) {
-    btn.classList.remove("hidden");
-  } else {
-    btn.classList.add("hidden");
-  }
+  btn.classList.remove("hidden");
 }
 
 // 刷新轨道下拉菜单 (PR 25+ UXP 使用 sp-picker 替换 sp-dropdown)
@@ -1008,7 +1003,7 @@ renderSubtitleList();
       if (textCount === 0) {
         // 未读到文字 —— UXP API 和 .prproj 策略都未能提取到字幕文字
         showToast(
-          `已读到 ${items.length} 条字幕时序，但未能自动提取字幕文字。请点击「导入本地 SRT」完成配对。`,
+          `已读到 ${items.length} 条字幕时序，但未能自动提取字幕文字。请点击「导入SRT」完成配对。`,
           "warning"
         );
       } else if (textCount < items.length) {
@@ -2079,13 +2074,11 @@ $("saveSettingsBtn")?.addEventListener("click", async () => {
   const keyInput = $("settingAzureKey") as any;
   const rememberKeyCheckbox = $("settingRememberKey") as any;
   const regionInput = $("settingRegion") as any;
-  const endpointInput = $("settingEndpoint") as any;
 
   // 读取表单值
   const formSettings: any = {
     rememberKey: rememberKeyCheckbox.checked,
-    region: regionInput.value.trim(),
-    endpoint: endpointInput.value.trim()
+    region: regionInput.value.trim()
   };
 
   // 只有用户输入了新 key（非空、非占位符）才传 azureKey；
@@ -2109,7 +2102,6 @@ $("saveSettingsBtn")?.addEventListener("click", async () => {
 $("testTtsConnection")?.addEventListener("click", async () => {
   const keyInput = $("settingAzureKey") as any;
   const regionInput = $("settingRegion") as any;
-  const endpointInput = $("settingEndpoint") as any;
 
   // 解析 key：若输入框是占位符或空，则回退到已保存的 session key
   const rawKeyVal = String(keyInput.value || "").trim();
@@ -2125,17 +2117,19 @@ $("testTtsConnection")?.addEventListener("click", async () => {
     return;
   }
   if (!regionInput.value) {
-    showToast("请输入服务区域", "error");
+    showToast("请输入位置/区域", "error");
     return;
   }
 
   showToast("正在测试与微软语音服务连接...", "info");
 
   try {
+    // endpoint 输入框已移除，从已保存的设置中读取（仅 settings.json 中的进阶配置生效）
+    const savedSettings = await settingsStore.load();
     const testSettings = {
       azureKey: effectiveKey,
       region: regionInput.value.trim(),
-      endpoint: endpointInput.value.trim()
+      endpoint: savedSettings.endpoint || ""
     };
 
     const tempProvider = new AzureTtsProvider({
@@ -2152,7 +2146,6 @@ $("testTtsConnection")?.addEventListener("click", async () => {
         azureKey: rawKeyVal,
         rememberKey: rememberKeyCheckbox?.checked ?? false,
         region: regionInput.value.trim(),
-        endpoint: endpointInput.value.trim(),
         voices
       });
       // 保存后重置输入框为占位符
@@ -2178,7 +2171,6 @@ $("testTtsConnection")?.addEventListener("click", async () => {
 // 独立「刷新音色」按钮：用已保存的密钥拉取最新音色列表（不要求重新输入 key）
 $("refreshVoicesBtn")?.addEventListener("click", async () => {
   const regionInput = $("settingRegion") as any;
-  const endpointInput = $("settingEndpoint") as any;
 
   const key = await settingsStore.getAzureKey();
   if (!key) {
@@ -2186,17 +2178,19 @@ $("refreshVoicesBtn")?.addEventListener("click", async () => {
     return;
   }
   if (!regionInput?.value) {
-    showToast("请先填写服务区域", "error");
+    showToast("请先填写位置/区域", "error");
     return;
   }
 
   showToast("正在刷新音色列表...", "info");
   try {
+    // endpoint 输入框已移除，从已保存的设置中读取（仅 settings.json 中的进阶配置生效）
+    const savedSettings = await settingsStore.load();
     const tempProvider = new AzureTtsProvider({
       getSettings: () => Promise.resolve({
         azureKey: key,
         region: regionInput.value.trim(),
-        endpoint: endpointInput?.value?.trim() || ""
+        endpoint: savedSettings.endpoint || ""
       }),
       getAzureKey: () => Promise.resolve(key)
     });
@@ -2601,7 +2595,7 @@ $("subtitleTrackDropdown")?.addEventListener("change", async (e: any) => {
     if (state.subtitleItems.length > 0) {
       showToast(`已切换到手动 SRT 模式，恢复 ${state.subtitleItems.length} 条字幕`, "info");
     } else {
-      showToast("已切换到手动 SRT 模式，可导入本地 SRT 开始", "info");
+      showToast("已切换到手动 SRT 模式，可导入SRT 开始", "info");
     }
     return;
   }
@@ -2651,13 +2645,16 @@ $("subtitleImportSrtBtn")?.addEventListener("click", async () => {
     } else {
       // 没有已读取的时序数据，直接使用 SRT 内容
       state.subtitleItems = srtItems;
-      // 在手动模式下，同步更新备份，以便切换轨道后能恢复
-      if (state.activeCaptionTrackIndex === -1) {
-        state.manualSrtItemsBackup = srtItems.slice();
-      }
       renderSubtitleList();
       showToast(`SRT 导入成功！共 ${srtItems.length} 条字幕`, "success");
     }
+
+    // 导入后切换到手动模式（-1），下拉选中「无字幕轨(手动SRT模式)」
+    state.activeCaptionTrackIndex = -1;
+    state.manualSrtItemsBackup = state.subtitleItems.slice();
+    const subtitleDropdown = $("subtitleTrackDropdown") as any;
+    if (subtitleDropdown) setPickerValue(subtitleDropdown, "-1");
+    updateImportSrtBtnVisibility();
   }
 });
 
@@ -2673,7 +2670,7 @@ function renderSubtitleList() {
   if (!wrap) return;
 
   if (state.subtitleItems.length === 0) {
-    wrap.innerHTML = '<div class="list-placeholder">请选择上方字幕轨或导入本地 SRT 开始配音</div>';
+    wrap.innerHTML = '<div class="list-placeholder">请选择上方字幕轨或导入SRT 开始配音</div>';
     setDisableAllBtnLabel(false);
     return;
   }

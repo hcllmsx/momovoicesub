@@ -74,12 +74,14 @@ PR 版开发模式还需要：
 
 1. 在 [Azure Portal](https://portal.azure.com/) 创建 Speech 资源，获取 Key 和区域。
 2. 在插件设置页填写：
-   - **Azure Speech Key**：资源密钥
-   - **服务区域**：如 `eastasia`
-   - **自定义端点**（可选）：留空使用默认，或填写反代地址
+   - **密钥**：资源密钥
+   - **位置/区域**：如 `eastasia`
 3. 勾选"记住密钥"可加密保存到本机（DR 版使用 Electron safeStorage，PR 版使用 UXP key-value-storage）。
 4. 点击"测试连接"，成功后点击"刷新音色"获取可用音色列表。
 5. 点击"保存设置"。
+
+> **进阶：自建反代 / 代理网关**
+> 如需通过自建代理访问 Azure TTS（如国内加速），可在插件数据目录的 `settings.json` 中手动设置 `"endpoint": "https://你的代理地址"`。留空则由"位置/区域"自动推导 Azure 官方端点，日常使用无需配置此项。
 
 ## 使用流程
 

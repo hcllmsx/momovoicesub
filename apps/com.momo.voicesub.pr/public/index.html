@@ -78,7 +78,7 @@
                     <span class="card-title">字幕列表</span>
                   </div>
                   <div class="card-actions">
-                    <sp-button variant="secondary" quiet size="s" id="subtitleImportSrtBtn" class="hidden text-success">导入本地 SRT</sp-button>
+                    <sp-button variant="secondary" quiet size="s" id="subtitleImportSrtBtn" class="text-success">导入SRT</sp-button>
                     <sp-button variant="secondary" quiet size="s" id="subtitleDisableAllBtn">全部禁用</sp-button>
                     <sp-button variant="secondary" quiet size="s" id="subtitleInsertPause">设定停顿</sp-button>
                     <sp-button variant="secondary" quiet size="s" id="subtitleSingleCorrect">单字纠音</sp-button>
@@ -87,7 +87,7 @@
                 </div>
                 <!-- 列表容器 -->
                 <div id="subtitleListWrap" class="subtitle-list-wrap">
-                  <div class="list-placeholder">请选择上方字幕轨或导入本地 SRT 开始配音</div>
+                  <div class="list-placeholder">请选择上方字幕轨或导入SRT 开始配音</div>
                 </div>
               </div>
             </div>
@@ -331,21 +331,19 @@
                 </div>
               </div>
               <div class="settings-body">
-                <div class="setting-row">
-                  <span class="setting-label">Azure Speech Key</span>
-                  <div class="setting-key-row">
-                    <input id="settingAzureKey" class="setting-input native-input" type="password" placeholder="输入您的 Azure Speech API 密钥">
-                    <sp-checkbox id="settingRememberKey">记住密钥</sp-checkbox>
-                  </div>
-                </div>
                 <div class="setting-row-inline">
                   <div class="setting-group setting-group-region">
-                    <span class="setting-label">服务区域</span>
+                    <div class="setting-key-header">
+                      <span class="setting-label">位置/区域</span>
+                    </div>
                     <input id="settingRegion" class="setting-input native-input" type="text" placeholder="例如 eastasia">
                   </div>
-                  <div class="setting-group setting-group-endpoint">
-                    <span class="setting-label">自定义端点</span>
-                    <input id="settingEndpoint" class="setting-input native-input" type="text" placeholder="留空则使用默认端点，支持反代或代理网关">
+                  <div class="setting-group setting-group-key">
+                    <div class="setting-key-header">
+                      <span class="setting-label">密钥</span>
+                      <sp-checkbox id="settingRememberKey">记住密钥</sp-checkbox>
+                    </div>
+                    <input id="settingAzureKey" class="setting-input native-input" type="password" placeholder="输入您的 Azure Speech API 密钥">
                   </div>
                 </div>
                 <div class="setting-actions">

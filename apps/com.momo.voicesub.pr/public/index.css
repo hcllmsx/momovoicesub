@@ -1161,7 +1161,7 @@ body {
   white-space: nowrap;
 }
 
-/* 服务区域 + 自定义端点 同行排列（25% / 75%；UXP 不支持 grid，用 flex + flex-basis 代替）。
+/* 位置/区域 + 密钥 同行排列（各占 50%；UXP 不支持 gap，用 margin-left 代替）。
    使用独立类 .setting-row-inline 而非在 .setting-row 上叠加覆盖类——
    UXP 对已声明 display:flex 的元素覆盖 flex-direction 有风险，独立类更稳妥。 */
 .setting-row-inline {
@@ -1180,10 +1180,21 @@ body {
   margin-top: 8px; /* label 与控件之间的间隙 */
 }
 .setting-group-region {
-  flex: 0 0 25%; /* 固定 25% 宽度，不伸缩 */
+  flex: 1; /* 与密钥栏均分行宽 */
 }
-.setting-group-endpoint {
-  flex: 1 1 75%; /* 占据剩余宽度（约 75%），允许伸缩 */
+.setting-group-key {
+  flex: 1; /* 与位置/区域栏均分行宽 */
+}
+.setting-key-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 32px; /* 固定高度（非 min-height），确保两栏 header 等高，输入框水平对齐。
+                    sp-checkbox 即使字号 12px 也可能比纯标签高，min-height 撑不住会破等高，
+                    用固定 height 强制两栏 header 同高，checkbox 超出部分 overflow:visible 自然溢出 */
+}
+.setting-key-header sp-checkbox {
+  font-size: 12px; /* 与 .setting-label 字号一致，避免 checkbox 文字偏大撑高 header 导致输入框错位 */
 }
 
 .setting-label {
