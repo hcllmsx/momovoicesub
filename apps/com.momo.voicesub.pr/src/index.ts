@@ -16,6 +16,10 @@ declare const __APP_VERSION__: string;
 declare const __API_BASE_URL__: string;
 declare const __WEB_BASE_URL__: string;
 declare const __IS_DEV__: boolean;
+
+// 外部链接（用户协议/隐私政策/注册等）统一用生产域名，
+// 因为 dev 本地没有这些页面，且 UXP openExternal 对 http 协议有限制
+const WEB_PUBLIC_URL = 'https://momovoicesub.sxrec.com';
 // 引用全局宿主
 const ppro = require("premierepro");
 // UXP shell 模块：用于用系统默认应用打开试听 wav 文件
@@ -2242,9 +2246,15 @@ $("testTtsConnection")?.addEventListener("click", async () => {
   }
 });
 
-// 独立「刷新音色」按钮：通过 delegating provider 自动选择最佳通道
+// 「刷新音色」按钮（位于音色选择页底部）：通过 delegating provider 自动选择最佳通道
 // （有自填 key → Azure；有云端登录 → Cloud；都没有 → 公开 manifest 接口）
-$("refreshVoicesBtn")?.addEventListener("click", async () => {
+const voicePageRefreshBtn = $("voicePageRefreshBtn") as any;
+voicePageRefreshBtn?.addEventListener("click", async () => {
+  const originalText = voicePageRefreshBtn?.textContent;
+  if (voicePageRefreshBtn) {
+    voicePageRefreshBtn.setAttribute("disabled", "true");
+    voicePageRefreshBtn.textContent = "刷新中…";
+  }
   showToast("正在刷新音色列表...", "info");
   try {
     const voices = await ttsProvider.listVoices();
@@ -2254,13 +2264,18 @@ $("refreshVoicesBtn")?.addEventListener("click", async () => {
 
     state.voices = voices;
     updateVoiceTriggers();
-  if (state.currentTab === 'voices') renderVoicesPage();
+    if (state.currentTab === 'voices') renderVoicesPage();
 
     showToast(`已刷新 ${voices.length} 个音色`, "success");
   } catch (e: any) {
     console.error(e);
     const msg = e?.message || e;
     showToast(`刷新音色失败：${msg}`, "error");
+  } finally {
+    if (voicePageRefreshBtn) {
+      voicePageRefreshBtn.removeAttribute("disabled");
+      voicePageRefreshBtn.textContent = originalText || "刷新音色";
+    }
   }
 });
 
@@ -2285,11 +2300,16 @@ function decodeJwtEmail(token: string): string {
 /**
  * 打开外部链接（封装 uxpShell.openExternal，统一错误处理）
  */
-async function openExternalUrl(url: string, desc: string) {
+async function openExternalUrl(url: string, desc?: string) {
   if (uxpShell && typeof (uxpShell as any).openExternal === 'function') {
-    const err = await (uxpShell as any).openExternal(url, desc);
-    if (err && String(err).length > 0) {
-      showToast(`打开链接失败：${err}`, "error");
+    try {
+      // UXP openExternal 第二个参数是「用户同意对话框」的提示文字
+      const err = await (uxpShell as any).openExternal(url, desc || '打开外部链接');
+      if (err && String(err).length > 0) {
+        showToast(`打开${desc || '链接'}失败：${err}`, "error");
+      }
+    } catch (e: any) {
+      showToast(`打开${desc || '链接'}失败：${e?.message || e}`, "error");
     }
   } else {
     showToast("当前运行时不支持打开外部链接", "error");
@@ -2595,15 +2615,6 @@ async function showLoginDialog() {
   if (emailInput) emailInput.value = '';
   if (passwordInput) passwordInput.value = '';
 
-  // 关闭按钮
-  const closeBtn = $("loginDialogClose") as any;
-  if (closeBtn) {
-    if (closeBtn._clickHandler) closeBtn.removeEventListener('click', closeBtn._clickHandler);
-    const handler = () => dialog.close('cancel');
-    closeBtn._clickHandler = handler;
-    closeBtn.addEventListener('click', handler);
-  }
-
   // 登录按钮
   const submitBtn = $("loginSubmit") as any;
   if (submitBtn) {
@@ -2637,11 +2648,11 @@ async function showLoginDialog() {
     submitBtn.addEventListener('click', handler);
   }
 
-  await dialog.uxpShowModal({
-    title: '登录 MoMoVoiceSub',
-    resize: 'none',
-    size: { width: 380, height: 320 }
-  });
+await dialog.uxpShowModal({
+title: '登录 MoMoVoiceSub',
+resize: 'none',
+size: { width: 380, height: 360 }
+});
 }
 
 // 打开登录弹窗按钮
@@ -2651,26 +2662,26 @@ $("openLoginPopup")?.addEventListener('click', () => {
 
 // 忘记密码 → 跳转官网
 $("loginForgot")?.addEventListener('click', (e: Event) => {
-  e.preventDefault();
-  openExternalUrl(__WEB_BASE_URL__ + '/login', '打开登录页面');
+e.preventDefault();
+openExternalUrl(WEB_PUBLIC_URL + '/login', '打开登录页面');
 });
 
 // 去官网注册
 $("openSignupWeb")?.addEventListener('click', (e: Event) => {
-  e.preventDefault();
-  openExternalUrl(__WEB_BASE_URL__ + '/login', '打开注册页面');
+e.preventDefault();
+openExternalUrl(WEB_PUBLIC_URL + '/login', '打开注册页面');
 });
 
 // 用户协议
 $("openTerms")?.addEventListener('click', (e: Event) => {
-  e.preventDefault();
-  openExternalUrl(__WEB_BASE_URL__ + '/terms', '打开用户协议');
+e.preventDefault();
+openExternalUrl(WEB_PUBLIC_URL + '/terms', '打开用户协议');
 });
 
 // 隐私政策
 $("openPrivacy")?.addEventListener('click', (e: Event) => {
-  e.preventDefault();
-  openExternalUrl(__WEB_BASE_URL__ + '/privacy', '打开隐私政策');
+e.preventDefault();
+openExternalUrl(WEB_PUBLIC_URL + '/privacy', '打开隐私政策');
 });
 
 // ─── 通用确认对话框 ───
@@ -2752,31 +2763,7 @@ $("refreshQuota")?.addEventListener('click', async () => {
 
 // 续费/升级 → 跳转官网
 $("openBuyPlan")?.addEventListener('click', () => {
-  openExternalUrl(__WEB_BASE_URL__ + '/pricing', '打开定价页面');
-});
-
-// 刷新音色（云端模式）
-$("cloudRefreshVoicesBtn")?.addEventListener('click', async () => {
-  const btn = $("cloudRefreshVoicesBtn") as any;
-  const originalText = btn?.textContent;
-  if (btn) {
-    btn.setAttribute('disabled', 'true');
-    btn.textContent = '刷新中...';
-  }
-  try {
-    const voices = await cloudRefreshVoices();
-    state.voices = voices;
-    updateVoiceTriggers();
-    if (state.currentTab === 'voices') renderVoicesPage();
-    showToast(`已刷新 ${voices.length} 个音色`, 'success');
-  } catch (err: any) {
-    showToast(err.message || '刷新音色失败', 'error');
-  } finally {
-    if (btn) {
-      btn.removeAttribute('disabled');
-      btn.textContent = originalText || '刷新音色';
-    }
-  }
+openExternalUrl(WEB_PUBLIC_URL + '/pricing', '打开定价页面');
 });
 
 // ─── 多音字字典管理 ───

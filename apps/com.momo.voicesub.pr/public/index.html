@@ -312,7 +312,8 @@
               <span class="status-label" id="voicePageCurrentLabel">未选择音色</span>
             </div>
           </div>
-          <sp-button variant="primary" id="voicePageBackBtn">◀ 返回</sp-button>
+          <sp-button variant="secondary" id="voicePageRefreshBtn">刷新音色</sp-button>
+<sp-button variant="primary" id="voicePageBackBtn">◀ 返回</sp-button>
         </div>
       </section>
 
@@ -355,7 +356,6 @@
                   </div>
                   <div class="setting-actions">
                     <sp-button variant="secondary" id="testTtsConnection">测试连接</sp-button>
-                    <sp-button variant="secondary" id="refreshVoicesBtn">刷新音色</sp-button>
                     <sp-button variant="primary" id="saveSettingsBtn">保存设置</sp-button>
                     <div class="azure-key-disable-row" title="勾选后忽略自填 Key，始终走登录账号通道（即便 Key 有效也不使用；未登录账号时配音会失败）">
                       <sp-checkbox id="settingAzureKeyDisabled">临时禁用</sp-checkbox>
@@ -379,7 +379,7 @@
                     <sp-button variant="primary" id="openLoginPopup">登录账号</sp-button>
                   </div>
                   <p class="account-footnote">
-                    登录即代表同意 <a href="javascript:void(0)" class="link-muted" id="openTerms">《用户协议》</a> 与 <a href="javascript:void(0)" class="link-muted" id="openPrivacy">《隐私政策》</a>
+                    登录即代表同意 <a href="#" class="link-muted" id="openTerms">《用户协议》</a> 与 <a href="#" class="link-muted" id="openPrivacy">《隐私政策》</a>
                   </p>
                 </div>
                 <div id="accountLoggedIn" class="account-state hidden">
@@ -420,7 +420,6 @@
                   </div>
                   <div class="setting-actions">
                     <sp-button variant="secondary" id="refreshQuota">刷新配额</sp-button>
-                    <sp-button variant="secondary" id="cloudRefreshVoicesBtn">刷新音色</sp-button>
                     <sp-button variant="primary" id="openBuyPlan">续费 / 升级</sp-button>
                     <sp-button variant="secondary" quiet id="accountLogout">退出登录</sp-button>
                   </div>
@@ -586,11 +585,7 @@
 
   <!-- 登录弹窗 -->
   <dialog id="loginDialog" class="mm-dialog">
-    <div class="mm-dialog-header">
-      <span class="mm-dialog-title">登录 MoMoVoiceSub</span>
-      <div class="mm-dialog-close" id="loginDialogClose" role="button" tabindex="0">✕</div>
-    </div>
-    <div class="mm-dialog-body">
+    <div class="mm-dialog-body login-dialog-body">
       <div class="login-form">
         <label class="login-field">
           <span>邮箱</span>
@@ -601,11 +596,15 @@
           <input id="loginPassword" class="native-input" type="password" placeholder="••••••••" autocomplete="current-password">
         </label>
         <div class="login-extra-row">
-          <a href="javascript:void(0)" class="link-muted" id="loginForgot">忘记密码？</a>
+          <label class="checkbox-row login-remember-row">
+            <input id="loginRemember" type="checkbox" checked>
+            <span>保持登录</span>
+          </label>
+          <a href="#" class="link-muted" id="loginForgot">忘记密码？</a>
         </div>
         <sp-button variant="primary" id="loginSubmit">登录</sp-button>
         <p class="login-footnote">
-          还没有账号？<a href="javascript:void(0)" id="openSignupWeb" class="link-accent">去官网注册 →</a>
+          还没有账号？<a href="#" id="openSignupWeb" class="link-accent">去官网注册 →</a>
         </p>
       </div>
     </div>
