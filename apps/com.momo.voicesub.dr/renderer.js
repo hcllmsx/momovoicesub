@@ -850,7 +850,7 @@ function cleanVoiceName(name) {
 
 function createVoicePicker(container, options) {
   const {
-    mode = 'compact', onSelect, onPreview, onToggleFavorite
+    mode = 'compact', onSelect, onPreview, onToggleFavorite, onRefresh
   } = options;
 
   let selected = options.selected || '';
@@ -1106,16 +1106,17 @@ function createVoicePicker(container, options) {
         </div>
         <span class="vp-trigger-arrow">▼</span>
       </button>
-      <div class="vp-modal-overlay">
+      <div class="vp-modal-overlay${isOpen ? ' open' : ''}">
         <div class="vp-modal-panel">
           <div class="vp-filter-bar">
             ${renderFilterBarHTML()}
           </div>
           <div class="vp-grid"></div>
-          <div class="vp-modal-footer">
-            <button class="vp-modal-cancel">取消</button>
-            <button class="vp-modal-confirm">确认选择</button>
-          </div>
+<div class="vp-modal-footer">
+<button class="vp-modal-refresh btn btn-secondary">刷新音色</button>
+<button class="vp-modal-cancel">取消</button>
+<button class="vp-modal-confirm">确认选择</button>
+</div>
         </div>
       </div>
     `;
@@ -1129,6 +1130,21 @@ function createVoicePicker(container, options) {
     });
     container.querySelector('.vp-modal-cancel').addEventListener('click', () => cancelSelection());
     container.querySelector('.vp-modal-confirm').addEventListener('click', () => confirmSelection());
+    const refreshBtn = container.querySelector('.vp-modal-refresh');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        if (typeof onRefresh !== 'function') return;
+        const originalText = refreshBtn.textContent;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '刷新中…';
+        try {
+          await onRefresh();
+        } finally {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = originalText;
+        }
+      });
+    }
   }
 
   function renderFull() {
@@ -1291,7 +1307,14 @@ function createVoicePicker(container, options) {
     favorites = newFavorites || favorites;
     const oldSelectedExists = voices.some(v => v.shortName === selected);
     if (!oldSelectedExists && voices.length) selected = voices[0].shortName;
-    render();
+
+    // 模态框打开时只增量更新 trigger 和 grid，不重建 DOM，避免视觉闪烁
+    if (isOpen) {
+      updateTrigger();
+      renderGrid();
+    } else {
+      render();
+    }
   }
 
   function refreshFavorites(newFavorites) {
@@ -2346,7 +2369,10 @@ function populateVoices() {
         if (prefix === 'defaultVoice') updateSaveButton();
       },
       onPreview: (shortName) => playPreview(shortName),
-      onToggleFavorite: (shortName) => toggleFavorite(shortName)
+      onToggleFavorite: (shortName) => toggleFavorite(shortName),
+      onRefresh: async () => {
+        await refreshVoices();
+      }
     };
   }
 
@@ -3022,19 +3048,16 @@ async function testAzure() {
 }
 
 async function refreshVoices() {
-  setBusy(true);
   try {
     state.voices = await window.momoVoiceSub.listVoices(readSettingsFromForm(true));
     populateVoices();
-    setResult('settingsResult', `已刷新 ${state.voices.length} 个音色。`, 'ok');
+    showToast(`已刷新 ${state.voices.length} 个音色`, 'ok');
   } catch (error) {
     if (handleCloudAuthError(error)) {
-      setResult('settingsResult', '云端登录已过期，请重新登录。', 'error');
+      showToast('云端登录已过期，请重新登录', 'error');
     } else {
-      setResult('settingsResult', friendlyErrorMessage(error), 'error');
+      showToast(friendlyErrorMessage(error), 'error');
     }
-  } finally {
-    setBusy(false);
   }
 }
 
@@ -3709,10 +3732,9 @@ function setupEvents() {
     });
   }
 
-  $('saveSettings').addEventListener('click', saveSettings);
-  $('testAzure').addEventListener('click', testAzure);
-  $('refreshVoices').addEventListener('click', refreshVoices);
-  $('openDevTools').addEventListener('click', openDevTools);
+$('saveSettings').addEventListener('click', saveSettings);
+$('testAzure').addEventListener('click', testAzure);
+$('openDevTools').addEventListener('click', openDevTools);
   $('showLogPanel').addEventListener('click', toggleLogPanel);
   $('deleteUnusedCache').addEventListener('click', deleteUnusedCache);
   $('deleteCurrentProjectCache').addEventListener('click', deleteCurrentProjectCache);
@@ -4248,27 +4270,6 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   if (buyPlanBtn) {
     buyPlanBtn.addEventListener('click', () => {
       window.momoVoiceSub.openExternal(window.momoVoiceSub.webBaseUrl + '/pricing');
-    });
-  }
-
-  // 刷新音色（云端模式）
-  const cloudRefreshVoicesBtn = $('cloudRefreshVoicesBtn');
-  if (cloudRefreshVoicesBtn) {
-    cloudRefreshVoicesBtn.addEventListener('click', async () => {
-      cloudRefreshVoicesBtn.disabled = true;
-      const originalText = cloudRefreshVoicesBtn.textContent;
-      cloudRefreshVoicesBtn.textContent = '刷新中...';
-      try {
-        const voices = await window.momoVoiceSub.cloudRefreshVoices();
-        state.voices = voices;
-        populateVoices();
-        showToast(`已刷新 ${voices.length} 个音色`, 'ok');
-      } catch (err) {
-        showToast(err.message || '刷新音色失败', 'error');
-      } finally {
-        cloudRefreshVoicesBtn.disabled = false;
-        cloudRefreshVoicesBtn.textContent = originalText || '刷新音色';
-      }
     });
   }
 

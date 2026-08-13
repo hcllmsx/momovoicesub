@@ -45,10 +45,15 @@ class DelegatingTtsProvider {
         return this.azureProvider.listVoices(settingsOverride);
       }
     }
-    // 到这里：要么 key 被禁用，要么没有 key
+    // 到这里：要么 key 禁用，要么没有 key
     const token = await this.cloudStore.loadToken();
     if (token?.access_token) {
-      return this.cloudProvider.listVoices(settingsOverride);
+      // 有 token 时尝试带 token 请求，失败（网络错误/token 过期且刷新也失败）时回退到公开接口
+      try {
+        return await this.cloudProvider.listVoices(settingsOverride);
+      } catch {
+        return this.cloudProvider.listVoicesPublic();
+      }
     }
     // 无自填 Key + 未登录 → 公开音色列表接口
     return this.cloudProvider.listVoicesPublic();
