@@ -28,6 +28,7 @@ export interface Settings {
   overwriteMode: string;
   rememberKey: boolean;
   azureKey?: string;
+  azureKeyDisabled?: boolean;
   voices: VoiceInfo[];
   favoriteVoices: string[];
   cacheDir: string;
@@ -47,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultPitch: '0%',
   overwriteMode: 'skip',
   rememberKey: true,
+  azureKeyDisabled: false,
   voices: [],
   favoriteVoices: [],
   cacheDir: '',

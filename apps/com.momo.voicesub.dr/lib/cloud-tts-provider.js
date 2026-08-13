@@ -116,6 +116,14 @@ class CloudTtsProvider {
   }
 
   /**
+   * 获取音色列表（公开接口，不需要登录）
+   * 用于"无自填 Key + 未登录"状态下让用户仍能浏览音色列表。
+   */
+  async listVoicesPublic() {
+    return this.cloudClient.listVoicesPublic();
+  }
+
+  /**
    * 合成语音（通过云端 API）
    * 复用本地缓存，相同参数不重复扣费
    */

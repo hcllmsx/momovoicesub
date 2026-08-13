@@ -329,27 +329,101 @@
                   <span class="card-icon">⚙️</span>
                   <span class="card-title">API 授权与服务设置</span>
                 </div>
+                <div class="auth-tabs">
+                  <div class="auth-tab active" data-auth-tab="apikey" role="button" tabindex="0">自填 Key</div>
+                  <div class="auth-tab" data-auth-tab="account" role="button" tabindex="0">登录账号</div>
+                </div>
               </div>
-              <div class="settings-body">
-                <div class="setting-row-inline">
-                  <div class="setting-group setting-group-region">
-                    <div class="setting-key-header">
-                      <span class="setting-label">位置/区域</span>
+
+              <!-- 自填 Key 面板 -->
+              <div class="auth-panel active" data-auth-panel="apikey">
+                <div class="settings-body">
+                  <div class="setting-row-inline">
+                    <div class="setting-group setting-group-region">
+                      <div class="setting-key-header">
+                        <span class="setting-label">位置/区域</span>
+                      </div>
+                      <input id="settingRegion" class="setting-input native-input" type="text" placeholder="例如 eastasia">
                     </div>
-                    <input id="settingRegion" class="setting-input native-input" type="text" placeholder="例如 eastasia">
+                    <div class="setting-group setting-group-key">
+                      <div class="setting-key-header">
+                        <span class="setting-label">密钥</span>
+                        <sp-checkbox id="settingRememberKey">记住密钥</sp-checkbox>
+                      </div>
+                      <input id="settingAzureKey" class="setting-input native-input" type="password" placeholder="输入您的 Azure Speech API 密钥">
+                    </div>
                   </div>
-                  <div class="setting-group setting-group-key">
-                    <div class="setting-key-header">
-                      <span class="setting-label">密钥</span>
-                      <sp-checkbox id="settingRememberKey">记住密钥</sp-checkbox>
+                  <div class="setting-actions">
+                    <sp-button variant="secondary" id="testTtsConnection">测试连接</sp-button>
+                    <sp-button variant="secondary" id="refreshVoicesBtn">刷新音色</sp-button>
+                    <sp-button variant="primary" id="saveSettingsBtn">保存设置</sp-button>
+                    <div class="azure-key-disable-row" title="勾选后忽略自填 Key，始终走登录账号通道（即便 Key 有效也不使用；未登录账号时配音会失败）">
+                      <sp-checkbox id="settingAzureKeyDisabled">临时禁用</sp-checkbox>
                     </div>
-                    <input id="settingAzureKey" class="setting-input native-input" type="password" placeholder="输入您的 Azure Speech API 密钥">
                   </div>
                 </div>
-                <div class="setting-actions">
-                  <sp-button variant="secondary" id="testTtsConnection">测试连接</sp-button>
-                  <sp-button variant="secondary" id="refreshVoicesBtn">刷新音色</sp-button>
-                  <sp-button variant="primary" id="saveSettingsBtn">保存所有设置</sp-button>
+              </div>
+
+              <!-- 登录账号 面板 -->
+              <div class="auth-panel" data-auth-panel="account">
+                <div id="accountLoading" class="account-state account-loading">
+                  <span class="account-loading-text">正在加载登录状态…</span>
+                </div>
+                <div id="accountLoggedOut" class="account-state hidden">
+                  <div class="account-hero">
+                    <div class="account-hero-icon">☁️</div>
+                    <div class="account-hero-title">登录 MoMoVoiceSub 云端</div>
+                    <div class="account-hero-desc">免填 Key · 自动同步配额 · 跨设备共享缓存</div>
+                  </div>
+                  <div class="setting-actions">
+                    <sp-button variant="primary" id="openLoginPopup">登录账号</sp-button>
+                  </div>
+                  <p class="account-footnote">
+                    登录即代表同意 <a href="javascript:void(0)" class="link-muted" id="openTerms">《用户协议》</a> 与 <a href="javascript:void(0)" class="link-muted" id="openPrivacy">《隐私政策》</a>
+                  </p>
+                </div>
+                <div id="accountLoggedIn" class="account-state hidden">
+                  <div class="account-user-row">
+                    <div class="account-avatar">M</div>
+                    <div class="account-user-info">
+                      <div class="account-email" id="accountEmail">user@example.com</div>
+                      <div class="account-plan">
+                        <span class="plan-badge" id="accountPlanBadge">专业版</span>
+                        <span class="plan-expire" id="accountPlanExpire">有效期至 2026-12-31</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="account-quota-grid">
+                    <div class="quota-cell">
+                      <div class="quota-label" id="quotaStdLabel">标准语音（本月）</div>
+                      <div class="quota-value">
+                        <span id="quotaCharsLeft">—</span>
+                        <span class="quota-unit"> / <span id="quotaCharsTotal">—</span> 字符</span>
+                      </div>
+                      <div class="quota-bar"><div class="quota-bar-fill" id="quotaCharsBar"></div></div>
+                    </div>
+                    <div class="quota-cell">
+                      <div class="quota-label" id="quotaNeuralLabel">神经语音（终身）</div>
+                      <div class="quota-value">
+                        <span id="quotaNeuralLeft">—</span>
+                        <span class="quota-unit"> / <span id="quotaNeuralTotal">—</span> 字符</span>
+                      </div>
+                      <div class="quota-bar"><div class="quota-bar-fill" id="quotaNeuralBar"></div></div>
+                    </div>
+                    <div class="quota-cell">
+                      <div class="quota-label">已绑定设备</div>
+                      <div class="quota-value">
+                        <span id="quotaDevices">0</span>
+                        <span class="quota-unit"> / <span id="quotaDevicesMax">3</span> 台</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="setting-actions">
+                    <sp-button variant="secondary" id="refreshQuota">刷新配额</sp-button>
+                    <sp-button variant="secondary" id="cloudRefreshVoicesBtn">刷新音色</sp-button>
+                    <sp-button variant="primary" id="openBuyPlan">续费 / 升级</sp-button>
+                    <sp-button variant="secondary" quiet id="accountLogout">退出登录</sp-button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -507,6 +581,48 @@
     <div class="mm-dialog-footer">
       <sp-button variant="secondary" id="dictEntryCancel">取消</sp-button>
       <sp-button variant="primary" id="dictEntrySave">保存</sp-button>
+    </div>
+  </dialog>
+
+  <!-- 登录弹窗 -->
+  <dialog id="loginDialog" class="mm-dialog">
+    <div class="mm-dialog-header">
+      <span class="mm-dialog-title">登录 MoMoVoiceSub</span>
+      <div class="mm-dialog-close" id="loginDialogClose" role="button" tabindex="0">✕</div>
+    </div>
+    <div class="mm-dialog-body">
+      <div class="login-form">
+        <label class="login-field">
+          <span>邮箱</span>
+          <input id="loginEmail" class="native-input" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false">
+        </label>
+        <label class="login-field">
+          <span>密码</span>
+          <input id="loginPassword" class="native-input" type="password" placeholder="••••••••" autocomplete="current-password">
+        </label>
+        <div class="login-extra-row">
+          <a href="javascript:void(0)" class="link-muted" id="loginForgot">忘记密码？</a>
+        </div>
+        <sp-button variant="primary" id="loginSubmit">登录</sp-button>
+        <p class="login-footnote">
+          还没有账号？<a href="javascript:void(0)" id="openSignupWeb" class="link-accent">去官网注册 →</a>
+        </p>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="confirmDialog" class="mm-dialog">
+    <div class="mm-dialog-header">
+      <span class="mm-dialog-title" id="confirmDialogTitle">确认操作</span>
+      <div class="mm-dialog-close" id="confirmDialogClose" role="button" tabindex="0">✕</div>
+    </div>
+    <div class="mm-dialog-body">
+      <p class="confirm-message" id="confirmDialogMessage">确认执行此操作？</p>
+      <p class="confirm-detail" id="confirmDialogDetail"></p>
+      <div class="confirm-actions">
+        <sp-button variant="secondary" quiet id="confirmDialogCancel">取消</sp-button>
+        <sp-button variant="primary" id="confirmDialogOk">确认</sp-button>
+      </div>
     </div>
   </dialog>
 </body>

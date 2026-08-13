@@ -443,7 +443,11 @@ function registerIpcHandlers() {
   registerLoggedHandler('cloud:refreshVoices', async () => {
     let tokenData = await cloudStore.loadToken();
     if (!tokenData?.access_token) {
-      throw new Error('未登录云端账号');
+      // 未登录 → 公开音色列表接口（manifest-only，不需要 JWT）
+      const voices = await cloudClient.listVoicesPublic();
+      await settingsStore.save({ voices });
+      sendLog(`已从公开接口刷新 ${voices.length} 个音色（未登录）`);
+      return voices;
     }
     try {
       const voices = await cloudClient.listVoices(tokenData.access_token);

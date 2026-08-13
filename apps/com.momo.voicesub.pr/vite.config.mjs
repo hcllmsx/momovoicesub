@@ -28,8 +28,12 @@ const appVersion = readPrVersion();
 // 通过 vite build --mode dev 触发（在 defineConfig 的函数形式中拿到 mode 参数）。
 // dev 模式下输出到 dist-dev/，manifest 的 id 改为 com.momo.voicesub.pr.dev，
 // name/label 改为「默默配音助手dev」，与正式版（dist/）可同时存在。
+// 同时 dev 模式下云端 API/Web 地址指向本地，正式版指向生产域名。
 const devPluginId = "com.momo.voicesub.pr.dev";
 const devPluginName = "默默配音助手dev";
+const PROD_API_BASE = "https://momovoicesub.sxrec.com";
+const DEV_API_BASE = "http://localhost:3000";
+const DEV_WEB_BASE = "http://localhost:3001";
 
 // Vite 插件：构建后处理 dist（或 dist-dev）/manifest.json
 //   1. 同步 version 字段为 VERSION 文件中的值
@@ -86,6 +90,10 @@ export default defineConfig(({ mode }) => {
     define: {
       // 构建时将 __APP_VERSION__ 替换为 VERSION 文件中的版本号字符串字面量
       __APP_VERSION__: JSON.stringify(appVersion),
+      // 云端环境地址：dev 版连本地 momovoicesub-yun，正式版连生产域名
+      __API_BASE_URL__: JSON.stringify(isDev ? DEV_API_BASE : PROD_API_BASE),
+      __WEB_BASE_URL__: JSON.stringify(isDev ? DEV_WEB_BASE : PROD_API_BASE),
+      __IS_DEV__: JSON.stringify(isDev),
     },
     plugins: [syncManifestVersion(isDev)],
     build: {

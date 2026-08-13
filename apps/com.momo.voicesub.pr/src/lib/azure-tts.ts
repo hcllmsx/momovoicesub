@@ -8,7 +8,7 @@ import polyphonicBuiltin from "./polyphonic-builtin.json";
 const storage = uxp.storage;
 const fs = storage.localFileSystem;
 
-const DEFAULT_OUTPUT_FORMAT = 'riff-24khz-16bit-mono-pcm';
+export const DEFAULT_OUTPUT_FORMAT = 'riff-24khz-16bit-mono-pcm';
 
 const STYLE_CN_MAP: Record<string, string> = {
   'general': '通用',
@@ -64,7 +64,7 @@ function sha1(value: string): Promise<string> {
   return Promise.resolve(sha1Hex(value));
 }
 
-function escapeXml(value: string): string {
+export function escapeXml(value: string): string {
   return String(value || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -80,7 +80,7 @@ export function styleNameCn(style: string): string {
 /**
  * 清理字符串使其可安全用于文件名：移除 Windows 非法字符与控制字符，并截断到指定长度。
  */
-function sanitizeForFileName(s: string, maxLen = 20): string {
+export function sanitizeForFileName(s: string, maxLen = 20): string {
   if (!s) return '';
   const cleaned = String(s)
     .replace(/[\/\\:*?"<>|]/g, '')
@@ -370,7 +370,7 @@ async function writeCacheIndex(folder: any, index: any): Promise<void> {
   await entry.write(JSON.stringify(index, null, 2), { format: storage.formats.utf8 });
 }
 
-async function updateCacheIndex(folder: any, cacheKey: string, entry: any): Promise<void> {
+export async function updateCacheIndex(folder: any, cacheKey: string, entry: any): Promise<void> {
   const index = await readCacheIndex(folder);
   const previous = index.entries[cacheKey] || {};
   index.entries[cacheKey] = {

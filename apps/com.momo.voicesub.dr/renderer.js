@@ -1060,10 +1060,10 @@ function createVoicePicker(container, options) {
     const filtered = filteredVoices();
     grid.innerHTML = '';
     if (!voices.length) {
-      // 音色列表完全为空（未登录云端且未填 Azure key）
+      // 音色列表完全为空（首次安装或尚未刷新过）
       const empty = document.createElement('div');
       empty.className = 'vp-grid-empty';
-      empty.textContent = '请自填 key 或者登录账号以刷新音色列表';
+      empty.textContent = '暂无音色数据，请点「刷新音色」获取';
       grid.appendChild(empty);
       return;
     }
@@ -2820,7 +2820,7 @@ function updateApiKeyPanelDisabledState() {
   const disabled = Boolean(state.settings?.azureKeyDisabled);
   const panel = document.querySelector('.auth-panel[data-auth-panel="apikey"]');
   if (panel) panel.classList.toggle('auth-panel-key-disabled', disabled);
-  for (const id of ['azureRegion', 'azureKey', 'rememberKey', 'testAzure', 'refreshVoices']) {
+  for (const id of ['azureRegion', 'azureKey', 'rememberKey', 'testAzure']) {
     const el = $(id);
     if (el) el.disabled = disabled;
   }
@@ -3589,6 +3589,16 @@ async function refreshState() {
     loadSettingsToForm();
     populateTrackTags();
     populateVoices();
+
+    // 首次安装 / 音色列表为空时，自动从公开接口获取（不阻塞初始化）
+    if (!state.voices || state.voices.length === 0) {
+      window.momoVoiceSub.listVoices({}).then(async (voices) => {
+        if (voices && voices.length > 0) {
+          state.voices = voices;
+          populateVoices();
+        }
+      }).catch(err => log(`自动获取音色列表失败: ${err.message || err}`));
+    }
     // 启动时自动将默认预设应用到两个面板上，极佳的开箱即用体验
     if (!state.initialized && state.defaultPresetId) {
       applyPresetToPanel('subtitle', state.defaultPresetId);
