@@ -2027,6 +2027,32 @@ body.app-busy * {
   gap: 8px;
 }
 
+/* “临时禁用自填 Key”复选框：绝对定位到操作栏最右，脱离 flex 流，
+   按钮组仍由 card-footer 的 justify-content:center 居中，互不影响 */
+.auth-panel[data-auth-panel="apikey"] .card-footer {
+  position: relative;
+}
+.azure-key-disable-row {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  margin: 0;
+  z-index: 1;
+}
+
+/* 禁用态：勾选“临时禁用”并保存后，自填 Key 相关控件变灰不可点 */
+.auth-panel[data-auth-panel="apikey"].auth-panel-key-disabled #azureRegion,
+.auth-panel[data-auth-panel="apikey"].auth-panel-key-disabled #azureKey,
+.auth-panel[data-auth-panel="apikey"].auth-panel-key-disabled #rememberKey,
+.auth-panel[data-auth-panel="apikey"].auth-panel-key-disabled #testAzure,
+.auth-panel[data-auth-panel="apikey"].auth-panel-key-disabled #refreshVoices {
+  opacity: 0.5;
+  filter: grayscale(0.5);
+  cursor: not-allowed;
+}
+
 /* ── Cache ── */
 
 .cache-body {

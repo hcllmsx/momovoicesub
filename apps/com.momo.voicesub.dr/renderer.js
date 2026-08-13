@@ -2814,10 +2814,24 @@ async function savePresetFromPanel(prefix) {
 
 // ─── Settings ───
 
+// 根据已保存的 azureKeyDisabled 状态，切换自填 Key 面板控件的禁用样式。
+// 仅在 loadSettingsToForm（初始化 / 保存后）调用，故“保存后”才生效。
+function updateApiKeyPanelDisabledState() {
+  const disabled = Boolean(state.settings?.azureKeyDisabled);
+  const panel = document.querySelector('.auth-panel[data-auth-panel="apikey"]');
+  if (panel) panel.classList.toggle('auth-panel-key-disabled', disabled);
+  for (const id of ['azureRegion', 'azureKey', 'rememberKey', 'testAzure', 'refreshVoices']) {
+    const el = $(id);
+    if (el) el.disabled = disabled;
+  }
+}
+
 function loadSettingsToForm() {
   const settings = state.settings || {};
   $('azureRegion').value = settings.region || '';
   $('rememberKey').checked = Boolean(settings.rememberKey);
+  $('azureKeyDisabled').checked = Boolean(settings.azureKeyDisabled);
+  updateApiKeyPanelDisabledState();
   $('cacheDir').value = settings.cacheDir || '';
   if (settings.hasAzureKey) {
     $('azureKey').value = '__SAVED_KEY_PLACEHOLDER__';
@@ -2928,6 +2942,7 @@ function settingsSnapshotFromForm() {
   return {
     region: $('azureRegion').value.trim(),
     rememberKey: $('rememberKey').checked,
+    azureKeyDisabled: $('azureKeyDisabled').checked,
     azureKeyDraft: $('azureKey').value.trim()
   };
 }
@@ -2953,6 +2968,7 @@ function readSettingsFromForm(includeKey = true) {
     region: $('azureRegion').value.trim(),
     endpoint: state.settings?.endpoint || '',
     rememberKey: $('rememberKey').checked,
+    azureKeyDisabled: $('azureKeyDisabled').checked,
     defaultVoice: state.defaultPresetId ? (state.presets.find(p => p.id === state.defaultPresetId)?.voice || 'zh-CN-XiaoxiaoNeural') : 'zh-CN-XiaoxiaoNeural',
     presets: state.presets,
     defaultPresetId: state.defaultPresetId,
@@ -2982,7 +2998,10 @@ async function saveSettings() {
     loadSettingsToForm();
     populateVoices();
     captureSettingsBaseline();
-    setResult('settingsResult', state.settings.hasAzureKey ? '设置已保存，密钥可用' : '设置已保存，但没有可用密钥', 'ok');
+    const savedMsg = state.settings.azureKeyDisabled
+      ? '自填 Key 已禁用'
+      : (state.settings.hasAzureKey ? '设置已保存，密钥可用' : '设置已保存，但没有可用密钥');
+    setResult('settingsResult', savedMsg, 'ok');
   } catch (error) {
     setResult('settingsResult', friendlyErrorMessage(error), 'error');
   } finally {
@@ -3860,7 +3879,7 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
     });
   }
 
-  for (const id of ['azureRegion', 'azureKey', 'rememberKey']) {
+  for (const id of ['azureRegion', 'azureKey', 'rememberKey', 'azureKeyDisabled']) {
     $(id).addEventListener('input', updateSaveButton);
     $(id).addEventListener('change', updateSaveButton);
   }
@@ -3958,13 +3977,20 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
 
   /**
    * 根据认证状态自动切换"连接设置"的选项卡：
-   *   1. 有自填 Azure Key → "自填 Key"（优先级最高，配音走本地 key 路线）
-   *   2. 无自填 key + 已登录云端 → "登录账号"
-   *   3. 都没有 → "自填 Key"（默认，引导用户填写）
+   *   1. 自填 Key 被"临时禁用" → "登录账号"（即便有 Key 也走账号通道）
+   *   2. 有自填 Azure Key → "自填 Key"（优先级最高，配音走本地 key 路线）
+   *   3. 无自填 key + 已登录云端 → "登录账号"
+   *   4. 都没有 → "自填 Key"（默认，引导用户填写）
    * 仅在用户切到设置页时触发，不干扰用户手动切换。
    */
   async function autoSelectAuthTab() {
     try {
+      // 禁用自填 Key 时，优先切到登录账号面板（配音走云端通道）
+      if (state.settings?.azureKeyDisabled) {
+        const tabBtn = document.querySelector('.auth-tab[data-auth-tab="account"]');
+        if (tabBtn && !tabBtn.classList.contains('active')) tabBtn.click();
+        return;
+      }
       const hasAzureKey = state.settings?.hasAzureKey;
       if (hasAzureKey) {
         const tabBtn = document.querySelector('.auth-tab[data-auth-tab="apikey"]');

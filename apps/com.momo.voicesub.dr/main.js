@@ -190,11 +190,13 @@ function initServices() {
   });
 
   // 委托 provider：有自填 key 走 AzureTtsProvider，否则登录了云端走 CloudTtsProvider
+  // isAzureKeyDisabled：用户在自填 Key 页勾选"临时禁用"时，强制走云端通道（即便 Key 有效也不用）
   ttsProvider = new DelegatingTtsProvider({
     azureProvider,
     cloudProvider: cloudTtsProvider,
     cloudStore,
-    getAzureKey: () => settingsStore.getAzureKey()
+    getAzureKey: () => settingsStore.getAzureKey(),
+    isAzureKeyDisabled: () => settingsStore.loadSync().azureKeyDisabled === true
   });
 
   resolveAdapter = new ResolveAdapter({

@@ -3,22 +3,29 @@
 /**
  * TTS Provider 委托器
  * 根据认证状态自动切换 AzureTtsProvider / CloudTtsProvider：
- *   1. 有自填 Azure Key → AzureTtsProvider（本地 key 路线，优先级最高）
- *   2. 无自填 key + 有云端 token → CloudTtsProvider（云端路线）
- *   3. 都没有 → AzureTtsProvider（会因无 key 报错，引导用户去设置）
+ *   1. 自填 Key 被"临时禁用" → CloudTtsProvider（即便有有效 Key 也不用；未登录则由云端报错引导）
+ *   2. 有自填 Azure Key → AzureTtsProvider（本地 key 路线，优先级最高）
+ *   3. 无自填 key + 有云端 token → CloudTtsProvider（云端路线）
+ *   4. 都没有 → AzureTtsProvider（会因无 key 报错，引导用户去设置）
  * 对外接口与 AzureTtsProvider 完全一致，resolveAdapter 无需感知切换
  */
 
 class DelegatingTtsProvider {
-  constructor({ azureProvider, cloudProvider, cloudStore, getAzureKey }) {
+  constructor({ azureProvider, cloudProvider, cloudStore, getAzureKey, isAzureKeyDisabled }) {
     this.azureProvider = azureProvider;
     this.cloudProvider = cloudProvider;
     this.cloudStore = cloudStore;
     this.getAzureKey = getAzureKey || (() => '');
+    this.isAzureKeyDisabled = isAzureKeyDisabled || (() => false);
   }
 
   async _getActive() {
-    // 优先自填 key 路线：用户既填了 key 又登录了账号时，走自填 key
+    // 用户在自填 Key 页勾选"临时禁用"后，完全跳过自填 Key 通道：
+    // 已登录云端 → 走云端；未登录 → 仍走云端（由云端报错引导登录，绝不再回退到自填 Key）
+    const disabled = await this.isAzureKeyDisabled();
+    if (disabled) return this.cloudProvider;
+
+    // 未禁用时：优先自填 key 路线（用户既填了 key 又登录了账号时，走自填 key）
     const azureKey = await this.getAzureKey();
     if (azureKey) return this.azureProvider;
 

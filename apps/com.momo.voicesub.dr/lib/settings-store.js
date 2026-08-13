@@ -27,6 +27,9 @@ const DEFAULT_SETTINGS = {
   defaultPitch: '0%',
   overwriteMode: 'skip',
   rememberKey: false,
+  // 用户在自填 Key 页勾选"临时禁用"后，即便填了有效 Key 也不走自填 Key 通道，
+  // 强制走登录账号通道（未登录则由云端报错引导，绝不再回退到自填 Key）
+  azureKeyDisabled: false,
   voices: [],
   favoriteVoices: [],
   cacheDir: '',
