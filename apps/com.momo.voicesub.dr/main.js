@@ -1,35 +1,60 @@
 'use strict';
 
-const path = require('path');
-const fs = (() => {
-  try { return require('fs/promises'); } catch (_) {
-    const _fs = require('fs');
-    const { promisify } = require('util');
-    return {
-      readFile: promisify(_fs.readFile),
-      writeFile: promisify(_fs.writeFile),
-      stat: promisify(_fs.stat),
-    };
-  }
-})();
-const { app, BrowserWindow, ipcMain, safeStorage, Menu, clipboard, dialog, shell } = require('electron');
-const WorkflowIntegration = require('./WorkflowIntegration.node');
-const { SettingsStore } = require('./lib/settings-store');
-const { AzureTtsProvider } = require('./lib/azure-tts');
-const { ResolveAdapter } = require('./lib/resolve-adapter');
-const { CloudClient } = require('./lib/cloud-client');
-const { CloudStore } = require('./lib/cloud-store');
-const { CloudTtsProvider } = require('./lib/cloud-tts-provider');
-const { DelegatingTtsProvider } = require('./lib/delegating-tts-provider');
-const packageInfo = require('./package.json');
+// ═══════════════════════════════════════════════════════════════════════
+// 版本硬检测：必须在所有业务模块 require 之前执行。
+// 达芬奇 18.5 等老版本内置 Node.js 12.x，缺少 fs/promises、fs.rm 等 API，
+// 业务模块（resolve-adapter.js 等）在 require 阶段就会因 promisify(undefined)
+// 抛 ERR_INVALID_ARG_TYPE 而崩溃，用户看到的是看不懂的原始错误。
+// 此处先检测版本，若过低则设置 fatalError 标志，跳过所有业务模块的加载，
+// 直接创建窗口展示友好提示并退出。
+// ═══════════════════════════════════════════════════════════════════════
+const MIN_NODE_MAJOR = 14; // fs/promises 稳定 + fs.rm 可用 + 可选链/空值合并
+const NODE_MAJOR = Number((process.versions.node || '0').split('.')[0]) || 0;
+const NODE_TOO_OLD = NODE_MAJOR < MIN_NODE_MAJOR;
+
+// 仅在 Node 版本足够时才加载业务模块，避免老版本在 require 阶段就崩溃。
+let path, fs, WorkflowIntegration, SettingsStore, AzureTtsProvider, ResolveAdapter,
+    CloudClient, CloudStore, CloudTtsProvider, DelegatingTtsProvider, packageInfo;
+
+if (!NODE_TOO_OLD) {
+  path = require('path');
+  fs = (() => {
+    try { return require('fs/promises'); } catch (_) {
+      const _fs = require('fs');
+      const { promisify } = require('util');
+      return {
+        readFile: promisify(_fs.readFile),
+        writeFile: promisify(_fs.writeFile),
+        stat: promisify(_fs.stat),
+      };
+    }
+  })();
+  WorkflowIntegration = require('./WorkflowIntegration.node');
+  ({ SettingsStore } = require('./lib/settings-store'));
+  ({ AzureTtsProvider } = require('./lib/azure-tts'));
+  ({ ResolveAdapter } = require('./lib/resolve-adapter'));
+  ({ CloudClient } = require('./lib/cloud-client'));
+  ({ CloudStore } = require('./lib/cloud-store'));
+  ({ CloudTtsProvider } = require('./lib/cloud-tts-provider'));
+  ({ DelegatingTtsProvider } = require('./lib/delegating-tts-provider'));
+  packageInfo = require('./package.json');
+}
+
+const electron = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, Menu, clipboard, dialog, shell } = electron;
 
 // 从 manifest.xml 读取插件 Id，保证与达芬奇握手时使用的 id 与 manifest 一致。
 // dev 版安装脚本会把 manifest 的 Id 改为 com.momo.voicesub.dr.dev，
 // 若此处仍硬编码正式版 id，会导致 WorkflowIntegration.Initialize 握手失败
 // （报错 "Failed to initialize communication with host"）。
+// path 模块在 Node 12 上可用（同步 fs 同理），但上面条件 require 在低版本时 path 为 undefined，
+// 此处用 require('path') 直接取一份，保证 readPluginIdFromManifest / LOGO_PATH 等基础路径拼接
+// 在所有版本下都能工作。
+const _path = require('path');
+
 function readPluginIdFromManifest() {
   try {
-    const manifestPath = path.join(__dirname, 'manifest.xml');
+    const manifestPath = _path.join(__dirname, 'manifest.xml');
     const xml = require('fs').readFileSync(manifestPath, 'utf8');
     const match = xml.match(/<Id>\s*([^<\s]+)\s*<\/Id>/);
     if (match && match[1]) return match[1];
@@ -39,7 +64,7 @@ function readPluginIdFromManifest() {
   return 'com.momo.voicesub.dr';
 }
 const PLUGIN_ID = readPluginIdFromManifest();
-const LOGO_PATH = path.join(__dirname, 'momovoicesub-logo.png');
+const LOGO_PATH = _path.join(__dirname, 'momovoicesub-logo.png');
 
 // 根据 manifest Id 自动切换环境：dev 版（Id 以 .dev 结尾）连本地，正式版连生产域名。
 // dr-install.ps1 安装 dev 版时会改写 manifest 的 Id 为 com.momo.voicesub.dr.dev，
@@ -47,18 +72,17 @@ const LOGO_PATH = path.join(__dirname, 'momovoicesub-logo.png');
 const IS_DEV = PLUGIN_ID.endsWith('.dev');
 const API_BASE_URL = IS_DEV ? 'http://localhost:3000' : 'https://momovoicesub.sxrec.com';
 const WEB_BASE_URL = IS_DEV ? 'http://localhost:3001' : 'https://momovoicesub.sxrec.com';
-console.log(`[Env] 运行环境: ${IS_DEV ? 'DEV (本地)' : 'PROD (生产)'}, API=${API_BASE_URL}, WEB=${WEB_BASE_URL}`);
-
-// 达芬奇内置 Electron 的 Node.js 版本检测。
-// fs/promises 与可选链等语法需要 Node 14+。低于此版本时向用户给出升级提示。
-const NODE_MAJOR = Number(process.versions.node.split('.')[0]) || 0;
-const NODE_TOO_OLD = NODE_MAJOR < 14;
+if (!NODE_TOO_OLD) {
+  console.log(`[Env] 运行环境: ${IS_DEV ? 'DEV (本地)' : 'PROD (生产)'}, API=${API_BASE_URL}, WEB=${WEB_BASE_URL}`);
+} else {
+  console.log(`[Fatal] 达芬奇内置 Node.js v${process.versions.node} 过低，本插件需要 v${MIN_NODE_MAJOR}+，将显示升级提示后退出。`);
+}
 
 function getNodeWarning() {
   if (!NODE_TOO_OLD) return null;
   return {
     title: '检测到达芬奇版本过旧',
-    message: `当前达芬奇内置的 Node.js 版本为 v${process.versions.node}，本插件至少需要 v14 以上版本。`,
+    message: `当前达芬奇内置的 Node.js 版本为 v${process.versions.node}，本插件至少需要 v${MIN_NODE_MAJOR} 以上版本。`,
     suggestion: '请升级达芬奇到较新版本后重试。'
   };
 }
@@ -162,6 +186,7 @@ async function getProjectManager() {
 }
 
 async function cleanupResolveInterface() {
+  if (!WorkflowIntegration) return true;
   try {
     WorkflowIntegration.CleanUp();
   } finally {
@@ -637,6 +662,12 @@ function registerShortcutGate(window) {
 
 function createWindow() {
   Menu.setApplicationMenu(null);
+  const additionalArgs = [`--momo-env=${IS_DEV ? 'dev' : 'prod'}`];
+  if (NODE_TOO_OLD) {
+    // 低版本时通过 additionalArguments 传递致命错误信息，renderer 检测到后直接显示阻断层，
+    // 不调用任何业务 IPC（低版本下这些 IPC 根本没注册，调用会超时/报错）
+    additionalArgs.push(`--momo-fatal=node-too-old:${process.versions.node}`);
+  }
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 760,
@@ -648,9 +679,9 @@ function createWindow() {
     title: '默默配音助手',
     icon: LOGO_PATH,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: _path.join(__dirname, 'preload.js'),
       // 通过 additionalArguments 把环境信息传给 preload，避免 preload 中 require('fs') 在 sandbox 模式下失败
-      additionalArguments: [`--momo-env=${IS_DEV ? 'dev' : 'prod'}`]
+      additionalArguments: additionalArgs
     }
   });
 
@@ -672,6 +703,15 @@ process.on('unhandledRejection', (reason) => {
 });
 
 app.whenReady().then(() => {
+  if (NODE_TOO_OLD) {
+    // 低版本 Node：只注册退出 IPC，不加载任何业务模块（此时业务模块根本没被 require）
+    ipcMain.handle('app:quit', () => {
+      app.quit();
+      return true;
+    });
+    createWindow();
+    return;
+  }
   initServices();
   registerIpcHandlers();
   createWindow();

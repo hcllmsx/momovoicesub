@@ -8,6 +8,18 @@
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body spellcheck="false">
+  <!-- ═══ 致命错误阻断覆盖层（低版本达芬奇等场景） ═══ -->
+  <div id="fatalOverlay" class="fatal-overlay hidden">
+    <div class="fatal-card">
+      <img class="fatal-logo" src="momovoicesub-logo.png" alt="">
+      <div class="fatal-icon">⚠️</div>
+      <h2 id="fatalTitle" class="fatal-title">不支持当前达芬奇版本</h2>
+      <p id="fatalMessage" class="fatal-message"></p>
+      <p id="fatalSuggestion" class="fatal-suggestion"></p>
+      <button id="fatalConfirmBtn" class="fatal-confirm-btn">确定，退出插件</button>
+    </div>
+  </div>
+
   <main class="app-shell">
     <!-- ═══ Sidebar Navigation ═══ -->
     <aside class="sidebar">

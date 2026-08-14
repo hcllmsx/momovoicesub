@@ -3961,3 +3961,89 @@ z-index: 1100 !important;
 .confirm-dialog-actions .btn {
   min-width: 72px;
 }
+
+/* ═══════════════════════════════════════════════
+   FATAL ERROR OVERLAY（低版本达芬奇阻断提示）
+   ═══════════════════════════════════════════════ */
+
+.fatal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(248, 248, 250, 0.96);
+  backdrop-filter: blur(4px);
+}
+
+.fatal-card {
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  padding: 36px 32px 28px 32px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.fatal-logo {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+}
+
+.fatal-icon {
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+
+.fatal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2329;
+  margin: 0 0 10px 0;
+}
+
+.fatal-message {
+  font-size: 13px;
+  color: #4a4f56;
+  line-height: 1.6;
+  margin: 0 0 6px 0;
+}
+
+.fatal-suggestion {
+  font-size: 13px;
+  color: #8a4b00;
+  line-height: 1.6;
+  margin: 0 0 20px 0;
+}
+
+.fatal-confirm-btn {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #4a90d9;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.fatal-confirm-btn:hover {
+  background: #3a7bc8;
+}
+
+.fatal-confirm-btn:active {
+  background: #2f6ab5;
+}

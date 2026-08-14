@@ -4300,6 +4300,30 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
 // ─── Init ───
 
 window.addEventListener('DOMContentLoaded', async () => {
+  // ═══ 致命错误阻断检测（低版本达芬奇等） ═══
+  // 主进程通过 preload 的 fatalError 字段传递致命错误信息，
+  // 检测到后直接显示阻断覆盖层，不调用任何业务 IPC（低版本下未注册）
+  const fatal = window.momoVoiceSub && window.momoVoiceSub.fatalError;
+  if (fatal) {
+    const overlay = $('fatalOverlay');
+    if (overlay) overlay.classList.remove('hidden');
+    const titleEl = $('fatalTitle');
+    const msgEl = $('fatalMessage');
+    const sugEl = $('fatalSuggestion');
+    if (titleEl) titleEl.textContent = fatal.title || '';
+    if (msgEl) msgEl.textContent = fatal.message || '';
+    if (sugEl) sugEl.textContent = fatal.suggestion || '';
+    const btn = $('fatalConfirmBtn');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        if (window.momoVoiceSub && typeof window.momoVoiceSub.quitApp === 'function') {
+          window.momoVoiceSub.quitApp();
+        }
+      });
+    }
+    return; // 不走正常启动流程
+  }
+
   setupEvents();
 
   const nodeWarningClose = $('nodeWarningClose');

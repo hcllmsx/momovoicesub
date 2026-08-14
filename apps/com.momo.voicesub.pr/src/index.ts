@@ -850,8 +850,27 @@ async function initPlugin() {
   }
 }
 
+/**
+ * 自愈保护：UXP 原生 <textarea> 在面板重绘 / display 切换 / PR 执行事务等场景下，
+ * value 偶发被重置为 HTML 初始值（空）。此函数在 state 有内容但文本框为空时恢复显示。
+ * 在 syncWithPremiere 轮询（3s）和 tab 切换回 manual 时调用，兜底防止用户输入丢失。
+ */
+function ensureManualTextareaValue() {
+  const ta = $("manualText") as any;
+  if (!ta) return;
+  const annotated = state.manualTextWithAnnotations || "";
+  if (!annotated) return;
+  const { cleanText } = parseAnnotations(annotated);
+  if (ta.value !== cleanText) {
+    ta.value = cleanText;
+  }
+}
+
 // 同步 PR 时间线状态
 async function syncWithPremiere() {
+  // 自愈：修复 UXP 原生 textarea 在面板重绘时 value 被清空的问题
+  ensureManualTextareaValue();
+
   const summary = await premiereAdapter.getSummary();
   if (!summary) {
     $("projectNameText")!.innerText = "未检测到项目";
@@ -1084,6 +1103,8 @@ navButtons.forEach(btn => {
     if (tabName === 'voices') renderVoicesPage();
     // 切到设置页时自动选择认证选项卡
     if (tabName === 'settings') autoSelectAuthTab();
+    // 切回手动配音页时自愈：UXP 原生 textarea 在 display:none→flex 后 value 偶发被清空
+    if (tabName === 'manual') ensureManualTextareaValue();
   });
 });
 
@@ -4324,6 +4345,10 @@ style,
     console.error("[insertManual] 失败:", err);
     const errMsg = (err && (err.message || err.stack)) || String(err);
     showToast(`生成手动配音失败：${errMsg}`, "error");
+  } finally {
+    // 配音流程中 PR 执行事务/保存可能导致 UXP 面板重绘，textarea value 偶发被清空，
+    // 结束后立即自愈恢复，避免用户看到文字"消失"
+    ensureManualTextareaValue();
   }
 });
 

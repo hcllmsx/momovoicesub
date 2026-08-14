@@ -11,6 +11,30 @@ const envArg = (typeof process !== 'undefined' && Array.isArray(process.argv))
 const isDev = envArg === '--momo-env=dev';
 const webBaseUrl = isDev ? 'http://localhost:3001' : 'https://momovoicesub.sxrec.com';
 
+// 主进程在低版本等致命场景下通过 additionalArguments 注入 --momo-fatal=<reason>[:<detail>]
+// renderer 检测到此字段后直接显示阻断覆盖层，不调用任何业务 IPC
+const fatalArg = (typeof process !== 'undefined' && Array.isArray(process.argv))
+  ? process.argv.find((a) => typeof a === 'string' && a.startsWith('--momo-fatal='))
+  : undefined;
+let fatalError = null;
+if (fatalArg) {
+  const raw = fatalArg.slice('--momo-fatal='.length);
+  const sepIdx = raw.indexOf(':');
+  const reason = sepIdx >= 0 ? raw.slice(0, sepIdx) : raw;
+  const detail = sepIdx >= 0 ? raw.slice(sepIdx + 1) : '';
+  if (reason === 'node-too-old') {
+    fatalError = {
+      reason: 'node-too-old',
+      nodeVersion: detail,
+      title: '不支持当前达芬奇版本',
+      message: `检测到当前达芬奇内置的 Node.js 版本过旧（v${detail}），无法运行本插件。`,
+      suggestion: '请升级达芬奇到较新版本（建议 19 及以上）后重新打开插件。'
+    };
+  } else {
+    fatalError = { reason: reason || 'unknown', title: '插件无法启动', message: '发生了未知错误，请联系开发者。', suggestion: '' };
+  }
+}
+
 contextBridge.exposeInMainWorld('momoVoiceSub', {
   getState: () => ipcRenderer.invoke('app:getState'),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
@@ -37,9 +61,13 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   confirm: (options) => ipcRenderer.invoke('app:confirm', options),
   cleanupResolveInterface: () => ipcRenderer.invoke('resolve:cleanupResolveInterface'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  // 退出插件（低版本达芬奇阻断提示后调用）
+  quitApp: () => ipcRenderer.invoke('app:quit'),
   // 环境信息（供 renderer 构造网页 URL，如登录页/定价页）
   webBaseUrl: webBaseUrl,
   isDev: isDev,
+  // 致命错误（低版本达芬奇等），renderer 检测到后直接显示阻断层
+  fatalError: fatalError,
   // Cloud 账号
   cloudLogin: (email, password) => ipcRenderer.invoke('cloud:login', { email, password }),
   cloudLogout: () => ipcRenderer.invoke('cloud:logout'),
