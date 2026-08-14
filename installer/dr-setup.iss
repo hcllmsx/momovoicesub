@@ -3,7 +3,7 @@
 ; ───────────────────────────────────────────────────────────────────
 
 #define MyAppName "默默配音助手 (DaVinci Resolve 版)"
-#define MyAppVersion "26.8.14"
+#define MyAppVersion "26.8.14.3"
 #define MyAppPublisher "hcllmsx"
 #define MyAppURL "https://github.com/hcllmsx/momovoicesub"
 
@@ -53,7 +53,6 @@ var
   UninstForm: TForm;
   UninstMainPanel: TPanel;
   UninstDrDataChk: TCheckBox;
-  UninstDrDataLabel: TLabel;
 
 procedure DetectDaVinci();
 var
@@ -121,16 +120,17 @@ end;
 
 function InitializeUninstall(): Boolean;
 var
-  TitleLabel, SubLabel: TLabel;
+  TitleLabel, SubLabel, DescLabel: TNewStaticText;
   BtnPanel: TPanel;
   UninstBtn, CancelBtn: TNewButton;
+  ContentW, Y: Integer;
 begin
   UninstForm := TForm.Create(nil);
   UninstForm.Caption := '卸载默默配音助手 (DaVinci Resolve 版)';
-  UninstForm.ClientWidth := 720;
-  UninstForm.ClientHeight := 240;
   UninstForm.Position := poScreenCenter;
   UninstForm.BorderStyle := bsDialog;
+  UninstForm.Font.Size := 9;
+  UninstForm.ClientWidth := 720;
 
   UninstMainPanel := TPanel.Create(UninstForm);
   UninstMainPanel.Parent := UninstForm;
@@ -139,47 +139,64 @@ begin
   UninstMainPanel.ParentBackground := False;
   UninstMainPanel.Color := $FFFFFF;
 
-  TitleLabel := TLabel.Create(UninstMainPanel);
+  // 内容可用宽度（窗体客户区 720 - 左边距 24 - 右边距 24）
+  ContentW := 672;
+
+  // 从上往下累加 Y 坐标
+  Y := 20;
+
+  { 用 TNewStaticText 代替 TLabel：
+    TNewStaticText.AutoSize := True 只调高度不缩宽度（这是它与 TLabel 的关键区别），
+    配合 WordWrap := True 能正确地按固定 Width 换行并自动撑开高度，
+    彻底解决 "每行只有几个字" 和 "文字被裁切" 两个问题。 }
+
+  TitleLabel := TNewStaticText.Create(UninstMainPanel);
   TitleLabel.Parent := UninstMainPanel;
   TitleLabel.Left := 24;
-  TitleLabel.Top := 20;
-  TitleLabel.Width := 670;
-  TitleLabel.Height := 24;
+  TitleLabel.Top := Y;
+  TitleLabel.Width := ContentW;
+  TitleLabel.AutoSize := True;
+  TitleLabel.WordWrap := True;
   TitleLabel.Caption := '即将卸载 默默配音助手 (DaVinci Resolve 版)';
   TitleLabel.Font.Size := 11;
   TitleLabel.Font.Style := [fsBold];
   TitleLabel.Font.Color := $333333;
+  Y := Y + TitleLabel.Height + 10;
 
-  SubLabel := TLabel.Create(UninstMainPanel);
+  SubLabel := TNewStaticText.Create(UninstMainPanel);
   SubLabel.Parent := UninstMainPanel;
   SubLabel.Left := 24;
-  SubLabel.Top := 50;
-  SubLabel.Width := 670;
-  SubLabel.Height := 20;
-  SubLabel.Caption := '请选择是否同时删除以下数据：';
+  SubLabel.Top := Y;
+  SubLabel.Width := ContentW;
+  SubLabel.AutoSize := True;
+  SubLabel.WordWrap := True;
+  SubLabel.Caption := '请选择是否同时删除用户数据：';
   SubLabel.Font.Size := 9;
   SubLabel.Font.Color := $666666;
+  Y := Y + SubLabel.Height + 8;
 
   UninstDrDataChk := TCheckBox.Create(UninstMainPanel);
   UninstDrDataChk.Parent := UninstMainPanel;
   UninstDrDataChk.Left := 40;
-  UninstDrDataChk.Top := 80;
-  UninstDrDataChk.Width := 650;
+  UninstDrDataChk.Top := Y;
+  UninstDrDataChk.Width := ContentW - 16;
   UninstDrDataChk.Height := 20;
-  UninstDrDataChk.Caption := '删除插件设置、缓存和用户数据 (ProgramData\com.momo.voicesub.dr)';
+  UninstDrDataChk.Caption := '删除插件设置、自填Key、云端登录状态和缓存等用户数据';
   UninstDrDataChk.Checked := False;
   UninstDrDataChk.Font.Size := 9;
+  Y := Y + UninstDrDataChk.Height + 6;
 
-  UninstDrDataLabel := TLabel.Create(UninstMainPanel);
-  UninstDrDataLabel.Parent := UninstMainPanel;
-  UninstDrDataLabel.Left := 40;
-  UninstDrDataLabel.Top := 110;
-  UninstDrDataLabel.Width := 650;
-  UninstDrDataLabel.Height := 40;
-  UninstDrDataLabel.Caption := '勾选后将永久删除所有配置和缓存，无法恢复。' + #13#10 + '不勾选则仅移除程序文件，保留用户数据。';
-  UninstDrDataLabel.Font.Size := 8;
-  UninstDrDataLabel.Font.Color := $999999;
-  UninstDrDataLabel.WordWrap := True;
+  DescLabel := TNewStaticText.Create(UninstMainPanel);
+  DescLabel.Parent := UninstMainPanel;
+  DescLabel.Left := 40;
+  DescLabel.Top := Y;
+  DescLabel.Width := ContentW - 16;
+  DescLabel.AutoSize := True;
+  DescLabel.WordWrap := True;
+  DescLabel.Caption := '勾选后将永久删除 %USERPROFILE%\AppData\Roaming\momovoicesub 下的所有数据，无法恢复。不勾选则仅移除插件程序文件，保留用户数据（重装后设置仍在）。';
+  DescLabel.Font.Size := 8;
+  DescLabel.Font.Color := $999999;
+  Y := Y + DescLabel.Height + 16;
 
   BtnPanel := TPanel.Create(UninstMainPanel);
   BtnPanel.Parent := UninstMainPanel;
@@ -190,9 +207,8 @@ begin
 
   UninstBtn := TNewButton.Create(BtnPanel);
   UninstBtn.Parent := BtnPanel;
-  UninstBtn.Left := 280;
   UninstBtn.Top := 10;
-  UninstBtn.Width := 80;
+  UninstBtn.Width := 90;
   UninstBtn.Height := 30;
   UninstBtn.Caption := '卸载(&U)';
   UninstBtn.ModalResult := mrOK;
@@ -200,13 +216,19 @@ begin
 
   CancelBtn := TNewButton.Create(BtnPanel);
   CancelBtn.Parent := BtnPanel;
-  CancelBtn.Left := 370;
   CancelBtn.Top := 10;
-  CancelBtn.Width := 80;
+  CancelBtn.Width := 90;
   CancelBtn.Height := 30;
   CancelBtn.Caption := '取消';
   CancelBtn.ModalResult := mrCancel;
   CancelBtn.Cancel := True;
+
+  // 按钮居右排列，留 16px 间距
+  CancelBtn.Left := ContentW + 24 - 90;
+  UninstBtn.Left := CancelBtn.Left - 90 - 16;
+
+  // 窗体高度 = 内容总高度 + 底部按钮栏
+  UninstForm.ClientHeight := Y + 50;
 
   Result := (UninstForm.ShowModal() = mrOK);
   DeleteDrUserData := UninstDrDataChk.Checked;
@@ -214,17 +236,34 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  DataDir: String;
+  DataDir, LegacyDataDir: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
     if DeleteDrUserData then
     begin
-      DataDir := ExpandConstant('{commonappdata}\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\com.momo.voicesub.dr');
+      // 用户数据存储在 AppData\Roaming\momovoicesub，含：
+      //   settings.json(自填Key加密、禁用开关等)、cloud-token.json(云端登录)、
+      //   device-fp.txt(设备指纹)、polyphonic-user-dict.json(多音字)、cache/、
+      //   Local Storage\leveldb\(手动配音文本等 localStorage，v26.8.14.4+ 迁移至此)
+      DataDir := ExpandConstant('{userappdata}\momovoicesub');
       if DirExists(DataDir) then
       begin
         try
           DelTree(DataDir, True, True, True);
+        except
+        end;
+      end;
+
+      // 兼容旧版：v26.8.14.3 及更早版本因未调用 app.setPath('userData')，
+      // Electron 按 package.json name 把 localStorage 存在了
+      // AppData\Roaming\momovoicesub-resolve-plugin\Local Storage\leveldb\
+      // 此处一并清除，确保手动配音文本等 localStorage 彻底删除。
+      LegacyDataDir := ExpandConstant('{userappdata}\momovoicesub-resolve-plugin');
+      if DirExists(LegacyDataDir) then
+      begin
+        try
+          DelTree(LegacyDataDir, True, True, True);
         except
         end;
       end;

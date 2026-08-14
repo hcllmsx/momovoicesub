@@ -2596,7 +2596,7 @@ z-index: 30;
   padding: 12px 16px;
   overflow-y: auto;
   flex: 1;
-  min-height: 380px;
+  min-height: 0;
   align-content: start;
 }
 

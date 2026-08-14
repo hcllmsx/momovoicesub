@@ -196,8 +196,81 @@ async function cleanupResolveInterface() {
   return true;
 }
 
+// 用户数据目录：AppData\Roaming\momovoicesub-<pluginId>
+// 带 Id 后缀使正式版(com.momo.voicesub.dr)与 dev 版(com.momo.voicesub.dr.dev)数据隔离，
+// 避免切换版本时共享登录状态 / 自填 Key / 缓存导致混乱。
+// 同时迁移旧版无后缀目录的数据(AppData\Roaming\momovoicesub)到新目录。
+let APP_DATA_DIR = null;
+function getAppDataDir() {
+  if (APP_DATA_DIR) return APP_DATA_DIR;
+  const base = app.getPath('appData');
+  // 正式版保持向后兼容：旧数据在 AppData\Roaming\momovoicesub，直接复用不迁移
+  if (!IS_DEV) {
+    APP_DATA_DIR = _path.join(base, 'momovoicesub');
+    return APP_DATA_DIR;
+  }
+  // dev 版用独立目录，首次运行时把正式版的旧数据拷一份过来（只拷一次）
+  APP_DATA_DIR = _path.join(base, `momovoicesub-${PLUGIN_ID}`);
+  try {
+    const oldDir = _path.join(base, 'momovoicesub');
+    const fsSync = require('fs');
+    if (fsSync.existsSync(oldDir) && !fsSync.existsSync(APP_DATA_DIR)) {
+      fsSync.mkdirSync(APP_DATA_DIR, { recursive: true });
+      for (const name of ['settings.json', 'cloud-token.json', 'device-fp.txt', 'polyphonic-user-dict.json']) {
+        const src = _path.join(oldDir, name);
+        if (fsSync.existsSync(src)) {
+          fsSync.copyFileSync(src, _path.join(APP_DATA_DIR, name));
+        }
+      }
+      console.log(`[Migration] 已从旧数据目录复制配置到 ${APP_DATA_DIR}（dev 版独立数据，互不影响）`);
+    }
+  } catch (e) {
+    console.error('[Migration] 迁移旧数据失败:', e);
+  }
+  return APP_DATA_DIR;
+}
+
+// 把 Electron 默认的 userData 路径重定向到 getAppDataDir()。
+// 否则 Electron 会用 app.getName()（package.json 的 name=momovoicesub-resolve-plugin）
+// 作为 userData 目录名，导致 localStorage（如 manualTextWithAnnotations）存在
+// AppData\Roaming\momovoicesub-resolve-plugin\Local Storage\leveldb\，
+// 而不是我们自建文件用的 AppData\Roaming\momovoicesub\。
+// 这样卸载时删 momovoicesub 目录就能连同 localStorage 一起清除。
+// 必须在 app.whenReady() 之前、任何窗口创建之前调用。
+try {
+  const _userDataDir = getAppDataDir();
+  app.setPath('userData', _userDataDir);
+  // 如果之前已有旧 userData 目录（momovoicesub-resolve-plugin）里的 localStorage，
+  // 迁移过来，避免用户历史输入丢失。
+  const _oldUserDataDir = _path.join(app.getPath('appData'), 'momovoicesub-resolve-plugin');
+  const _fsSync = require('fs');
+  const _oldLsDir = _path.join(_oldUserDataDir, 'Local Storage', 'leveldb');
+  const _newLsDir = _path.join(_userDataDir, 'Local Storage', 'leveldb');
+  if (_fsSync.existsSync(_oldLsDir) && !_fsSync.existsSync(_newLsDir)) {
+    try {
+      _fsSync.mkdirSync(_path.join(_userDataDir, 'Local Storage'), { recursive: true });
+      // 递归复制 leveldb 目录
+      const _copyDirSync = (src, dest) => {
+        _fsSync.mkdirSync(dest, { recursive: true });
+        for (const entry of _fsSync.readdirSync(src, { withFileTypes: true })) {
+          const s = _path.join(src, entry.name);
+          const d = _path.join(dest, entry.name);
+          if (entry.isDirectory()) _copyDirSync(s, d);
+          else _fsSync.copyFileSync(s, d);
+        }
+      };
+      _copyDirSync(_oldLsDir, _newLsDir);
+      console.log(`[Migration] 已迁移 localStorage 从 ${_oldLsDir} 到 ${_newLsDir}`);
+    } catch (e) {
+      console.error('[Migration] 迁移 localStorage 失败:', e);
+    }
+  }
+} catch (e) {
+  console.error('[setUserDataPath] 设置 userData 路径失败:', e);
+}
+
 function initServices() {
-  const appDataDir = path.join(app.getPath('appData'), 'momovoicesub');
+  const appDataDir = getAppDataDir();
   settingsStore = new SettingsStore({ appDataDir, safeStorage });
 
   const azureProvider = new AzureTtsProvider({
@@ -295,7 +368,7 @@ function registerIpcHandlers() {
 
     const settings = await settingsStore.load();
     const voice = (settings.voices || []).find((v) => v.shortName === shortName);
-    const cacheDir = settings.cacheDir || path.join(app.getPath('appData'), 'momovoicesub', 'cache');
+    const cacheDir = settings.cacheDir || path.join(getAppDataDir(), 'cache');
 
     const result = await ttsProvider.synthesizePreview({
       shortName,
@@ -572,7 +645,7 @@ function registerIpcHandlers() {
 
   registerLoggedHandler('cache:openFolder', async () => {
     const settings = await settingsStore.load();
-    const cacheDir = settings.cacheDir || path.join(app.getPath('appData'), 'momovoicesub', 'cache');
+    const cacheDir = settings.cacheDir || path.join(getAppDataDir(), 'cache');
     // 确保目录存在（fs/promises 有 mkdir，fallback 版可能没有）
     if (typeof fs.mkdir === 'function') {
       try { await fs.mkdir(cacheDir, { recursive: true }); } catch (_) {}

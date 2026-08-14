@@ -3,7 +3,7 @@
 ; ───────────────────────────────────────────────────────────────────
 
 #define MyAppName "默默配音助手 (Premiere Pro 版)"
-#define MyAppVersion "26.8.14"
+#define MyAppVersion "26.8.14.3"
 #define MyAppPublisher "hcllmsx"
 #define MyAppURL "https://github.com/hcllmsx/momovoicesub"
 
@@ -58,7 +58,6 @@ var
   UninstForm: TForm;
   UninstMainPanel: TPanel;
   UninstPrDataChk: TCheckBox;
-  UninstPrDataLabel: TLabel;
 
 procedure DetectPremiere();
 var
@@ -112,16 +111,17 @@ end;
 
 function InitializeUninstall(): Boolean;
 var
-  TitleLabel, SubLabel: TLabel;
+  TitleLabel, SubLabel, DescLabel: TNewStaticText;
   BtnPanel: TPanel;
   UninstBtn, CancelBtn: TNewButton;
+  ContentW, Y: Integer;
 begin
   UninstForm := TForm.Create(nil);
   UninstForm.Caption := '卸载默默配音助手 (Premiere Pro 版)';
-  UninstForm.ClientWidth := 720;
-  UninstForm.ClientHeight := 260;
   UninstForm.Position := poScreenCenter;
   UninstForm.BorderStyle := bsDialog;
+  UninstForm.Font.Size := 9;
+  UninstForm.ClientWidth := 720;
 
   UninstMainPanel := TPanel.Create(UninstForm);
   UninstMainPanel.Parent := UninstForm;
@@ -130,47 +130,64 @@ begin
   UninstMainPanel.ParentBackground := False;
   UninstMainPanel.Color := $FFFFFF;
 
-  TitleLabel := TLabel.Create(UninstMainPanel);
+  // 内容可用宽度（窗体客户区 720 - 左边距 24 - 右边距 24）
+  ContentW := 672;
+
+  // 从上往下累加 Y 坐标
+  Y := 20;
+
+  { 用 TNewStaticText 代替 TLabel：
+    TNewStaticText.AutoSize := True 只调高度不缩宽度（这是它与 TLabel 的关键区别），
+    配合 WordWrap := True 能正确地按固定 Width 换行并自动撑开高度，
+    彻底解决 "每行只有几个字" 和 "文字被裁切" 两个问题。 }
+
+  TitleLabel := TNewStaticText.Create(UninstMainPanel);
   TitleLabel.Parent := UninstMainPanel;
   TitleLabel.Left := 24;
-  TitleLabel.Top := 20;
-  TitleLabel.Width := 670;
-  TitleLabel.Height := 24;
+  TitleLabel.Top := Y;
+  TitleLabel.Width := ContentW;
+  TitleLabel.AutoSize := True;
+  TitleLabel.WordWrap := True;
   TitleLabel.Caption := '即将卸载 默默配音助手 (Premiere Pro 版)';
   TitleLabel.Font.Size := 11;
   TitleLabel.Font.Style := [fsBold];
   TitleLabel.Font.Color := $333333;
+  Y := Y + TitleLabel.Height + 10;
 
-  SubLabel := TLabel.Create(UninstMainPanel);
+  SubLabel := TNewStaticText.Create(UninstMainPanel);
   SubLabel.Parent := UninstMainPanel;
   SubLabel.Left := 24;
-  SubLabel.Top := 50;
-  SubLabel.Width := 670;
-  SubLabel.Height := 20;
-  SubLabel.Caption := '请选择是否同时删除以下数据：';
+  SubLabel.Top := Y;
+  SubLabel.Width := ContentW;
+  SubLabel.AutoSize := True;
+  SubLabel.WordWrap := True;
+  SubLabel.Caption := '请选择是否同时删除用户数据：';
   SubLabel.Font.Size := 9;
   SubLabel.Font.Color := $666666;
+  Y := Y + SubLabel.Height + 8;
 
   UninstPrDataChk := TCheckBox.Create(UninstMainPanel);
   UninstPrDataChk.Parent := UninstMainPanel;
   UninstPrDataChk.Left := 40;
-  UninstPrDataChk.Top := 80;
-  UninstPrDataChk.Width := 650;
+  UninstPrDataChk.Top := Y;
+  UninstPrDataChk.Width := ContentW - 16;
   UninstPrDataChk.Height := 20;
-  UninstPrDataChk.Caption := '删除所有 PR 版本的用户数据 (AppData\Adobe\UXP\PluginsStorage)';
+  UninstPrDataChk.Caption := '删除插件设置、自填Key、云端登录状态和缓存等用户数据';
   UninstPrDataChk.Checked := False;
   UninstPrDataChk.Font.Size := 9;
+  Y := Y + UninstPrDataChk.Height + 6;
 
-  UninstPrDataLabel := TLabel.Create(UninstMainPanel);
-  UninstPrDataLabel.Parent := UninstMainPanel;
-  UninstPrDataLabel.Left := 40;
-  UninstPrDataLabel.Top := 110;
-  UninstPrDataLabel.Width := 650;
-  UninstPrDataLabel.Height := 50;
-  UninstPrDataLabel.Caption := '勾选后将永久删除所有配置和缓存，无法恢复。' + #13#10 + '不勾选则仅移除程序文件，保留用户数据。';
-  UninstPrDataLabel.Font.Size := 8;
-  UninstPrDataLabel.Font.Color := $999999;
-  UninstPrDataLabel.WordWrap := True;
+  DescLabel := TNewStaticText.Create(UninstMainPanel);
+  DescLabel.Parent := UninstMainPanel;
+  DescLabel.Left := 40;
+  DescLabel.Top := Y;
+  DescLabel.Width := ContentW - 16;
+  DescLabel.AutoSize := True;
+  DescLabel.WordWrap := True;
+  DescLabel.Caption := '勾选后将永久删除所有 PR 版本下的插件数据（设置、自填Key、登录状态、缓存等），无法恢复。不勾选则仅移除插件程序文件，保留用户数据（重装后设置仍在）。';
+  DescLabel.Font.Size := 8;
+  DescLabel.Font.Color := $999999;
+  Y := Y + DescLabel.Height + 16;
 
   BtnPanel := TPanel.Create(UninstMainPanel);
   BtnPanel.Parent := UninstMainPanel;
@@ -181,9 +198,8 @@ begin
 
   UninstBtn := TNewButton.Create(BtnPanel);
   UninstBtn.Parent := BtnPanel;
-  UninstBtn.Left := 280;
   UninstBtn.Top := 10;
-  UninstBtn.Width := 80;
+  UninstBtn.Width := 90;
   UninstBtn.Height := 30;
   UninstBtn.Caption := '卸载(&U)';
   UninstBtn.ModalResult := mrOK;
@@ -191,13 +207,19 @@ begin
 
   CancelBtn := TNewButton.Create(BtnPanel);
   CancelBtn.Parent := BtnPanel;
-  CancelBtn.Left := 370;
   CancelBtn.Top := 10;
-  CancelBtn.Width := 80;
+  CancelBtn.Width := 90;
   CancelBtn.Height := 30;
   CancelBtn.Caption := '取消';
   CancelBtn.ModalResult := mrCancel;
   CancelBtn.Cancel := True;
+
+  // 按钮居右排列，留 16px 间距
+  CancelBtn.Left := ContentW + 24 - 90;
+  UninstBtn.Left := CancelBtn.Left - 90 - 16;
+
+  // 窗体高度 = 内容总高度 + 底部按钮栏
+  UninstForm.ClientHeight := Y + 50;
 
   Result := (UninstForm.ShowModal() = mrOK);
   DeletePrUserData := UninstPrDataChk.Checked;

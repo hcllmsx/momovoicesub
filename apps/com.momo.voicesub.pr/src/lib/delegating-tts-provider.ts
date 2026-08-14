@@ -73,9 +73,23 @@ export class DelegatingTtsProvider {
     return provider.synthesize(payload);
   }
 
+  /**
+   * 试听预览：独立路由，不走 _getActive()。
+   *
+   * _getActive() 在"无自填 Key + 未登录"时返回 AzureTtsProvider，
+   * 会导致试听报"未配置 Azure 密钥"。但 CloudTtsProvider.synthesizePreview
+   * 有三层兜底：本地缓存 → 云端预生成音频（公开接口，不需要登录）→ 实时合成。
+   * 所以试听路由规则应为：
+   *   - 有自填 Key 且未禁用 → Azure（本地直接合成，不消耗云端配额）
+   *   - 其他（禁用 / 无 Key / 未登录 / 已登录）→ Cloud（公开试听优先，不需要登录也能成功）
+   */
   async synthesizePreview(payload: any): Promise<any> {
-    const provider = await this._getActive();
-    return provider.synthesizePreview(payload);
+    const disabled = await this.isAzureKeyDisabled();
+    if (!disabled) {
+      const azureKey = await this.getAzureKey();
+      if (azureKey) return this.azureProvider.synthesizePreview(payload);
+    }
+    return this.cloudProvider.synthesizePreview(payload);
   }
 
   // ─── 缓存管理（始终委托给 azureProvider，缓存与合成通道无关） ───
