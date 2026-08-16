@@ -21,6 +21,12 @@ const PAUSE_MS_OPTIONS = [
   { value: '2s', label: '2秒' }
 ];
 
+// 选项 value 原样写入 [pause:value] 标签（与 PR 版 [break:value] 语义一致），
+// 由 azure-tts 的 applyManualAnnotations 统一转换：
+// 'none' → <break strength="none"/>，'50ms'/'1s' 等 → <break time="..."/>；
+// 纯数字标签（旧数据，如 [pause:500]）解析时仍按毫秒转 Number
+const PAUSE_LABELS = Object.fromEntries(PAUSE_MS_OPTIONS.map(o => [o.value, o.label]));
+
 const STYLE_CN = {
   'general': '通用', 'chat': '聊天', 'cheerful': '愉快', 'sad': '悲伤',
   'angry': '愤怒', 'fearful': '恐惧', 'excited': '激动', 'friendly': '友好',
@@ -466,52 +472,6 @@ function findPolyEntries(char) {
   return getPolyphonicDict().filter(e => e.char === char);
 }
 
-// ─── Annotation Preview ───
-
-function renderAnnotatedPreview(text, annotations) {
-  if (!annotations || !annotations.length) return escHtml(text);
-  const sorted = [...annotations].sort((a, b) => a.start - b.start);
-  let result = '';
-  let pos = 0;
-  for (const ann of sorted) {
-    if (ann.start > pos) result += escHtml(text.slice(pos, ann.start));
-    if (ann.start >= text.length) continue;
-    const char = text[ann.start];
-    if (ann.type === 'polyphonic' && ann.phonetic) {
-      result += `<span class="ann-poly">${escHtml(char)}<span class="ann-poly-tag">[${escHtml(ann.phonetic)}]</span></span>`;
-    } else if (ann.type === 'pause') {
-      result += `<span class="ann-pause">⏸${ann.duration || 500}ms</span>`;
-    } else {
-      result += escHtml(char);
-    }
-    pos = ann.end;
-  }
-  if (pos < text.length) result += escHtml(text.slice(pos));
-  return result;
-}
-
-function renderAnnotatedRow(text, annotations) {
-  if (!annotations || !annotations.length) return escHtml(text);
-  const sorted = [...annotations].sort((a, b) => a.start - b.start);
-  let result = '';
-  let pos = 0;
-  for (const ann of sorted) {
-    if (ann.start > pos) result += escHtml(text.slice(pos, ann.start));
-    if (ann.start >= text.length) continue;
-    const char = text[ann.start];
-    if (ann.type === 'polyphonic' && ann.phonetic) {
-      result += `<mark class="ann-poly-inline">${escHtml(char)}[${escHtml(ann.phonetic)}]</mark>`;
-    } else if (ann.type === 'pause') {
-      result += `<mark class="ann-pause-inline">⏸${ann.duration || 500}ms</mark>`;
-    } else {
-      result += escHtml(char);
-    }
-    pos = ann.end;
-  }
-  if (pos < text.length) result += escHtml(text.slice(pos));
-  return result;
-}
-
 // ─── Node Version Warning ───
 
 function showNodeWarning(warning) {
@@ -555,19 +515,21 @@ function highlightText(text) {
   if (!text) return '';
   const escaped = escapeHtml(text);
   let count = 0;
-  return escaped.replace(/(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|(\[pause:(\d+)(ms)?\]))/g, (match, char, phonetic, pauseFull, pauseMs) => {
+  return escaped.replace(/(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|(\[pause:(none|\d+(?:ms|s)?)\]))/g, (match, char, phonetic, pauseFull, pauseVal) => {
     const idx = count++;
     if (char) {
       return `<span class="poly-highlight" data-idx="${idx}">${char}[${phonetic}]<span class="ann-remove" data-idx="${idx}">×</span></span>`;
     } else {
-      return `<span class="ann-pause" data-idx="${idx}">⏸ ${pauseMs}ms<span class="ann-remove" data-idx="${idx}">×</span></span>`;
+      // 旧数据纯数字补 ms 单位；'none'/'1s' 等原样展示
+      const shown = /^\d+$/.test(pauseVal) ? `${pauseVal}ms` : pauseVal;
+      return `<span class="ann-pause" data-idx="${idx}">⏸ ${shown}<span class="ann-remove" data-idx="${idx}">×</span></span>`;
     }
   });
 }
 
 function removeAnnotationByIndex(annotatedText, targetIndex) {
   if (!annotatedText) return '';
-  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|(\[pause:\d+(?:ms)?\]))/g;
+  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|(\[pause:(?:none|\d+(?:ms|s)?)\]))/g;
   let match;
   let currentIndex = 0;
   let result = '';
@@ -590,7 +552,7 @@ function removeAnnotationByIndex(annotatedText, targetIndex) {
 
 function updateAnnotationByIndex(annotatedText, targetIndex, newPhoneticOrDuration) {
   if (!annotatedText) return '';
-  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|(\[pause:(\d+)(ms)?\]))/g;
+  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|(\[pause:(?:none|\d+(?:ms|s)?)\]))/g;
   let match;
   let currentIndex = 0;
   let result = '';
@@ -603,7 +565,7 @@ function updateAnnotationByIndex(annotatedText, targetIndex, newPhoneticOrDurati
         // 多音字，修改拼音标注
         result += `${match[1]}[${newPhoneticOrDuration}]`;
       } else {
-        // 停顿标记，修改停顿毫秒数
+        // 停顿标记，修改停顿值（'none'/'50ms'/'1s' 等）
         result += `[pause:${newPhoneticOrDuration}]`;
       }
       lastIndex = regex.lastIndex;
@@ -641,7 +603,7 @@ function updateSubtitleHighlighter(ta, hl) {
 
 function getAnnotatedPos(annotatedText, plainPos) {
   if (!annotatedText) return plainPos;
-  const regex = /(?:\[[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+\]|\[pause:\d+(?:ms)?\])/g;
+  const regex = /(?:\[[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+\]|\[pause:(?:none|\d+(?:ms|s)?)\])/g;
   let match;
   let skippedLength = 0;
   while ((match = regex.exec(annotatedText)) !== null) {
@@ -772,8 +734,8 @@ function updateManualHighlighter() {
 function parseTextAndGenerateAnnotations(rawText) {
   const finalAnns = [];
   
-  // 联合正则：同时捕获 字[拼音] 以及 [pause:停顿毫秒数]
-  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|\[pause:(\d+)(ms)?\])/g;
+  // 联合正则：同时捕获 字[拼音] 以及 [pause:值]（'none'/'500'/'50ms'/'1s'）
+  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|\[pause:(none|\d+(?:ms|s)?)\])/g;
   let match;
   const matches = [];
   
@@ -788,12 +750,13 @@ function parseTextAndGenerateAnnotations(rawText) {
         phonetic: match[2]
       });
     } else if (match[3]) {
-      // 捕获到停顿
+      // 捕获到停顿：'none' 保留字符串（azure-tts 生成 <break strength="none"/>），
+      // 纯数字（旧数据）转 Number 按毫秒处理，带单位字符串原样保留
       matches.push({
         start: match.index,
         end: regex.lastIndex,
         type: 'break',
-        duration: Number.parseInt(match[3], 10) || 500
+        duration: match[3] === 'none' ? 'none' : (/^\d+$/.test(match[3]) ? Number.parseInt(match[3], 10) : match[3])
       });
     }
   }
@@ -1700,13 +1663,12 @@ function renderSubtitleTable() {
           // 3. 点击了停顿标签本身，重新弹出停顿选择弹窗修改
           const idx = parseInt(pauseTag.dataset.idx, 10);
           openPausePopup((duration) => {
-            const durMs = Number.parseInt(duration, 10) || 500;
             if (item) {
-              item.text = updateAnnotationByIndex(item.text, idx, durMs);
+              item.text = updateAnnotationByIndex(item.text, idx, duration);
               const { cleanText } = parseTextAndGenerateAnnotations(item.text);
               textarea.value = cleanText;
               updateSubtitleHighlighter(textarea, hl);
-              showToast(`停顿时间已修改为 ${durMs}ms`, 'ok');
+              showToast(`停顿已设为 ${PAUSE_LABELS[duration] || duration}`, 'ok');
             }
           });
         }
@@ -2201,8 +2163,9 @@ function handleInsertPause(ta) {
   if (!ta) return;
   const plainPos = ta.selectionStart;
   openPausePopup((duration) => {
-    const durMs = Number.parseInt(duration, 10) || 500;
-    
+    // duration 为选项原值（'none'/'50ms'/'1s'...），原样写入标签，
+    // 由 parseTextAndGenerateAnnotations / azure-tts 统一解析
+
     // 1. 获取对应的底层带标记完整文本
     let annotatedText = "";
     let isManual = (ta.id === 'manualText');
@@ -2220,7 +2183,7 @@ function handleInsertPause(ta) {
     const pos = getAnnotatedPos(annotatedText, plainPos);
     const before = annotatedText.slice(0, pos);
     const after = annotatedText.slice(pos);
-    const newVal = before + `[pause:${durMs}]` + after;
+    const newVal = before + `[pause:${duration}]` + after;
     
     // 2. 存回对应位置
     if (isManual) {
@@ -2242,8 +2205,8 @@ function handleInsertPause(ta) {
       if (hl) updateSubtitleHighlighter(ta, hl);
     }
     
-    log(`已在位置 ${plainPos} 插入停顿标记：[pause:${durMs}]`);
-    showToast(`已插入停顿 ${durMs}ms`, 'ok');
+    log(`已在位置 ${plainPos} 插入停顿标记：[pause:${duration}]`);
+    showToast(`已设定${PAUSE_LABELS[duration] || duration}`, 'ok');
   });
 }
 
@@ -3826,13 +3789,12 @@ $('openDevTools').addEventListener('click', openDevTools);
         // 3. 点击了停顿标签本身，重新弹出停顿选择弹窗修改
         const idx = parseInt(pauseTag.dataset.idx, 10);
         openPausePopup((duration) => {
-          const durMs = Number.parseInt(duration, 10) || 500;
-          state.manualTextWithAnnotations = updateAnnotationByIndex(state.manualTextWithAnnotations, idx, durMs);
+          state.manualTextWithAnnotations = updateAnnotationByIndex(state.manualTextWithAnnotations, idx, duration);
           
           const { cleanText } = parseTextAndGenerateAnnotations(state.manualTextWithAnnotations);
           taEl.value = cleanText;
           updateManualHighlighter();
-          showToast(`停顿时间已修改为 ${durMs}ms`, 'ok');
+          showToast(`停顿已设为 ${PAUSE_LABELS[duration] || duration}`, 'ok');
         });
       }
     });
