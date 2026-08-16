@@ -3737,7 +3737,12 @@ async function handleSubtitleSingleCorrect() {
 
   // 映射到 annotatedText 位置
   const annotated = item.text || "";
-  const annEnd = getAnnotatedPos(annotated, plainEnd);
+  // 拼音标签必须紧贴选中字插入。不能用 getAnnotatedPos(plainEnd)：
+  // 若字后紧跟 [break:xxx]（其起始位置恰好等于 plainEnd），
+  // 该映射会把停顿标签一并跳过，导致拼音被插到停顿之后（结 50ms [jie 2]合），
+  // 脱离汉字的拼音标签将无法被解析和高亮。选区为连续明文，直接平移即可。
+  const annStart = getAnnotatedPos(annotated, plainStart);
+  const annEnd = annStart + (plainEnd - plainStart);
 
   // 检查选中字符后是否已有拼音标注，有则替换
   const afterChar = annotated.slice(annEnd);
@@ -3790,7 +3795,9 @@ async function handleManualSingleCorrect() {
 
   // 映射到 annotatedText 位置
   const annotated = state.manualTextWithAnnotations || "";
-  const annEnd = getAnnotatedPos(annotated, plainEnd);
+  // 同字幕轨单字纠音：拼音须紧贴汉字插入，避免越过紧随其后的 [break:xxx]（见上方注释）
+  const annStart = getAnnotatedPos(annotated, plainStart);
+  const annEnd = annStart + (plainEnd - plainStart);
 
   // 检查选中字符后是否已有拼音标注，有则替换
   const afterChar = annotated.slice(annEnd);

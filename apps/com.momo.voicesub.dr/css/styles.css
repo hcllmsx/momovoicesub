@@ -1574,6 +1574,17 @@ z-index: 30;
   border-color: rgba(26, 138, 82, 0.25);
 }
 
+/* 批量纠音弹窗中的停顿标签（不可点击，仅展示） */
+.batch-pause-tag {
+  color: var(--text-secondary) !important;
+  background: rgba(120, 120, 120, 0.10);
+  border: 1px solid rgba(120, 120, 120, 0.25);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 0 4px;
+  margin: 0 1px;
+}
+
 /* 批量纠音分行展示样式 */
 .batch-correct-row {
   display: flex;

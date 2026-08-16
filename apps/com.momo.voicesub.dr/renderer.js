@@ -1807,16 +1807,25 @@ function openPausePopup(onSelect) {
 
 function parseTextToTokens(text) {
   const tokens = [];
-  const regex = /(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]/g;
+  // 同时匹配 字[拼音] 与 [pause:值]：停顿标签作为整体 token 原样保留，避免被拆成单字符乱码后丢失
+  const regex = /(?:(.)\[([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-4\s]+)\]|\[pause:(none|\d+(?:ms|s)?)\])/g;
   let match;
   const matches = [];
   while ((match = regex.exec(text)) !== null) {
-    matches.push({
-      start: match.index,
-      end: regex.lastIndex,
-      char: match[1],
-      phonetic: match[2]
-    });
+    if (match[3] !== undefined) {
+      matches.push({
+        start: match.index,
+        end: regex.lastIndex,
+        raw: `[pause:${match[3]}]`
+      });
+    } else {
+      matches.push({
+        start: match.index,
+        end: regex.lastIndex,
+        char: match[1],
+        phonetic: match[2]
+      });
+    }
   }
   
   const allDict = getPolyphonicDict();
@@ -1835,12 +1844,22 @@ function parseTextToTokens(text) {
         });
       }
     }
-    tokens.push({
-      char: m.char,
-      isPoly: true,
-      isCorrected: true,
-      phonetic: m.phonetic
-    });
+    if (m.raw !== undefined) {
+      tokens.push({
+        raw: m.raw,
+        isPause: true,
+        isPoly: false,
+        isCorrected: false,
+        phonetic: ''
+      });
+    } else {
+      tokens.push({
+        char: m.char,
+        isPoly: true,
+        isCorrected: true,
+        phonetic: m.phonetic
+      });
+    }
     lastIdx = m.end;
   }
   
@@ -1907,7 +1926,11 @@ function handleSingleCorrect(ta) {
       }
       
       const start = getAnnotatedPos(annotatedText, plainStart);
-      const end = getAnnotatedPos(annotatedText, plainEnd);
+      // 拼音标签必须紧贴选中字之后插入。不能用 getAnnotatedPos(plainEnd)：
+      // 若字后紧跟 [pause:xxx]（停顿标签起始位置恰好等于 plainEnd），
+      // 该映射会把停顿标签一并跳过，导致拼音被插到停顿之后（结[pause:50ms][jie 2]合），
+      // 脱离汉字的拼音标签将无法被解析和高亮。选中区为连续明文，直接平移即可。
+      const end = start + (plainEnd - plainStart);
       const before = annotatedText.slice(0, end);
       const after = annotatedText.slice(end);
       
@@ -1950,7 +1973,16 @@ function handleSingleCorrect(ta) {
 
 function handleBatchCorrect(ta) {
   if (!ta) return;
-  const text = ta.value;
+  // 必须基于底层带标注文本（含 [pause:] 等标签），而非文本框中的干净文本，
+  // 否则确认后重建的文本会丢失已有的停顿标注
+  let text = '';
+  if (ta.id === 'manualText') {
+    text = state.manualTextWithAnnotations || ta.value;
+  } else {
+    const frame = Number(ta.dataset.frame);
+    const item = state.subtitleItems.find(s => s.startFrame === frame);
+    text = item ? item.text : ta.value;
+  }
   if (!text) {
     log('请先输入文本');
     showToast('请先输入文本', 'info');
@@ -1979,8 +2011,10 @@ function handleBatchCorrect(ta) {
   const tokens = parseTextToTokens(text);
   tokens.forEach((tok) => {
     const span = document.createElement('span');
-    span.textContent = tok.isCorrected ? `${tok.char}[${tok.phonetic}]` : tok.char;
-    
+    span.textContent = tok.isPause ? tok.raw : (tok.isCorrected ? `${tok.char}[${tok.phonetic}]` : tok.char);
+    if (tok.isPause) {
+      span.className = 'batch-pause-tag';
+    } else
     if (tok.isPoly) {
       span.className = 'batch-poly-char' + (tok.isCorrected ? ' is-corrected' : '');
       span.addEventListener('click', () => {
@@ -2010,7 +2044,10 @@ function handleBatchCorrect(ta) {
   $('batchCorrectConfirm').onclick = () => {
     let resultText = '';
     tokens.forEach(tok => {
-      if (tok.isCorrected) {
+      if (tok.isPause) {
+        // 停顿标签原样保留
+        resultText += tok.raw;
+      } else if (tok.isCorrected) {
         resultText += `${tok.char}[${tok.phonetic}]`;
       } else {
         resultText += tok.char;
@@ -2091,8 +2128,11 @@ function handleSubtitleTrackBatchCorrect() {
 
     rowData.tokens.forEach((tok) => {
       const span = document.createElement('span');
-      span.textContent = tok.isCorrected ? `${tok.char}[${tok.phonetic}]` : tok.char;
+      span.textContent = tok.isPause ? tok.raw : (tok.isCorrected ? `${tok.char}[${tok.phonetic}]` : tok.char);
 
+      if (tok.isPause) {
+        span.className = 'batch-pause-tag';
+      } else
       if (tok.isPoly) {
         span.className = 'batch-poly-char' + (tok.isCorrected ? ' is-corrected' : '');
         span.addEventListener('click', () => {
@@ -2128,7 +2168,10 @@ function handleSubtitleTrackBatchCorrect() {
     rowsData.forEach((rowData) => {
       let resultText = '';
       rowData.tokens.forEach((tok) => {
-        if (tok.isCorrected) {
+        if (tok.isPause) {
+          // 停顿标签原样保留
+          resultText += tok.raw;
+        } else if (tok.isCorrected) {
           resultText += `${tok.char}[${tok.phonetic}]`;
         } else {
           resultText += tok.char;
