@@ -212,7 +212,7 @@
                 </div>
                 <div class="card-body">
                   <div class="manual-textarea-wrap">
-                    <textarea id="manualText" class="manual-textarea" placeholder="输入要生成配音的文字...&#10;选中文字后点击「单字纠音」可标注指定读音。"></textarea>
+                    <textarea id="manualText" class="manual-textarea" placeholder="输入要生成配音的文字...（选中文字后可纠音/设定停顿）"></textarea>
                   </div>
                   <div id="manualPreviewTitle" class="manual-preview-title hidden">效果预览（含多音字纠音与停顿标记）：</div>
                   <div id="manualTextHighlight" class="manual-textarea-highlight hidden"></div>
@@ -515,23 +515,15 @@
 
   <!-- ═══ UXP 模态弹窗（<dialog> + uxpShowModal，原生渲染层级高于所有面板内容） ═══ -->
 
-  <!-- 设定停顿弹窗 -->
+  <!-- 设定停顿弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘，避免双标题） -->
   <dialog id="pauseDialog" class="mm-dialog">
-    <div class="mm-dialog-header">
-      <span class="mm-dialog-title">设定停顿</span>
-      <div class="mm-dialog-close" id="pauseDialogClose" role="button" tabindex="0">✕</div>
-    </div>
     <div class="mm-dialog-body">
       <div class="mm-pause-options" id="pauseDialogOptions"></div>
     </div>
   </dialog>
 
-  <!-- 单字纠音弹窗 -->
+  <!-- 单字纠音弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘，避免双标题） -->
   <dialog id="polyDialog" class="mm-dialog">
-    <div class="mm-dialog-header">
-      <span class="mm-dialog-title" id="polyDialogTitle">选择读音</span>
-      <div class="mm-dialog-close" id="polyDialogClose" role="button" tabindex="0">✕</div>
-    </div>
     <div class="mm-dialog-body">
       <div class="mm-poly-options" id="polyDialogOptions"></div>
       <div class="mm-poly-empty" id="polyDialogEmpty">
@@ -546,12 +538,8 @@
     </div>
   </dialog>
 
-  <!-- 批量纠音弹窗 -->
+  <!-- 批量纠音弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘，避免双标题） -->
   <dialog id="batchDialog" class="mm-dialog mm-dialog-lg">
-    <div class="mm-dialog-header">
-      <span class="mm-dialog-title" id="batchDialogTitle">批量多音字纠音</span>
-      <div class="mm-dialog-close" id="batchDialogClose" role="button" tabindex="0">✕</div>
-    </div>
     <div class="mm-dialog-body mm-batch-body">
       <div id="batchDialogContent"></div>
     </div>
@@ -560,12 +548,8 @@
     </div>
   </dialog>
 
-  <!-- 多音字字典：添加/编辑词条弹窗（1字多拼音） -->
+  <!-- 多音字字典：添加/编辑词条弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘，避免双标题） -->
   <dialog id="dictEntryDialog" class="mm-dialog">
-    <div class="mm-dialog-header">
-      <span class="mm-dialog-title" id="dictEntryDialogTitle">添加词条</span>
-      <div class="mm-dialog-close" id="dictEntryDialogClose" role="button" tabindex="0">✕</div>
-    </div>
     <div class="mm-dialog-body">
       <div class="dict-entry-char-row">
         <span class="dict-entry-label">汉字</span>
@@ -610,11 +594,8 @@
     </div>
   </dialog>
 
+  <!-- 确认弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘，避免双标题） -->
   <dialog id="confirmDialog" class="mm-dialog">
-    <div class="mm-dialog-header">
-      <span class="mm-dialog-title" id="confirmDialogTitle">确认操作</span>
-      <div class="mm-dialog-close" id="confirmDialogClose" role="button" tabindex="0">✕</div>
-    </div>
     <div class="mm-dialog-body">
       <p class="confirm-message" id="confirmDialogMessage">确认执行此操作？</p>
       <p class="confirm-detail" id="confirmDialogDetail"></p>

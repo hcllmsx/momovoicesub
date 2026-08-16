@@ -472,6 +472,8 @@ function syncAnnotatedText(oldAnnotated: string, newPlain: string): string {
   for (let i = 0; i < oldPlain.length; i++) {
     charAnns.push({ phoneme: null, breaks: [] });
   }
+  // 末尾停顿（start 超出文本长度，插在最后一个字符之后）
+  const trailingBreaks: string[] = [];
   for (const ann of annotations) {
     if (ann.type === "phoneme") {
       const idx = ann.start;
@@ -480,10 +482,10 @@ function syncAnnotatedText(oldAnnotated: string, newPlain: string): string {
       }
     } else if (ann.type === "break") {
       // break 标注的 start 表示插入位置（在 cleanText 的 start 之前）
-      const idx = Math.min(ann.start, charAnns.length);
-      if (idx >= 0 && idx <= charAnns.length) {
-        const safeIdx = Math.min(idx, charAnns.length - 1);
-        if (safeIdx >= 0) charAnns[safeIdx].breaks.push(ann.duration);
+      if (ann.start >= 0 && ann.start < charAnns.length) {
+        charAnns[ann.start].breaks.push(ann.duration);
+      } else if (ann.start >= charAnns.length) {
+        trailingBreaks.push(ann.duration);
       }
     }
   }
@@ -505,37 +507,43 @@ function syncAnnotatedText(oldAnnotated: string, newPlain: string): string {
 
   let result = "";
 
-  // 前缀部分：保留标注
+  // 前缀部分：保留标注（break 在字符之前输出，与 parseAnnotations 的 start 语义一致，
+  // 否则每次编辑迁移 break 都会后移一格）
   for (let i = 0; i < prefixLen; i++) {
-    result += newPlain[i];
     const ca = charAnns[i];
-    if (ca && ca.phoneme) {
-      result += `[${ca.phoneme}]`;
-    }
     if (ca && ca.breaks.length > 0) {
       for (const b of ca.breaks) {
         result += `[break:${b}]`;
       }
+    }
+    result += newPlain[i];
+    if (ca && ca.phoneme) {
+      result += `[${ca.phoneme}]`;
     }
   }
 
   // 中间部分（新增/修改的字符）：无标注
   result += newPlain.slice(prefixLen, newPlain.length - suffixLen);
 
-  // 后缀部分：保留标注
+  // 后缀部分：保留标注（同样 break 在字符之前输出）
   for (let i = 0; i < suffixLen; i++) {
     const newIdx = newPlain.length - suffixLen + i;
     const oldIdx = oldPlain.length - suffixLen + i;
-    result += newPlain[newIdx];
     const ca = charAnns[oldIdx];
-    if (ca && ca.phoneme) {
-      result += `[${ca.phoneme}]`;
-    }
     if (ca && ca.breaks.length > 0) {
       for (const b of ca.breaks) {
         result += `[break:${b}]`;
       }
     }
+    result += newPlain[newIdx];
+    if (ca && ca.phoneme) {
+      result += `[${ca.phoneme}]`;
+    }
+  }
+
+  // 末尾停顿（插在全文之后）
+  for (const b of trailingBreaks) {
+    result += `[break:${b}]`;
   }
 
   return result;
@@ -858,12 +866,21 @@ async function initPlugin() {
 function ensureManualTextareaValue() {
   const ta = $("manualText") as any;
   if (!ta) return;
+  // 文本框聚焦且有内容时不干预：打字/选区过程中的瞬时不一致由 input 事件自行同步，
+  // 轮询此时回写 value 会重置光标并触发 UXP 全文重绘（表现为文字闪烁）
+  if (ta.value && document.activeElement === ta) return;
   const annotated = state.manualTextWithAnnotations || "";
   if (!annotated) return;
   const { cleanText } = parseAnnotations(annotated);
   if (ta.value !== cleanText) {
     ta.value = cleanText;
   }
+}
+
+/** 仅在内容变化时写 innerText：UXP 下重复赋值相同文本也会触发重排/重绘 */
+function setInnerTextIfChanged(el: any, text: string) {
+  if (!el || el.innerText === text) return;
+  el.innerText = text;
 }
 
 // 同步 PR 时间线状态
@@ -873,8 +890,8 @@ async function syncWithPremiere() {
 
   const summary = await premiereAdapter.getSummary();
   if (!summary) {
-    $("projectNameText")!.innerText = "未检测到项目";
-    $("sequenceNameText")!.innerText = "无活动序列";
+    setInnerTextIfChanged($("projectNameText")!, "未检测到项目");
+    setInnerTextIfChanged($("sequenceNameText")!, "无活动序列");
     return;
   }
 
@@ -885,8 +902,8 @@ async function syncWithPremiere() {
   state.sequenceName = summary.sequenceName;
   state.fps = summary.fps;
 
-  $("projectNameText")!.innerText = summary.projectName;
-  $("sequenceNameText")!.innerText = summary.sequenceName;
+  setInnerTextIfChanged($("projectNameText")!, summary.projectName);
+  setInnerTextIfChanged($("sequenceNameText")!, summary.sequenceName);
 
   // 项目切换后，缓存目录路径也跟着变化（cache/{projectName}/），需刷新设置页显示。
   // 异步执行，不阻塞时间线同步。
@@ -2712,14 +2729,11 @@ async function showConfirmDialog(opts: { title?: string; message: string; detail
   const dialog = $("confirmDialog") as any;
   if (!dialog) return false;
 
-  const titleEl = $("confirmDialogTitle");
   const msgEl = $("confirmDialogMessage");
   const detailEl = $("confirmDialogDetail");
   const okBtn = $("confirmDialogOk") as any;
   const cancelBtn = $("confirmDialogCancel") as any;
-  const closeBtn = $("confirmDialogClose") as any;
 
-  if (titleEl) titleEl.textContent = opts.title || '确认操作';
   if (msgEl) msgEl.textContent = opts.message;
   if (detailEl) detailEl.textContent = opts.detail || '';
   if (okBtn) {
@@ -2739,12 +2753,11 @@ async function showConfirmDialog(opts: { title?: string; message: string; detail
 
   bindBtn(okBtn, () => dialog.close('ok'));
   bindBtn(cancelBtn, () => dialog.close('cancel'));
-  bindBtn(closeBtn, () => dialog.close('cancel'));
 
   const result = await dialog.uxpShowModal({
     title: opts.title || '确认操作',
     resize: 'none',
-    size: { width: 360, height: 200 }
+    size: { width: 360, height: 160 }
   });
 
   return result === 'ok';
@@ -3029,12 +3042,10 @@ function derivePinyinFromPhonetic(phonetic: string): string {
 /** 显示添加/编辑词条弹窗。editChar 传入时为编辑模式 */
 async function showDictEntryDialog(editChar?: string, existingEntries?: any[]) {
   const dialog = $("dictEntryDialog") as any;
-  const titleEl = $("dictEntryDialogTitle");
   const charInput = $("dictEntryChar") as any;
   if (!dialog) return;
 
   if (editChar && existingEntries) {
-    if (titleEl) titleEl.textContent = `编辑「${editChar}」`;
     if (charInput) {
       charInput.value = editChar;
       charInput.setAttribute("readonly", "true");
@@ -3048,7 +3059,6 @@ async function showDictEntryDialog(editChar?: string, existingEntries?: any[]) {
       dictEntryRows = [{ phonetic: "", context: "" }];
     }
   } else {
-    if (titleEl) titleEl.textContent = "添加词条";
     if (charInput) {
       charInput.value = "";
       charInput.removeAttribute("readonly");
@@ -3080,17 +3090,6 @@ async function showDictEntryDialog(editChar?: string, existingEntries?: any[]) {
     const handler = () => dialog.close("cancel");
     cancelBtn._clickHandler = handler;
     cancelBtn.addEventListener("click", handler);
-  }
-
-  // 关闭按钮
-  const closeBtn = $("dictEntryDialogClose") as any;
-  if (closeBtn) {
-    if (closeBtn._clickHandler) {
-      closeBtn.removeEventListener("click", closeBtn._clickHandler);
-    }
-    const handler = () => dialog.close("cancel");
-    closeBtn._clickHandler = handler;
-    closeBtn.addEventListener("click", handler);
   }
 
   // 保存按钮
@@ -3140,9 +3139,9 @@ async function showDictEntryDialog(editChar?: string, existingEntries?: any[]) {
   }
 
   await dialog.uxpShowModal({
-    title: editChar ? "编辑词条" : "添加词条",
+    title: editChar ? `编辑「${editChar}」` : "添加词条",
     resize: "none",
-    size: { width: 460, height: 420 }
+    size: { width: 460, height: 380 }
   });
 }
 
@@ -3362,6 +3361,36 @@ function updateManualHighlighter() {
 }
 
 /**
+ * 程序化回写 textarea value 的辅助：赋值会重置光标（UXP 下还受 IME 状态影响，
+ * 表现为光标跳位），因此先记录 selectionStart/End，赋值后恢复。
+ */
+function writeTextareaValue(ta: any, value: string) {
+  let start = -1;
+  let end = -1;
+  const wasFocused = document.activeElement === ta;
+  if (wasFocused) {
+    try {
+      start = ta.selectionStart;
+      end = ta.selectionEnd;
+    } catch (_) { /* 不支持 selection 的元素直接整体赋值 */ }
+  }
+  ta.value = value;
+  if (wasFocused && typeof start === "number" && start >= 0 && typeof end === "number") {
+    try {
+      const max = value.length;
+      ta.setSelectionRange(Math.min(start, max), Math.min(end, max));
+    } catch (_) { /* 恢复失败则保持默认光标位置 */ }
+  }
+}
+
+/**
+ * 手动文本框最近一次真实键盘操作的时间戳。
+ * 用户清空文本（全选删除/退格/剪切）必然伴随 keydown；宿主重绘清空 value 则没有任何键盘事件。
+ * 借此区分「用户删光了」和「UXP 面板重绘把 value 清空」。
+ */
+let manualTextLastKeyDownAt = 0;
+
+/**
  * 将手动配音文本框的 value（干净文字）同步到底层 annotatedText，并更新预览。
  * 在文本框 input/change 事件中调用。
  */
@@ -3369,11 +3398,19 @@ function syncManualTextFromTextarea() {
   const ta = $("manualText") as any;
   if (!ta) return;
   const newPlain = ta.value || "";
+  // 宿主清空保护：value 为空、state 非空、且近期无键盘输入 → 是 UXP 面板重绘清空了 value
+  // （弹窗、PR 事务都会触发）并连带派发了事件。此时不同步（否则 state 和 localStorage
+  // 备份都会被清掉），只把显示恢复回来。
+  if (!newPlain && (state.manualTextWithAnnotations || "").trim() &&
+      Date.now() - manualTextLastKeyDownAt > 200) {
+    ensureManualTextareaValue();
+    return;
+  }
   state.manualTextWithAnnotations = syncAnnotatedText(state.manualTextWithAnnotations || "", newPlain);
   // 确保文本框显示的是 cleanText（用户可能粘贴了带标注的文本）
   const { cleanText } = parseAnnotations(state.manualTextWithAnnotations);
   if (ta.value !== cleanText) {
-    ta.value = cleanText;
+    writeTextareaValue(ta, cleanText);
   }
   updateManualHighlighter();
   persistManualText(state.manualTextWithAnnotations);
@@ -3384,6 +3421,9 @@ function recordManualSelection() {
   const ta = $("manualText") as any;
   if (!ta) return;
   try {
+    // 宿主重绘清空 value 后光标读数归零，若照常记录会用 {0,0} 覆盖真实选区，
+    // 表现为「设定停顿」插到文本开头。此时保留上次有效记录。
+    if (!ta.value) return;
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     // 只在 selectionStart/End 为有效数字时更新，避免 sp-textarea 不支持时误置为 0
@@ -3396,6 +3436,8 @@ function recordManualSelection() {
 /** 将字幕输入框的光标位置（基于 cleanText）记录到 state */
 function recordSubtitleSelection(inputEl: any) {
   try {
+    // 同上：value 为空（含宿主清空）时选区读数无意义，不覆盖已有记录
+    if (!inputEl.value) return;
     const start = inputEl.selectionStart;
     const end = inputEl.selectionEnd;
     if (typeof start === "number" && typeof end === "number" && !isNaN(start) && !isNaN(end)) {
@@ -3505,7 +3547,7 @@ async function showPauseDialog(): Promise<string | null> {
   const result = await dialog.uxpShowModal({
     title: "设定停顿",
     resize: "none",
-    size: { width: 380, height: 200 }
+    size: { width: 380, height: 160 }
   });
 
   return (result === "reasonCanceled" || result === "cancel" || result === undefined) ? null : result;
@@ -3517,13 +3559,10 @@ async function showPauseDialog(): Promise<string | null> {
  */
 async function showPolyDialog(char: string, dict: any[]): Promise<string | null> {
   const dialog = $("polyDialog") as any;
-  const titleEl = $("polyDialogTitle");
   const optionsEl = $("polyDialogOptions");
   const emptyEl = $("polyDialogEmpty");
   const customInput = $("polyCustomInput") as any;
   if (!dialog || !optionsEl) return null;
-
-  if (titleEl) titleEl.textContent = `选择「${char}」的读音`;
 
   const matches = findPolyEntries(char, dict);
 
@@ -3586,9 +3625,9 @@ async function showPolyDialog(char: string, dict: any[]): Promise<string | null>
   }
 
   const result = await dialog.uxpShowModal({
-    title: `选择读音`,
+    title: `选择「${char}」的读音`,
     resize: "none",
-    size: { width: 420, height: 380 }
+    size: { width: 420, height: 340 }
   });
 
   return (result === "reasonCanceled" || result === "cancel" || result === undefined) ? null : result;
@@ -3856,12 +3895,10 @@ async function handleSubtitleBatchCorrect() {
 async function showBatchDialog(rows: any[], isSubtitleMode: boolean): Promise<boolean> {
   const dialog = $("batchDialog") as any;
   const contentEl = $("batchDialogContent");
-  const titleEl = $("batchDialogTitle");
   if (!dialog || !contentEl) return false;
 
-  if (titleEl) {
-    titleEl.textContent = isSubtitleMode ? "批量多音字纠音（整轨字幕）" : "批量多音字纠音";
-  }
+  // 标题栏由 uxpShowModal 原生渲染，模式信息通过 title 参数传入
+  const dialogTitle = isSubtitleMode ? "批量多音字纠音（整轨字幕）" : "批量多音字纠音";
 
   const settings = await settingsStore.load();
   const allDict = getPolyphonicDict(settings.polyphonicDict);
@@ -4010,26 +4047,16 @@ async function showBatchDialog(rows: any[], isSubtitleMode: boolean): Promise<bo
   }
 
   const result = await dialog.uxpShowModal({
-    title: "批量多音字纠音",
+    title: dialogTitle,
     resize: "both",
-    size: { width: 520, height: 420 }
+    size: { width: 520, height: 380 }
   });
 
   return result === "confirm";
 }
 
-/** 初始化弹窗关闭按钮事件（只需绑定一次） */
-function initDialogs() {
-  $("pauseDialogClose")?.addEventListener("click", () => {
-    ($("pauseDialog") as any).close("cancel");
-  });
-  $("polyDialogClose")?.addEventListener("click", () => {
-    ($("polyDialog") as any).close("cancel");
-  });
-  $("batchDialogClose")?.addEventListener("click", () => {
-    ($("batchDialog") as any).close("cancel");
-  });
-}
+// 所有 mm-dialog 的标题与关闭均由 uxpShowModal 原生标题栏承担，
+// HTML 内不再自绘 header/关闭按钮（UXP 核心陷阱 #14：双标题栏）
 
 // 绑定设定停顿与纠音按钮事件 (字幕页)
 // 使用 state.lastFocusedSubtitleId 追踪最后聚焦的字幕输入框，
@@ -4057,6 +4084,8 @@ $("manualClearText")?.addEventListener("click", () => {
 // 手动配音文本框：编辑时同步 annotatedText 并更新预览；聚焦/选区变化时记录位置
 $("manualText")?.addEventListener("input", () => syncManualTextFromTextarea());
 $("manualText")?.addEventListener("change", () => syncManualTextFromTextarea());
+// 记录真实键盘操作时间，供 syncManualTextFromTextarea 区分用户清空与宿主清空
+$("manualText")?.addEventListener("keydown", () => { manualTextLastKeyDownAt = Date.now(); });
 $("manualText")?.addEventListener("focus", () => recordManualSelection());
 $("manualText")?.addEventListener("keyup", () => recordManualSelection());
 $("manualText")?.addEventListener("click", () => recordManualSelection());
@@ -4367,9 +4396,6 @@ style,
     }
   });
 });
-
-// 初始化弹窗关闭按钮事件（只需绑定一次）
-initDialogs();
 
 // ─── 预览层标签撤销：事件委托 ───
 // 字幕预览层（#subtitleListWrap 内的 .sub-preview）是动态渲染的，用事件委托绑定到父容器只需一次。

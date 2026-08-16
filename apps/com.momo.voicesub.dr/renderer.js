@@ -677,9 +677,13 @@ function syncAnnotatedText(oldAnnotated, newPlain) {
         list[idx].phoneme = ann.phonetic;
       }
     } else if (ann.type === 'break') {
-      const idx = Math.min(ann.start, oldPlain.length - 1);
-      if (idx >= 0 && list[idx]) {
-        list[idx].breaks.push(ann.duration);
+      // break 的 start 表示插入位置（在 cleanText 的该下标之前）；
+      // start 超出文本长度的是末尾停顿
+      if (ann.start >= 0 && ann.start < list.length) {
+        list[ann.start].breaks.push(ann.duration);
+      } else if (ann.start >= list.length) {
+        list.trailingBreaks = list.trailingBreaks || [];
+        list.trailingBreaks.push(ann.duration);
       } else {
         list.headerBreaks = list.headerBreaks || [];
         list.headerBreaks.push(ann.duration);
@@ -708,16 +712,24 @@ function syncAnnotatedText(oldAnnotated, newPlain) {
 
     if (foundIdx !== -1) {
       const item = list[foundIdx];
+      // 停顿在字符之前输出（与 parseTextAndGenerateAnnotations 的 start 语义一致），
+      // 否则每次编辑迁移停顿都会往后漂移一格
+      for (const ms of item.breaks) {
+        result += `[pause:${ms}]`;
+      }
       result += item.char;
       if (item.phoneme) {
         result += `[${item.phoneme}]`;
       }
-      for (const ms of item.breaks) {
-        result += `[pause:${ms}]`;
-      }
       oldIdx = foundIdx + 1;
     } else {
       result += newChar;
+    }
+  }
+
+  if (list.trailingBreaks) {
+    for (const ms of list.trailingBreaks) {
+      result += `[pause:${ms}]`;
     }
   }
 

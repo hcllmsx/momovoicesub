@@ -201,7 +201,12 @@ export function applyManualAnnotations(text: string, annotations: any[]): string
   if (!text || !annotations || !annotations.length) return text;
 
   let result = text;
-  const sorted = [...annotations].sort((a, b) => (b.start || 0) - (a.start || 0));
+  // 同一 start 位置先处理 phoneme（替换字符），再处理 break（纯插入）。
+  // 反过来会因坐标失效把 break 标签截断成正文，被音色当文字读出来。
+  const typeRank = (ann: any) => (ann.type === 'phoneme' ? 0 : 1);
+  const sorted = [...annotations].sort((a, b) =>
+    (b.start || 0) - (a.start || 0) || typeRank(a) - typeRank(b)
+  );
 
   for (const ann of sorted) {
     const start = ann.start;

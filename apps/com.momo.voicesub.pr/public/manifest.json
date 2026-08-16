@@ -2,7 +2,7 @@
   "id": "com.momo.voicesub.pr",
   "name": "默默配音助手",
   "shortname": "MomoVoiceSub",
-  "version": "26.8.14.3",
+  "version": "26.8.16",
   "main": "index.html",
   "host": {
     "app": "premierepro",

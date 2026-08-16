@@ -1845,35 +1845,7 @@ sp-button[variant="secondary"] {
   background-color: var(--bg-color);
 }
 
-.mm-dialog-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.mm-dialog-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.mm-dialog-close {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.mm-dialog-close:hover {
-  background-color: var(--card-bg);
-  color: var(--text-color);
-}
+/* 弹窗标题栏由 uxpShowModal 的 title 原生渲染（UXP 陷阱 #14），无自绘 header/close 样式 */
 
 .mm-dialog-body {
   padding: 16px 18px;

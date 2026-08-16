@@ -219,8 +219,13 @@ function applyManualAnnotations(text, annotations) {
   if (!text || !annotations || !annotations.length) return text;
 
   let result = text;
-  // 从后往前处理，避免插入/替换导致前面位置偏移
-  const sorted = [...annotations].sort((a, b) => (b.start || 0) - (a.start || 0));
+  // 从后往前处理，避免插入/替换导致前面位置偏移；
+  // 同一 start 先处理 phoneme（替换字符）再处理 break（纯插入），
+  // 反过来会因坐标失效把 break 标签截断成正文，被音色当文字读出来
+  const typeRank = (ann) => (ann.type === 'phoneme' ? 0 : 1);
+  const sorted = [...annotations].sort((a, b) =>
+    (b.start || 0) - (a.start || 0) || typeRank(a) - typeRank(b)
+  );
 
   for (const ann of sorted) {
     const start = ann.start;
