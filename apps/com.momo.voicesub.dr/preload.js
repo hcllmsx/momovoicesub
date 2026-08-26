@@ -10,6 +10,7 @@ const envArg = (typeof process !== 'undefined' && Array.isArray(process.argv))
   : undefined;
 const isDev = envArg === '--momo-env=dev';
 const webBaseUrl = isDev ? 'http://localhost:3001' : 'https://momovoicesub.sxrec.com';
+const apiBaseUrl = isDev ? 'http://localhost:3000' : 'https://momovoicesub.sxrec.com';
 
 // 主进程在低版本等致命场景下通过 additionalArguments 注入 --momo-fatal=<reason>[:<detail>]
 // renderer 检测到此字段后直接显示阻断覆盖层，不调用任何业务 IPC
@@ -63,8 +64,9 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   // 退出插件（低版本达芬奇阻断提示后调用）
   quitApp: () => ipcRenderer.invoke('app:quit'),
-  // 环境信息（供 renderer 构造网页 URL，如登录页/定价页）
+  // 环境信息（供 renderer 构造网页 URL，如登录页/定价页，以及 API 请求）
   webBaseUrl: webBaseUrl,
+  apiBaseUrl: apiBaseUrl,
   isDev: isDev,
   // 致命错误（低版本达芬奇等），renderer 检测到后直接显示阻断层
   fatalError: fatalError,

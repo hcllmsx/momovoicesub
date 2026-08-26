@@ -653,18 +653,19 @@ function compareVersion(a: string, b: string): number {
   return 0;
 }
 
+const PROD_BASE_URL = 'https://momovoicesub.sxrec.com';
+
 async function checkForUpdate(manual = false) {
   state.updateStatus = 'checking';
   renderUpdateStatus();
   try {
-    const baseUrl = typeof __API_BASE_URL__ !== 'undefined' ? __API_BASE_URL__ : 'https://momovoicesub.sxrec.com';
-    const resp = await fetch(`${baseUrl}/api/version`, { cache: 'no-cache' } as any);
+    const resp = await fetch(`${PROD_BASE_URL}/api/version`, { cache: 'no-cache' } as any);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data: any = await resp.json();
     const remoteVersion = (data.pr_version || '').trim();
     if (!remoteVersion) throw new Error('未找到远程 PR 版本号');
     state.updateLatestVersion = remoteVersion;
-    const downloadUrl = data.download_url || baseUrl;
+    const downloadUrl = data.download_url || PROD_BASE_URL;
 
     const currentVer = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
     const cmp = compareVersion(remoteVersion, currentVer);
@@ -695,7 +696,7 @@ async function showUpdateDialog({ currentVersion, latestVersion, downloadUrl }: 
   const dialog = $("updateDialog") as any;
   if (!dialog) return;
 
-  const url = downloadUrl || (typeof __API_BASE_URL__ !== 'undefined' ? __API_BASE_URL__ : 'https://momovoicesub.sxrec.com');
+  const url = downloadUrl || PROD_BASE_URL;
 
   const versionTextEl = $("updateDialogVersionText");
   const detailEl = $("updateDialogDetail");
@@ -771,8 +772,7 @@ function renderUpdateStatus() {
   const linkEl = document.getElementById('updateLink');
   if (linkEl) {
     linkEl.addEventListener('click', async () => {
-      const url = typeof __API_BASE_URL__ !== 'undefined' ? __API_BASE_URL__ : 'https://momovoicesub.sxrec.com';
-      await openExternalUrl(url, '打开 MoMoVoiceSub 官网');
+      await openExternalUrl(PROD_BASE_URL, '打开 MoMoVoiceSub 官网');
     });
   }
 }

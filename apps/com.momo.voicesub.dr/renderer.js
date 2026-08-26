@@ -3471,18 +3471,19 @@ function compareVersion(a, b) {
   return 0;
 }
 
+const PROD_BASE_URL = 'https://momovoicesub.sxrec.com';
+
 async function checkForUpdate(manual = false) {
   state.updateStatus = 'checking';
   renderUpdateStatus();
   try {
-    const baseUrl = window.momoVoiceSub?.webBaseUrl || 'https://momovoicesub.sxrec.com';
-    const resp = await fetch(`${baseUrl}/api/version`, { cache: 'no-cache' });
+    const resp = await fetch(`${PROD_BASE_URL}/api/version`, { cache: 'no-cache' });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     const remoteVersion = (data.dr_version || '').trim();
     if (!remoteVersion) throw new Error('未找到远程 DR 版本号');
     state.updateLatestVersion = remoteVersion;
-    const downloadUrl = data.download_url || baseUrl;
+    const downloadUrl = data.download_url || PROD_BASE_URL;
     state.updateDownloadUrl = downloadUrl;
 
     const cmp = compareVersion(remoteVersion, state.appVersion);
@@ -3512,7 +3513,7 @@ async function checkForUpdate(manual = false) {
 function showUpdateDialog({ currentVersion, latestVersion, downloadUrl }) {
   if (document.querySelector('.update-dialog-overlay')) return;
 
-  const url = downloadUrl || window.momoVoiceSub?.webBaseUrl || 'https://momovoicesub.sxrec.com';
+  const url = downloadUrl || PROD_BASE_URL;
 
   const overlay = document.createElement('div');
   overlay.className = 'popup-overlay confirm-dialog-overlay update-dialog-overlay';
@@ -3618,7 +3619,7 @@ function renderUpdateStatus() {
   const linkEl = document.getElementById('updateLink');
   if (linkEl) {
     linkEl.addEventListener('click', () => {
-      const url = state.updateDownloadUrl || window.momoVoiceSub?.webBaseUrl || 'https://momovoicesub.sxrec.com';
+      const url = state.updateDownloadUrl || PROD_BASE_URL;
       window.momoVoiceSub.openExternal(url);
     });
   }
