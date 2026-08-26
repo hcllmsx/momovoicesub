@@ -473,6 +473,21 @@ function registerIpcHandlers() {
     };
   });
 
+  registerLoggedHandler('cloud:sendHeartbeat', async (event, { mode, version } = {}) => {
+    try {
+      const deviceFp = await cloudStore.getDeviceFp();
+      await cloudClient.sendHeartbeat({
+        device_fp: deviceFp,
+        client_type: 'dr',
+        version: version || '',
+        mode: mode || 'unconfigured',
+      });
+      return { ok: true, device_fp: deviceFp };
+    } catch {
+      return { ok: false };
+    }
+  });
+
   // ═══ Cloud token 自动刷新 ═══
   // access_token 过期时（API 返回 401），用 refresh_token 刷新新 token 并重试一次。
   // 刷新失败（refresh_token 也过期）才清除登录状态，避免频繁被登出。

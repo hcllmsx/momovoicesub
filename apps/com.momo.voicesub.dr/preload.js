@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   cloudGetQuota: () => ipcRenderer.invoke('cloud:getQuota'),
   cloudRefreshVoices: () => ipcRenderer.invoke('cloud:refreshVoices'),
   cloudRegisterDevice: () => ipcRenderer.invoke('cloud:registerDevice'),
+  cloudSendHeartbeat: (payload) => ipcRenderer.invoke('cloud:sendHeartbeat', payload),
   onLog: (callback) => {
     ipcRenderer.on('app:log', (_event, payload) => callback(payload));
   }

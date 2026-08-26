@@ -840,6 +840,10 @@ async function initPlugin() {
 
     // 异步检查更新
     checkForUpdate();
+    // 启动后异步发送轻量启动心跳（全量匿名装机统计）
+    setTimeout(() => {
+      sendStartupHeartbeat();
+    }, 1500);
     // 点击版本号手动检查更新（排除 momoVoicesub 链接点击）
     const appVerEl = document.getElementById('appVersion');
     if (appVerEl) {
@@ -855,6 +859,38 @@ async function initPlugin() {
   } catch (err) {
     console.error("Init plugin failed:", err);
     showToast("初始化插件失败", "error");
+  }
+}
+
+/**
+ * 启动后异步发送轻量启动心跳（全量匿名装机与活跃统计）
+ */
+async function sendStartupHeartbeat() {
+  try {
+    let mode: 'custom_key' | 'cloud' | 'unconfigured' = 'unconfigured';
+    try {
+      const cloudState = await cloudGetState();
+      if (cloudState && cloudState.isLoggedIn) {
+        mode = 'cloud';
+      }
+    } catch (_) {}
+
+    if (mode === 'unconfigured') {
+      const s = await settingsStore.load();
+      if (s?.speechKey && s.speechKey.trim()) {
+        mode = 'custom_key';
+      }
+    }
+
+    const deviceFp = await cloudStore.getDeviceFp();
+    await cloudClient.sendHeartbeat({
+      device_fp: deviceFp,
+      client_type: 'pr',
+      version: state.appVersion || '',
+      mode,
+    });
+  } catch (_) {
+    // 容错防崩：心跳失败静默忽略
   }
 }
 

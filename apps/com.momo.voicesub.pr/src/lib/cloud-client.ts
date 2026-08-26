@@ -145,6 +145,32 @@ export class CloudClient {
   }
 
   /**
+   * 启动/活跃心跳上报（匿名统计，包含自填 Key、云端账号及未配置）
+   */
+  async sendHeartbeat(params: {
+    device_fp: string;
+    client_type?: string;
+    version?: string;
+    mode?: string;
+  }): Promise<boolean> {
+    try {
+      const response = await this._request('/api/telemetry/heartbeat', {
+        method: 'POST',
+        body: {
+          device_fp: params.device_fp,
+          client_type: params.client_type || 'pr',
+          version: params.version,
+          mode: params.mode,
+        },
+      });
+      return response.ok;
+    } catch {
+      // 容错防崩：心跳失败静默忽略
+      return false;
+    }
+  }
+
+  /**
    * 获取音色列表
    */
   async listVoices(token: string): Promise<any[]> {

@@ -4371,6 +4371,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     renderQuickPolyList();
     updateManualHighlighter();
     checkForUpdate(); // 启动后异步检查更新
+    // 启动后异步发送轻量启动心跳（匿名全量装机统计）
+    setTimeout(() => {
+      sendStartupHeartbeat();
+    }, 1500);
     // 点击版本号手动检查更新（排除 momoVoicesub 链接点击）
     const appVerEl = document.getElementById('appVersion');
     if (appVerEl) {
@@ -4385,3 +4389,30 @@ window.addEventListener('DOMContentLoaded', async () => {
     log(friendlyErrorMessage(error));
   }
 });
+
+async function sendStartupHeartbeat() {
+  try {
+    let mode = 'unconfigured';
+    try {
+      const cloudState = await window.momoVoiceSub.cloudGetState();
+      if (cloudState && cloudState.isLoggedIn) {
+        mode = 'cloud';
+      }
+    } catch (_) {}
+
+    if (mode === 'unconfigured') {
+      const key = state.settings?.speechKey || '';
+      if (key && key.trim()) {
+        mode = 'custom_key';
+      }
+    }
+
+    await window.momoVoiceSub.cloudSendHeartbeat({
+      mode,
+      version: state.appVersion || ''
+    });
+  } catch (_) {
+    // 容错防崩：心跳失败静默忽略
+  }
+}
+
