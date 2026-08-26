@@ -605,5 +605,17 @@
       </div>
     </div>
   </dialog>
+
+  <!-- 版本更新提示弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘） -->
+  <dialog id="updateDialog" class="mm-dialog">
+    <div class="mm-dialog-body">
+      <p class="confirm-message" id="updateDialogVersionText">发现新版本可用</p>
+      <p class="confirm-detail" id="updateDialogDetail">新版本已发布，建议前往更新以获得最新功能与优化。</p>
+      <div class="confirm-actions">
+        <sp-button variant="secondary" quiet id="updateDialogLater">稍后再说</sp-button>
+        <sp-button variant="primary" id="updateDialogDownload">前往下载</sp-button>
+      </div>
+    </div>
+  </dialog>
 </body>
 </html>

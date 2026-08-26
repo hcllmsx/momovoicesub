@@ -3482,12 +3482,18 @@ async function checkForUpdate(manual = false) {
     const remoteVersion = (data.dr_version || '').trim();
     if (!remoteVersion) throw new Error('未找到远程 DR 版本号');
     state.updateLatestVersion = remoteVersion;
-    if (data.download_url) {
-      state.updateDownloadUrl = data.download_url;
-    }
+    const downloadUrl = data.download_url || baseUrl;
+    state.updateDownloadUrl = downloadUrl;
+
     const cmp = compareVersion(remoteVersion, state.appVersion);
     if (cmp > 0) {
       state.updateStatus = 'available';
+      // 弹出更新提示弹窗
+      showUpdateDialog({
+        currentVersion: state.appVersion,
+        latestVersion: remoteVersion,
+        downloadUrl,
+      });
     } else {
       state.updateStatus = 'latest';
       if (manual) showToast('已是最新版本', 'ok');
@@ -3498,6 +3504,83 @@ async function checkForUpdate(manual = false) {
     if (manual) showToast('检查更新失败', 'error');
   }
   renderUpdateStatus();
+}
+
+/**
+ * 弹出新版本更新提醒弹窗
+ */
+function showUpdateDialog({ currentVersion, latestVersion, downloadUrl }) {
+  if (document.querySelector('.update-dialog-overlay')) return;
+
+  const url = downloadUrl || window.momoVoiceSub?.webBaseUrl || 'https://momovoicesub.sxrec.com';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'popup-overlay confirm-dialog-overlay update-dialog-overlay';
+
+  const panel = document.createElement('div');
+  panel.className = 'popup-panel popup-sm confirm-dialog-panel';
+
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'confirm-dialog-icon';
+  iconWrap.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#818cf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v8"/><path d="m16 6-4-4-4 4"/><circle cx="12" cy="12" r="10"/></svg>';
+
+  const content = document.createElement('div');
+  content.className = 'confirm-dialog-content';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'confirm-dialog-message';
+  titleEl.textContent = '发现新版本可用';
+  content.appendChild(titleEl);
+
+  const detailEl = document.createElement('div');
+  detailEl.className = 'confirm-dialog-detail';
+  detailEl.style.lineHeight = '1.6';
+  detailEl.innerHTML = `当前版本：<span style="color:var(--text-muted)">v${escHtml(currentVersion || '')}</span><br>最新版本：<span style="color:#4ade80;font-weight:700">v${escHtml(latestVersion || '')}</span><br><br>新版本已发布，建议前往官网下载以获得最新功能与优化。`;
+  content.appendChild(detailEl);
+
+  const body = document.createElement('div');
+  body.className = 'confirm-dialog-body';
+  body.appendChild(iconWrap);
+  body.appendChild(content);
+
+  const actions = document.createElement('div');
+  actions.className = 'confirm-dialog-actions';
+
+  const laterBtn = document.createElement('button');
+  laterBtn.className = 'btn btn-secondary';
+  laterBtn.textContent = '稍后再说';
+
+  const downloadBtn = document.createElement('button');
+  downloadBtn.className = 'btn btn-primary';
+  downloadBtn.textContent = '前往下载';
+
+  actions.appendChild(laterBtn);
+  actions.appendChild(downloadBtn);
+
+  panel.appendChild(body);
+  panel.appendChild(actions);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', escHandler);
+  }
+  function escHandler(e) {
+    if (e.key === 'Escape') close();
+  }
+
+  laterBtn.addEventListener('click', close);
+  downloadBtn.addEventListener('click', () => {
+    window.momoVoiceSub.openExternal(url);
+    close();
+  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', escHandler);
+
+  requestAnimationFrame(() => {
+    downloadBtn.focus();
+  });
 }
 
 function renderUpdateStatus() {
@@ -3535,7 +3618,8 @@ function renderUpdateStatus() {
   const linkEl = document.getElementById('updateLink');
   if (linkEl) {
     linkEl.addEventListener('click', () => {
-      window.momoVoiceSub.openExternal('https://github.com/hcllmsx/momovoicesub/releases/latest');
+      const url = state.updateDownloadUrl || window.momoVoiceSub?.webBaseUrl || 'https://momovoicesub.sxrec.com';
+      window.momoVoiceSub.openExternal(url);
     });
   }
 }
@@ -4391,6 +4475,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 async function sendStartupHeartbeat() {
   try {
+    // dev 开发版不参与统计
+    if (window.momoVoiceSub?.isDev) return;
+
     let mode = 'unconfigured';
     try {
       const cloudState = await window.momoVoiceSub.cloudGetState();

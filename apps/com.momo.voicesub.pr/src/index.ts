@@ -664,9 +664,18 @@ async function checkForUpdate(manual = false) {
     const remoteVersion = (data.pr_version || '').trim();
     if (!remoteVersion) throw new Error('未找到远程 PR 版本号');
     state.updateLatestVersion = remoteVersion;
-    const cmp = compareVersion(remoteVersion, typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '');
+    const downloadUrl = data.download_url || baseUrl;
+
+    const currentVer = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+    const cmp = compareVersion(remoteVersion, currentVer);
     if (cmp > 0) {
       state.updateStatus = 'available';
+      // 弹出 UXP 原生更新提示弹窗
+      showUpdateDialog({
+        currentVersion: currentVer,
+        latestVersion: remoteVersion,
+        downloadUrl,
+      });
     } else {
       state.updateStatus = 'latest';
       if (manual) showToast('已是最新版本', 'success');
@@ -677,6 +686,55 @@ async function checkForUpdate(manual = false) {
     if (manual) showToast('检查更新失败', 'error');
   }
   renderUpdateStatus();
+}
+
+/**
+ * 弹出新版本更新提醒弹窗 (UXP 原生 Modal，标题由 uxpShowModal 的 title 原生渲染，避免双标题)
+ */
+async function showUpdateDialog({ currentVersion, latestVersion, downloadUrl }: { currentVersion: string; latestVersion: string; downloadUrl?: string }) {
+  const dialog = $("updateDialog") as any;
+  if (!dialog) return;
+
+  const url = downloadUrl || (typeof __API_BASE_URL__ !== 'undefined' ? __API_BASE_URL__ : 'https://momovoicesub.sxrec.com');
+
+  const versionTextEl = $("updateDialogVersionText");
+  const detailEl = $("updateDialogDetail");
+  const laterBtn = $("updateDialogLater") as any;
+  const downloadBtn = $("updateDialogDownload") as any;
+
+  if (versionTextEl) {
+    versionTextEl.textContent = `发现新版本 v${latestVersion}`;
+  }
+  if (detailEl) {
+    detailEl.textContent = `当前版本为 v${currentVersion}。新版本已发布，建议前往官网下载以获得最新功能与优化体验。`;
+  }
+
+  if (laterBtn) {
+    if (laterBtn._clickHandler) laterBtn.removeEventListener('click', laterBtn._clickHandler);
+    laterBtn._clickHandler = () => {
+      dialog.close('later');
+    };
+    laterBtn.addEventListener('click', laterBtn._clickHandler);
+  }
+
+  if (downloadBtn) {
+    if (downloadBtn._clickHandler) downloadBtn.removeEventListener('click', downloadBtn._clickHandler);
+    downloadBtn._clickHandler = () => {
+      dialog.close('download');
+      openExternalUrl(url, '前往官网下载');
+    };
+    downloadBtn.addEventListener('click', downloadBtn._clickHandler);
+  }
+
+  try {
+    await dialog.uxpShowModal({
+      title: '发现新版本可用',
+      resize: 'none',
+      size: { width: 380, height: 180 },
+    });
+  } catch (e) {
+    console.warn('打开更新弹窗异常:', e);
+  }
 }
 
 function renderUpdateStatus() {
@@ -713,12 +771,8 @@ function renderUpdateStatus() {
   const linkEl = document.getElementById('updateLink');
   if (linkEl) {
     linkEl.addEventListener('click', async () => {
-      if (uxpShell && typeof (uxpShell as any).openExternal === 'function') {
-        await (uxpShell as any).openExternal(
-          'https://github.com/hcllmsx/momovoicesub/releases/latest',
-          '打开 GitHub Releases 页面'
-        );
-      }
+      const url = typeof __API_BASE_URL__ !== 'undefined' ? __API_BASE_URL__ : 'https://momovoicesub.sxrec.com';
+      await openExternalUrl(url, '打开 MoMoVoiceSub 官网');
     });
   }
 }
@@ -863,6 +917,9 @@ async function initPlugin() {
  */
 async function sendStartupHeartbeat() {
   try {
+    // dev 开发版不参与统计，避免污染生产数据
+    if (typeof __IS_DEV__ !== 'undefined' && __IS_DEV__) return;
+
     let mode: 'custom_key' | 'cloud' | 'unconfigured' = 'unconfigured';
     try {
       const cloudState = await cloudGetState();

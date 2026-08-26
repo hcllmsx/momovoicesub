@@ -474,6 +474,10 @@ function registerIpcHandlers() {
   });
 
   registerLoggedHandler('cloud:sendHeartbeat', async (event, { mode, version } = {}) => {
+    // dev 开发版不参与装机与活跃统计，避免污染生产数据
+    if (IS_DEV) {
+      return { ok: true, skipped: true };
+    }
     try {
       const deviceFp = await cloudStore.getDeviceFp();
       await cloudClient.sendHeartbeat({
