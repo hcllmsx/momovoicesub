@@ -3475,17 +3475,16 @@ async function checkForUpdate(manual = false) {
   state.updateStatus = 'checking';
   renderUpdateStatus();
   try {
-    const resp = await fetch(UPDATE_CHECK_URL, { cache: 'no-cache' });
+    const baseUrl = window.momoVoiceSub?.webBaseUrl || 'https://momovoicesub.sxrec.com';
+    const resp = await fetch(`${baseUrl}/api/version`, { cache: 'no-cache' });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
-    const lines = text.split(/\r?\n/);
-    let remoteVersion = '';
-    for (const line of lines) {
-      const m = line.match(/^com\.momo\.voicesub\.dr\.version=(.+)/);
-      if (m) { remoteVersion = m[1].trim(); break; }
-    }
+    const data = await resp.json();
+    const remoteVersion = (data.dr_version || '').trim();
     if (!remoteVersion) throw new Error('未找到远程 DR 版本号');
     state.updateLatestVersion = remoteVersion;
+    if (data.download_url) {
+      state.updateDownloadUrl = data.download_url;
+    }
     const cmp = compareVersion(remoteVersion, state.appVersion);
     if (cmp > 0) {
       state.updateStatus = 'available';

@@ -657,18 +657,14 @@ async function checkForUpdate(manual = false) {
   state.updateStatus = 'checking';
   renderUpdateStatus();
   try {
-    const resp = await fetch(UPDATE_CHECK_URL, { cache: 'no-cache' } as any);
+    const baseUrl = typeof __API_BASE_URL__ !== 'undefined' ? __API_BASE_URL__ : 'https://momovoicesub.sxrec.com';
+    const resp = await fetch(`${baseUrl}/api/version`, { cache: 'no-cache' } as any);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
-    const lines = text.split(/\r?\n/);
-    let remoteVersion = '';
-    for (const line of lines) {
-      const m = line.match(/^com\.momo\.voicesub\.pr\.version=(.+)/);
-      if (m) { remoteVersion = m[1].trim(); break; }
-    }
+    const data: any = await resp.json();
+    const remoteVersion = (data.pr_version || '').trim();
     if (!remoteVersion) throw new Error('未找到远程 PR 版本号');
     state.updateLatestVersion = remoteVersion;
-    const cmp = compareVersion(remoteVersion, __APP_VERSION__);
+    const cmp = compareVersion(remoteVersion, typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '');
     if (cmp > 0) {
       state.updateStatus = 'available';
     } else {
