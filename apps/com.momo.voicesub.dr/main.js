@@ -347,6 +347,58 @@ function registerIpcHandlers() {
     return require('./lib/polyphonic-builtin.json');
   });
 
+  // 导出自定义多音字词典到 JSON 文件（格式与 PR 版互通，可互相导入）
+  registerLoggedHandler('poly:exportDict', async (_event, entries) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true };
+
+    // 使用电脑本地时间生成文件名：momovoicesub-polyphonic-dict-YYYYMMDD-HHmmss.json
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出自定义多音字词典',
+      defaultPath: `momovoicesub-polyphonic-dict-${timestamp}.json`,
+      filters: [{ name: 'JSON 文件', extensions: ['json'] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+
+    const payload = {
+      type: 'momovoicesub-polyphonic-dict',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      entries: Array.isArray(entries) ? entries : []
+    };
+    await fs.writeFile(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
+    return { canceled: false, filePath: result.filePath };
+  });
+
+  // 从 JSON 文件导入自定义多音字词典（兼容 DR/PR 版导出的格式）
+  registerLoggedHandler('poly:importDict', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true };
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '导入自定义多音字词典',
+      filters: [
+        { name: 'JSON 文件', extensions: ['json'] },
+        { name: '所有文件', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths.length) return { canceled: true };
+
+    const filePath = result.filePaths[0];
+    const raw = await fs.readFile(filePath, 'utf8');
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (error) {
+      throw new Error('文件不是有效的 JSON 格式');
+    }
+    // 兼容两种格式：直接数组，或带 entries 字段的对象
+    const entries = Array.isArray(data) ? data : (data && Array.isArray(data.entries) ? data.entries : []);
+    return { canceled: false, filePath, entries };
+  });
+
   registerLoggedHandler('tts:listVoices', async (_event, settingsOverride) => {
     const voices = await ttsProvider.listVoices(settingsOverride || {});
     await settingsStore.save({ voices });

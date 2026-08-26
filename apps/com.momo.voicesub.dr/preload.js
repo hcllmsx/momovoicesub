@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   loadBuiltinPoly: () => ipcRenderer.invoke('poly:loadBuiltin'),
+  exportPolyDict: (entries) => ipcRenderer.invoke('poly:exportDict', entries),
+  importPolyDict: () => ipcRenderer.invoke('poly:importDict'),
   toggleFavorite: (shortName) => ipcRenderer.invoke('settings:toggleFavorite', shortName),
   listVoices: (settings) => ipcRenderer.invoke('tts:listVoices', settings),
   testConnection: (settings) => ipcRenderer.invoke('tts:testConnection', settings),

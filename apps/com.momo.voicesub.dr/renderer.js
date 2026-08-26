@@ -3945,6 +3945,56 @@ $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
   });
 
   $('addPolyEntry').addEventListener('click', openAddPolyEntry);
+
+  // 导出自定义多音字词典（格式与 PR 版互通）
+  $('exportPolyDict').addEventListener('click', async () => {
+    const dict = state.polyphonicDict || [];
+    if (!dict.length) {
+      showToast('当前没有自定义词条可导出', 'info');
+      return;
+    }
+    try {
+      const result = await window.momoVoiceSub.exportPolyDict(dict);
+      if (result && !result.canceled) {
+        showToast(`已导出 ${dict.length} 条自定义词条`, 'ok');
+        log(`自定义多音字词典已导出：${result.filePath}`);
+      }
+    } catch (error) {
+      log('导出自定义多音字词典失败: ' + error.message);
+      showToast('导出失败：' + error.message, 'error');
+    }
+  });
+
+  // 导入自定义多音字词典（兼容 DR/PR 版导出的格式）
+  $('importPolyDict').addEventListener('click', async () => {
+    try {
+      const result = await window.momoVoiceSub.importPolyDict();
+      if (!result || result.canceled) return;
+
+      const imported = (Array.isArray(result.entries) ? result.entries : [])
+        .filter(e => e && e.char && (e.phonetic || e.pinyin));
+      if (!imported.length) {
+        showToast('导入文件中没有有效的词条', 'info');
+        return;
+      }
+      const confirmed = await showConfirmPopup(`将导入 ${imported.length} 条词条（涉及 ${new Set(imported.map(e => e.char)).size} 个字）。\n相同汉字的读音将被导入内容覆盖，其余保留，是否继续？`);
+      if (!confirmed) return;
+
+      // 合并：导入词条中出现的 char 覆盖本机对应条目，其余保留
+      const importedChars = new Set(imported.map(e => e.char));
+      const keepExisting = (state.polyphonicDict || []).filter(e => !importedChars.has(e.char));
+      state.polyphonicDict = [...keepExisting, ...imported];
+      renderPolyDictTable();
+      renderQuickPolyList();
+      await savePolyDictAutomatically();
+      showToast(`已导入 ${imported.length} 条自定义词条`, 'ok');
+      log(`自定义多音字词典已导入：${result.filePath}`);
+    } catch (error) {
+      log('导入自定义多音字词典失败: ' + error.message);
+      showToast('导入失败：' + error.message, 'error');
+    }
+  });
+
   $('polyEntrySave').addEventListener('click', async () => {
     const char = $('polyEntryChar').value.trim();
     if (!char) { log('请填写汉字'); showToast('请填写汉字', 'info'); return; }

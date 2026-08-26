@@ -3240,6 +3240,84 @@ $("dictAddBtn")?.addEventListener("click", () => {
   showDictEntryDialog();
 });
 
+// 导出自定义多音字词典（格式与 DR 版互通）
+$("exportDictBtn")?.addEventListener("click", async () => {
+  try {
+    const settings = await settingsStore.load();
+    const dict = settings.polyphonicDict || [];
+    if (!dict.length) {
+      showToast("当前没有自定义词条可导出", "info");
+      return;
+    }
+    // 使用电脑本地时间生成文件名：momovoicesub-polyphonic-dict-YYYYMMDD-HHmmss.json
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    // @ts-ignore
+    const file = await uxp.storage.localFileSystem.getFileForSaving(
+      `momovoicesub-polyphonic-dict-${timestamp}.json`,
+      { types: ["json"] }
+    );
+    if (!file) return;
+    const payload = {
+      type: "momovoicesub-polyphonic-dict",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      entries: dict
+    };
+    await file.write(JSON.stringify(payload, null, 2), { format: uxp.storage.formats.utf8 });
+    showToast(`已导出 ${dict.length} 条自定义词条`, "success");
+  } catch (err: any) {
+    console.error("[Momo] 导出自定义多音字词典失败:", err);
+    showToast(err?.message || "导出失败", "error");
+  }
+});
+
+// 导入自定义多音字词典（兼容 DR/PR 版导出的格式）
+$("importDictBtn")?.addEventListener("click", async () => {
+  try {
+    // @ts-ignore
+    const file = await uxp.storage.localFileSystem.getFileForOpening({
+      types: ["json"]
+    });
+    if (!file || !file.isFile) return;
+    const content = await file.read({ format: uxp.storage.formats.utf8 });
+    let data: any;
+    try {
+      data = JSON.parse(content);
+    } catch (err) {
+      showToast("导入文件不是有效的 JSON 格式", "error");
+      return;
+    }
+    const imported = (Array.isArray(data) ? data : (data && Array.isArray(data.entries) ? data.entries : []))
+      .filter((e: any) => e && e.char && (e.phonetic || e.pinyin));
+    if (!imported.length) {
+      showToast("导入文件中没有有效的词条", "info");
+      return;
+    }
+    const confirmed = await showConfirmDialog({
+      title: "导入多音字词典",
+      message: `将导入 ${imported.length} 条词条（涉及 ${new Set(imported.map((e: any) => e.char)).size} 个字）`,
+      detail: "相同汉字的读音将被导入内容覆盖，其余保留。是否继续？",
+      confirmText: "确认导入"
+    });
+    if (!confirmed) return;
+
+    // 合并：导入词条中出现的 char 覆盖本机对应条目，其余保留
+    const settings = await settingsStore.load();
+    let dict = settings.polyphonicDict || [];
+    const importedChars = new Set(imported.map((e: any) => e.char));
+    dict = dict.filter((e: any) => !importedChars.has(e.char));
+    dict.push(...imported);
+    await settingsStore.save({ polyphonicDict: dict });
+    showToast(`已导入 ${imported.length} 条自定义词条`, "success");
+    renderDictList(dict);
+  } catch (err: any) {
+    console.error("[Momo] 导入自定义多音字词典失败:", err);
+    showToast(err?.message || "导入失败", "error");
+  }
+});
+
 // ─── 字幕读取与载入 ───
 $("subtitleTrackDropdown")?.addEventListener("change", async (e: any) => {
   const val = parseInt(e.target.value, 10);
