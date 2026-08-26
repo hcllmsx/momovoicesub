@@ -2134,8 +2134,8 @@ async function loadCacheDirPath() {
     const path = projectName
       ? await ttsProvider.getProjectCacheDirNativePath(projectName)
       : await ttsProvider.getBaseCacheDirNativePath();
-    const input = $('cacheDirPath') as any;
-    if (input) input.value = path;
+    const el = $('cacheDirPath') as any;
+    if (el) el.textContent = path;
   } catch (e) {
     console.error("[Momo] 获取缓存目录路径失败:", e);
   }

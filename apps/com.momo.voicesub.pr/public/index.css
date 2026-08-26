@@ -1076,6 +1076,8 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   padding: 12px 0 4px;
   margin-top: 4px;
   font-size: 11px;
@@ -1084,6 +1086,8 @@ body {
   -webkit-user-select: none;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
+  /* 为 #updateStatus 绝对定位提供定位上下文 */
+  position: relative;
 }
 
 /* 页脚版本号中的 GitHub 仓库超链接 */
@@ -1099,13 +1103,16 @@ body {
   opacity: 0.85;
 }
 
-/* 更新检查状态 */
-.settings-footer {
-  flex-wrap: wrap;
-  gap: 6px;
-}
+/* 更新检查状态：绝对定位脱离文档流，避免 display/textContent 变化触发滚动容器 reflow，
+   防止 UXP 原生 input 层在 reflow 时位置同步延迟导致闪烁穿透。 */
 .update-status {
   font-size: 11px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  top: 100%;
+  padding-top: 2px;
 }
 .update-status-hidden {
   display: none;
@@ -1245,6 +1252,27 @@ body {
 .native-input[readonly] {
   background-color: var(--card-bg);
   color: var(--text-color);
+}
+
+/* 缓存目录路径展示：用 div 替代 readonly input，纯 CSS 层渲染文字，
+   避免 UXP 原生 input 层在滚动容器 reflow 时位置同步延迟导致闪烁穿透。
+   外观模拟 .native-input[readonly] 保持视觉一致。 */
+.cache-dir-display {
+  background-color: var(--card-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: var(--font-family);
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 28px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .setting-actions {
