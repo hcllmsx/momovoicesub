@@ -883,10 +883,11 @@ async function sendStartupHeartbeat() {
     }
 
     const deviceFp = await cloudStore.getDeviceFp();
+    const version = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
     await cloudClient.sendHeartbeat({
       device_fp: deviceFp,
       client_type: 'pr',
-      version: state.appVersion || '',
+      version,
       mode,
     });
   } catch (_) {
