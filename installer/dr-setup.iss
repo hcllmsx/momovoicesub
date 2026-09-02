@@ -3,7 +3,7 @@
 ; ───────────────────────────────────────────────────────────────────
 
 #define MyAppName "默默配音助手 (DaVinci Resolve 版)"
-#define MyAppVersion "26.8.26"
+#define MyAppVersion "26.9.2"
 #define MyAppPublisher "hcllmsx"
 #define MyAppURL "https://github.com/hcllmsx/momovoicesub"
 

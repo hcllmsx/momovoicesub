@@ -859,6 +859,62 @@ body.app-busy * {
   opacity: 1;
 }
 
+/* ─── 连读分组列 ───
+   同一连读组的行用左侧色条标识（与 PR 版一致）：同组同色、相邻组异色。
+   色条 = 首列 td 的 border-left（border-collapse 下贴住行左缘）。 */
+.subtitle-link {
+  width: 30px;
+  text-align: center;
+}
+
+/* 连读组色条颜色：颜色写死在 CSS 类里，JS 只切换 class */
+.subtitle-table tr.link-group-0 .subtitle-link { border-left: 4px solid #5c6bc0; }
+.subtitle-table tr.link-group-1 .subtitle-link { border-left: 4px solid #26a69a; }
+.subtitle-table tr.link-group-2 .subtitle-link { border-left: 4px solid #d4663f; }
+.subtitle-table tr.link-group-3 .subtitle-link { border-left: 4px solid #8e6bc0; }
+.subtitle-table tr.link-group-4 .subtitle-link { border-left: 4px solid #4a9e77; }
+
+.sub-link-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  font-size: 11px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.22;
+  transition: opacity 0.12s, background 0.12s;
+}
+
+.sub-link-btn:hover:not(:disabled) {
+  opacity: 0.7;
+  background: var(--panel-hover);
+}
+
+.sub-link-btn.is-linked {
+  opacity: 1;
+  background: var(--accent-subtle);
+}
+
+.sub-link-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.1;
+}
+
+.sub-link-placeholder {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+}
+
+/* 「清除连读」按钮在无分组时置灰 */
+#subtitleClearLinkBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .subtitle-index {
   width: 28px;
   color: var(--muted);
@@ -2524,6 +2580,42 @@ z-index: 30;
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* 音色兼容性提示横幅（一次性展示，手动关闭后不再出现） */
+.vp-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: rgba(250, 173, 20, 0.12);
+  border: 1px solid rgba(250, 173, 20, 0.4);
+  color: #b98a1e;
+  font-size: 12px;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+.vp-hint-text {
+  flex: 1;
+}
+.vp-hint-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.vp-hint-close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
 }
 
 /* Filter Bar */

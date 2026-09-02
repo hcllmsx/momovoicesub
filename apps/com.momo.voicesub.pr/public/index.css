@@ -411,6 +411,86 @@ body {
   font-size: 11px;
 }
 
+/* ─── 连读分组列 ───
+   同一连读组的行用左侧色条标识，直观表达"这几句是连在一起读的"。
+
+   UXP 注意点（踩过的坑，勿改回）：
+   1. 连读的视觉标识 = 行首 4px 色条 <div class="sub-link-bar">，用 background-color 上色
+      （UXP 最稳属性）；同组同色、相邻组异色，颜色写死在 .link-group-* 类里，JS 只切 class。
+   2. 不要用竖线方案：UXP 对 flex 容器上的伪元素/absolute 子元素渲染不可靠，
+      ::before 和真实 div 竖线都测过不显示（见 CLAUDE.md 陷阱 #15）。
+   3. 不要用 border 画色条：UXP 不渲染 border-left 的颜色（border 颜色被忽略，回退成灰色
+      currentColor）；inline style 的 borderLeftColor 赋值同样无效。
+   4. 色条是行的直接子项，靠 align-self: stretch 撑满行高，min-height: 40px 兜底
+      （行高 ≈ input28 + 行 padding12）。 */
+.sub-col-link {
+  width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 行首 4px 色条：margin-left: -10px 抵消行 padding-left，贴住行最左边缘。
+   负 margin 在 UXP 若不生效，色条回落到 padding 内侧（同现在效果），不影响功能 */
+.sub-link-bar {
+  width: 4px;
+  align-self: stretch;
+  min-height: 40px;
+  flex-shrink: 0;
+  margin-left: -10px;
+  margin-right: -4px;
+  border-radius: 2px;
+  background-color: transparent;
+}
+
+/* 连读组色条颜色：颜色写死在 CSS 类里，JS 只切换 class（UXP 最稳的方式） */
+.sub-item-row.link-group-0 .sub-link-bar { background-color: #5c6bc0; }
+.sub-item-row.link-group-1 .sub-link-bar { background-color: #26a69a; }
+.sub-item-row.link-group-2 .sub-link-bar { background-color: #d4663f; }
+.sub-item-row.link-group-3 .sub-link-bar { background-color: #8e6bc0; }
+.sub-item-row.link-group-4 .sub-link-bar { background-color: #4a9e77; }
+
+.sub-link-btn {
+  /* UXP 兼容：原生 <button> click 不可靠 + z-index/transition 不支持，
+     所以这里用 div + role/tabindex；点击样式靠 class 切换而非 :hover 过渡 */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px;
+  background-color: transparent;
+  cursor: pointer;
+  opacity: 0.25;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sub-link-btn:hover:not(.is-disabled) {
+  opacity: 0.7;
+  background-color: var(--list-item-hover);
+}
+
+.sub-link-btn.is-linked {
+  opacity: 1;
+  background-color: var(--list-item-hover);
+}
+
+.sub-link-btn.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.1;
+}
+
+.sub-link-placeholder {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+}
+
 .sub-col-check {
   display: flex;
   align-items: center;
@@ -469,19 +549,6 @@ body {
   text-align: right;
   flex-shrink: 0;
 }
-
-.sub-col-status {
-  width: 60px;
-  font-size: 11px;
-  text-align: center;
-  flex-shrink: 0;
-  border-radius: 3px;
-  padding: 2px 4px;
-}
-
-.status-wait { color: #f5af19; }
-.status-success { color: #99c794; }
-.status-error { color: var(--danger-color); }
 
 /* 字幕文字为空时的占位提示样式 */
 .sub-origin-text.text-empty {
@@ -641,6 +708,41 @@ body {
 }
 .voices-page > * + * {
   margin-top: 10px;
+}
+
+/* 音色兼容性提示横幅（一次性展示，手动关闭后不再出现） */
+.vp-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(250, 173, 20, 0.12);
+  border: 1px solid rgba(250, 173, 20, 0.4);
+  border-radius: 4px;
+  color: #b98a1e;
+  font-size: 12px;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+.vp-hint-text {
+  flex: 1;
+}
+.vp-hint-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.vp-hint-close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
 }
 
 /* 筛选栏 */

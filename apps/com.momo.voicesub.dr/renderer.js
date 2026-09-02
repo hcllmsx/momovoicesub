@@ -150,6 +150,9 @@ const state = {
   updateLatestVersion: '', // 远程最新版本号
   initialized: false,
   disabledFrames: new Set(),
+  // 「连读」分组：集合内存放「与上一行合并为同一句话」的字幕 startFrame。
+  // 配音时同一连读组会拼成一段完整文本一次性送 TTS，从而得到连贯的语气。
+  linkedFrames: new Set(),
   // 当前激活的标签页 ID（subtitles / manual / settings），供 setBusy 定位触发按钮
   currentTab: 'subtitles',
   // 当前 Resolve 时间线名，用于检测时间线切换并联动字幕列表
@@ -809,6 +812,81 @@ function parseTextAndGenerateAnnotations(rawText) {
   return { cleanText, annotations: finalAnns };
 }
 
+// ─── 连读分组：把相邻字幕合并成一整句再配音 ───
+
+/** 文本是否含中文/日文（决定自动补齐的标点用全角还是半角） */
+function hasCJK(text) {
+  return /[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff]/.test(text || '');
+}
+
+/**
+ * 两段字幕拼成一句话时中间需要补的分隔符。
+ * 目的是让 TTS 把合并后的文本当成一句话来断句，而不是一长串没有停顿的字。
+ * - 前段以空白结尾 → 不补
+ * - 前段以句末标点结尾 → 英文补空格，中文不补
+ * - 前段以句中停顿标点结尾 → 仅英文补空格
+ * - 其余（裸字结尾）→ 中文补「，」，英文补 ", "
+ */
+function linkSeparator(prev, next) {
+  if (!prev) return '';
+  const last = prev.slice(-1);
+  if (/\s/.test(last)) return '';
+  if (/[。！？!?…]/.test(last)) return /[A-Za-z0-9]/.test(last) ? ' ' : '';
+  if (/[，、；：,;:]/.test(last)) return /[A-Za-z0-9]/.test((next || '').slice(0, 1)) ? ' ' : '';
+  return hasCJK(prev) ? '，' : ', ';
+}
+
+/** 合并后的整句末尾若没有句末标点，补一个句号，避免 TTS 读成"话没说完"的悬浮语气 */
+function finalizeLinkedSentence(text) {
+  if (!text) return text;
+  const last = text.slice(-1);
+  if (/[。！？!?…]/.test(last)) return text;
+  if (/[，、；：,;:]/.test(last)) return text.slice(0, -1) + (hasCJK(text) ? '。' : '.');
+  return text + (hasCJK(text) ? '。' : '.');
+}
+
+/**
+ * 把一个连读组内所有字幕的（带标注）文本合并成一段，
+ * 并按拼接后 cleanText 的新位置修正 annotations 的 start/end 偏移。
+ */
+function mergeLinkedGroupTexts(rawTexts) {
+  const parts = rawTexts.map(t => parseTextAndGenerateAnnotations(t || ''));
+  let cleanText = '';
+  const annotations = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) cleanText += linkSeparator(cleanText, parts[i].cleanText);
+    const offset = cleanText.length;
+    for (const ann of parts[i].annotations || []) {
+      const s = ann.start || 0;
+      annotations.push({ ...ann, start: s + offset, end: (ann.end != null ? ann.end : s) + offset });
+    }
+    cleanText += parts[i].cleanText;
+  }
+  return { cleanText: finalizeLinkedSentence(cleanText), annotations };
+}
+
+/**
+ * 按「连读」标记把当前字幕列表切分为若干组。
+ * 被禁用的行不参与分组，且会强制断开它所在的组。
+ * @returns {{items: Array, startFrame: number, endFrame: number}[]}
+ */
+function buildSubtitleLinkGroups() {
+  const groups = [];
+  let cur = null;
+  for (const item of state.subtitleItems) {
+    if (state.disabledFrames.has(item.startFrame)) { cur = null; continue; }
+    const linked = !!cur && state.linkedFrames.has(item.startFrame);
+    if (!linked) {
+      cur = { items: [], startFrame: item.startFrame, endFrame: item.endFrame };
+      groups.push(cur);
+    }
+    cur.items.push(item);
+    const end = item.endFrame != null ? item.endFrame : (item.startFrame + (item.durationFrames || 1));
+    if (end > cur.endFrame) cur.endFrame = end;
+  }
+  return groups;
+}
+
 // ─── Voice Picker (Complete Redesign) ───
 
 /**
@@ -823,10 +901,37 @@ function cleanVoiceName(name) {
     .trim();
 }
 
+// 音色兼容性提示：首次进入音色选择弹窗时展示一次，手动关闭后不再出现。
+// 如需重新展示，在控制台执行：localStorage.removeItem('momoVoiceSub.voiceCompatHintDismissed')，关闭并重新打开音色弹窗即可。
+const VOICE_HINT_STORAGE_KEY = 'momoVoiceSub.voiceCompatHintDismissed';
+const VOICE_HINT_HTML = `
+  <div class="vp-hint" id="voiceCompatHint">
+    <span class="vp-hint-text">少数音色对停顿、多音字等标注支持不完整，合成时可能出现异常停顿或读音问题。<br>若遇到此类情况，建议更换其他标准神经音色后重试。</span>
+    <button class="vp-hint-close" title="不再提示">&times;</button>
+  </div>`;
+
 function createVoicePicker(container, options) {
   const {
     mode = 'compact', onSelect, onPreview, onToggleFavorite, onRefresh
   } = options;
+
+  // 提示条是否展示：已手动关闭过则不再出现
+  function hintHTML() {
+    try {
+      if (localStorage.getItem(VOICE_HINT_STORAGE_KEY)) return '';
+    } catch (_) {}
+    return VOICE_HINT_HTML;
+  }
+
+  function bindHintDismiss() {
+    const hint = container.querySelector('#voiceCompatHint');
+    if (!hint) return;
+    const closeBtn = hint.querySelector('.vp-hint-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      try { localStorage.setItem(VOICE_HINT_STORAGE_KEY, '1'); } catch (_) {}
+      hint.remove();
+    });
+  }
 
   let selected = options.selected || '';
   let pendingSelected = selected;
@@ -1083,6 +1188,7 @@ function createVoicePicker(container, options) {
       </button>
       <div class="vp-modal-overlay${isOpen ? ' open' : ''}">
         <div class="vp-modal-panel">
+          ${hintHTML()}
           <div class="vp-filter-bar">
             ${renderFilterBarHTML()}
           </div>
@@ -1105,6 +1211,7 @@ function createVoicePicker(container, options) {
     });
     container.querySelector('.vp-modal-cancel').addEventListener('click', () => cancelSelection());
     container.querySelector('.vp-modal-confirm').addEventListener('click', () => confirmSelection());
+    bindHintDismiss();
     const refreshBtn = container.querySelector('.vp-modal-refresh');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
@@ -1451,6 +1558,7 @@ function switchToSrtMode() {
   state.subtitleItems = (state.srtItems || []).slice();
   state.subtitleAnnotations = new Map();
   state.disabledFrames = new Set();
+  state.linkedFrames = new Set();
   for (const item of state.subtitleItems) {
     state.subtitleAnnotations.set(item.startFrame, JSON.parse(JSON.stringify(item.annotations || [])));
   }
@@ -1497,6 +1605,7 @@ async function loadSubtitleTable() {
       state.subtitleItems = freshItems;
       state.subtitleAnnotations = new Map();
       state.disabledFrames = new Set();
+      state.linkedFrames = new Set();
     } else {
       // 同一字幕轨刷新（如配音完成后自动刷新）：
       // DR 返回的是纯文本，若直接覆盖会丢失 item.text 中内联的 [拼音] / [pause:] 标注。
@@ -1543,17 +1652,61 @@ function renderSubtitleTable() {
     activeSubtitleFrame = null;
   }
 
-  let html = '<table class="subtitle-table"><thead><tr><th class="subtitle-index">#</th><th class="subtitle-timecode">时间码</th><th class="subtitle-text">文本</th></tr></thead><tbody>';
-  for (const item of state.subtitleItems) {
+  // 2. 计算连读分组：为每行分配左侧色条 class（同组同色、相邻组异色，与 PR 版一致）
+  // 被禁用的行不参与连读，且会强制断开所在分组，保证 UI 与最终配音结果一致
+  const isRowDisabled = (idx) => state.disabledFrames.has(state.subtitleItems[idx].startFrame);
+  const prevLinked = (idx) => idx > 0
+    && !isRowDisabled(idx)
+    && !isRowDisabled(idx - 1)
+    && state.linkedFrames.has(state.subtitleItems[idx].startFrame);
+
+  // 颜色写死在 CSS 的 .link-group-* 类里；仅连读组（size>1）占用一个颜色位，保证相邻连读组颜色必然不同
+  const LINK_GROUP_CLASSES = ['link-group-0', 'link-group-1', 'link-group-2', 'link-group-3', 'link-group-4'];
+  const linkGroupCls = new Map();
+  let groupStart = 0;
+  let groupIdx = 0;
+  for (let i = 0; i < state.subtitleItems.length; i++) {
+    const nextLinked = (i + 1 < state.subtitleItems.length) && prevLinked(i + 1);
+    if (!nextLinked) {
+      const size = i - groupStart + 1;
+      const cls = size > 1 ? LINK_GROUP_CLASSES[groupIdx % LINK_GROUP_CLASSES.length] : '';
+      for (let j = groupStart; j <= i; j++) {
+        linkGroupCls.set(state.subtitleItems[j].startFrame, cls);
+      }
+      if (size > 1) groupIdx++;
+      groupStart = i + 1;
+    }
+  }
+
+  let html = '<table class="subtitle-table"><thead><tr><th class="subtitle-link" title="把相邻字幕合并为一整句配音，语气更连贯">连读</th><th class="subtitle-index">#</th><th class="subtitle-timecode">时间码</th><th class="subtitle-text">文本</th></tr></thead><tbody>';
+  for (let idx = 0; idx < state.subtitleItems.length; idx++) {
+    const item = state.subtitleItems[idx];
     const tc = framesToTimecode(item.startFrame);
     const isActive = activeSubtitleFrame === item.startFrame;
     const isDisabled = state.disabledFrames.has(item.startFrame);
-    const rowClass = [isActive ? 'is-active-row' : '', isDisabled ? 'is-disabled-row' : ''].filter(Boolean).join(' ');
+    const groupCls = linkGroupCls.get(item.startFrame) || '';
+    const rowClass = [
+      isActive ? 'is-active-row' : '',
+      isDisabled ? 'is-disabled-row' : '',
+      groupCls
+    ].filter(Boolean).join(' ');
     
     // 渲染时只将不含中括号等标记的纯净汉字填入 textarea 视图中，确保打字无光标漂移
     const { cleanText } = parseTextAndGenerateAnnotations(item.text);
+
+    // 连读按钮：第一行没有"上一句"可连；上一行被禁用时无法连读
+    let linkCell = '<span class="sub-link-placeholder"></span>';
+    if (idx > 0) {
+      const linked = prevLinked(idx);
+      const prevDisabled = isRowDisabled(idx - 1);
+      const tip = prevDisabled
+        ? '上一行已被禁用，无法连读'
+        : (linked ? '已与上一句连读，点击断开' : '点击与上一句连读：合并为一句话配音，语气更连贯');
+      linkCell = `<button type="button" class="sub-link-btn${linked ? ' is-linked' : ''}" data-frame="${item.startFrame}"${prevDisabled ? ' disabled' : ''} title="${tip}">🔗</button>`;
+    }
     
     html += `<tr data-frame="${item.startFrame}" class="${rowClass}" title="右键以临时 禁用/启用 此列">
+       <td class="subtitle-link">${linkCell}</td>
        <td class="subtitle-index">${item.index + 1}</td>
        <td class="subtitle-timecode">${tc}</td>
        <td class="subtitle-text">
@@ -1567,6 +1720,24 @@ function renderSubtitleTable() {
   }
   html += '</tbody></table>';
   wrap.innerHTML = html;
+
+  // 连读按钮：切换本行是否与上一行合并为同一句话
+  wrap.querySelectorAll('.sub-link-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      const frame = Number(btn.dataset.frame);
+      if (state.linkedFrames.has(frame)) {
+        state.linkedFrames.delete(frame);
+      } else {
+        state.linkedFrames.add(frame);
+      }
+      // 抑制 re-render 期间浏览器自动 focus textarea 导致的"第x行"误触发
+      suppressActivation = true;
+      renderSubtitleTable();
+      setTimeout(() => { suppressActivation = false; }, 0);
+    });
+  });
 
   // 右键行（非文本输入区域）切换禁用/启用状态
   wrap.querySelectorAll('tr[data-frame]').forEach(row => {
@@ -1678,7 +1849,7 @@ function renderSubtitleTable() {
 
   // 点击表格非文本输入区域 → 回到整轨模式
   wrap.addEventListener('click', (e) => {
-    if (e.target.closest('.subtitle-text-input') || e.target.closest('.subtitle-preview-box')) return;
+    if (e.target.closest('.subtitle-text-input') || e.target.closest('.subtitle-preview-box') || e.target.closest('.sub-link-btn')) return;
     if (activeSubtitleFrame !== null) {
       activeSubtitleFrame = null;
       suppressActivation = true;
@@ -1707,6 +1878,21 @@ function updateSubtitleToolbar() {
     disableBtn.title = '一键禁用所有字幕条目，之后可单独右键行序号/时间码启用需要的条目';
   }
 
+  // 「清除连读」按钮：仅在存在连读分组时可用，并回显当前分组数
+  const clearLinkBtn = $('subtitleClearLinkBtn');
+  if (clearLinkBtn) {
+    const groupCount = buildSubtitleLinkGroups().filter(g => g.items.length > 1).length;
+    if (groupCount > 0) {
+      clearLinkBtn.disabled = false;
+      clearLinkBtn.textContent = `清除连读(${groupCount})`;
+      clearLinkBtn.title = '当前有 ' + groupCount + ' 组连读，点击全部取消';
+    } else {
+      clearLinkBtn.disabled = true;
+      clearLinkBtn.textContent = '清除连读';
+      clearLinkBtn.title = '当前没有连读分组。在左侧「连读」列点击 🔗 可把相邻字幕合并为一整句配音';
+    }
+  }
+
   // 模式指示器：始终显示当前是整轨还是单行模式
   if (activeSubtitleFrame !== null && activeSubtitleFrame !== undefined) {
     const item = state.subtitleItems.find(s => s.startFrame === activeSubtitleFrame);
@@ -1728,6 +1914,15 @@ function toggleDisableAll() {
     state.disabledFrames = new Set(state.subtitleItems.map(item => item.startFrame));
   }
   renderSubtitleTable();
+}
+
+function clearAllSubtitleLinks() {
+  if (!state.linkedFrames.size) return;
+  state.linkedFrames = new Set();
+  suppressActivation = true;
+  renderSubtitleTable();
+  setTimeout(() => { suppressActivation = false; }, 0);
+  showToast('已清除所有连读分组', 'ok');
 }
 
 function framesToTimecode(frames) {
@@ -2514,24 +2709,35 @@ async function generateSubtitles() {
   setResult('subtitleResult', '正在生成字幕配音...');
 
   try {
-    // 根据禁用状态过滤字幕条目
-    const enabledItems = state.subtitleItems.filter(item => !state.disabledFrames.has(item.startFrame));
-    const disabledCount = state.subtitleItems.length - enabledItems.length;
-    
-    if (enabledItems.length === 0) {
+    // 按禁用状态 + 连读标记把字幕切分为若干「配音单元」：
+    // 一个连读组 → 一次 TTS 合成 → 一个音频片段（语气连贯）
+    const groups = buildSubtitleLinkGroups();
+    const disabledCount = state.subtitleItems.filter(item => state.disabledFrames.has(item.startFrame)).length;
+
+    if (groups.length === 0) {
       setResult('subtitleResult', '所有字幕已被禁用，请至少启用一条字幕后再生成配音。', 'error');
       setBusy(false);
       return;
     }
 
-    const subtitleItems = enabledItems.map(item => {
-      const { cleanText, annotations } = parseTextAndGenerateAnnotations(item.text);
+    const subtitleItems = groups.map(group => {
+      if (group.items.length === 1) {
+        const { cleanText, annotations } = parseTextAndGenerateAnnotations(group.items[0].text);
+        return { ...group.items[0], text: cleanText, annotations };
+      }
+      // 连读组：合并为一段完整句子，首条起点为插入点，末条终点为可用时长上限
+      const { cleanText, annotations } = mergeLinkedGroupTexts(group.items.map(i => i.text));
       return {
-        ...item,
+        ...group.items[0],
         text: cleanText,
-        annotations: annotations
+        annotations,
+        startFrame: group.startFrame,
+        endFrame: group.endFrame,
+        durationFrames: Math.max(1, group.endFrame - group.startFrame),
+        linkedCount: group.items.length
       };
     });
+    const linkedGroupCount = subtitleItems.filter(item => item.linkedCount > 1).length;
 
     const payload = {
       audioTrackIndex: state.selectedAudioTrack,
@@ -2545,7 +2751,7 @@ async function generateSubtitles() {
     }
     const result = await window.momoVoiceSub.generateFromSubtitles(payload);
 
-    setResult('subtitleResult', `完成：共 ${result.total} 条，插入 ${result.inserted} 条，跳过 ${result.skipped} 条${disabledCount > 0 ? `，忽略已禁用 ${disabledCount} 条` : ''}。目标音频轨：${result.audioTrackIndex}`, 'ok');
+    setResult('subtitleResult', `完成：共 ${result.total} 段，插入 ${result.inserted} 段，跳过 ${result.skipped} 段${linkedGroupCount > 0 ? `，其中 ${linkedGroupCount} 段为连读合并` : ''}${disabledCount > 0 ? `，忽略已禁用 ${disabledCount} 条` : ''}。目标音频轨：${result.audioTrackIndex}`, 'ok');
     await refreshState();
   } catch (error) {
     if (handleCloudAuthError(error)) {
@@ -3749,6 +3955,7 @@ async function refreshState() {
       state.subtitleItems = [];
       state.subtitleAnnotations = new Map();
       state.disabledFrames = new Set();
+      state.linkedFrames = new Set();
       state.loadedSubtitleTrack = null;
       const wrap = $('subtitleTable');
       if (wrap) wrap.innerHTML = '<div class="table-placeholder">当前时间线无字幕轨，可点击「📂 导入SRT」加载本地字幕</div>';
@@ -3935,6 +4142,7 @@ $('openDevTools').addEventListener('click', openDevTools);
 $('subtitleInsertPause').addEventListener('click', handleSubtitleInsertPause);
 $('subtitleImportSrtBtn')?.addEventListener('click', importSrtFile);
 $('subtitleDisableAllBtn').addEventListener('click', toggleDisableAll);
+$('subtitleClearLinkBtn')?.addEventListener('click', clearAllSubtitleLinks);
   $('subtitleModeLabel').addEventListener('click', () => {
     if (activeSubtitleFrame !== null) {
       activeSubtitleFrame = null;
