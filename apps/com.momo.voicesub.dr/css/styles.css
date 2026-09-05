@@ -220,7 +220,7 @@ button:disabled {
   justify-content: center;
   width: 44px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--muted);
   cursor: pointer;
   transition: color var(--transition), background var(--transition), height 0.25s ease;
@@ -244,10 +244,10 @@ button:disabled {
   content: '';
   position: absolute;
   left: -6px;
-  top: 8px;
-  bottom: 8px;
+  top: 0;
+  bottom: 0;
   width: 3px;
-  border-radius: 0 2px 2px 0;
+  border-radius: 0;
   background: var(--accent);
 }
 
@@ -2105,14 +2105,15 @@ z-index: 30;
   transition: all 0.15s ease;
 }
 .channel-enable-btn.active {
-  background: var(--accent-subtle, rgba(59, 130, 246, 0.15));
-  border-color: var(--accent, #3b82f6);
-  color: var(--accent, #3b82f6);
+  background: rgba(34, 197, 94, 0.12);
+  border-color: #22c55e !important;
+  color: #22c55e !important;
   cursor: default;
 }
 .channel-enable-btn.active:hover {
-  background: var(--accent-subtle, rgba(59, 130, 246, 0.15));
-  border-color: var(--accent, #3b82f6);
+  background: rgba(34, 197, 94, 0.16);
+  border-color: #22c55e !important;
+  color: #22c55e !important;
 }
 
 /* 本地部署 TTS 设置面板 */

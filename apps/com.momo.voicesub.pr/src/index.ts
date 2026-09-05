@@ -1963,13 +1963,31 @@ function renderVoicesPage() {
   if (!container) return;
   if (!voicePage.built) {
     container.innerHTML = `
-      ${isLocalChannelActive() || voiceHintDismissed() ? '' : VOICE_HINT_HTML}
       <div class="vp-filter-bar"></div>
       <div class="vp-grid" id="voicesGrid"></div>
     `;
     voicePage.built = true;
-    bindVoiceHintDismiss(container);
   }
+
+  // 提示条动态管理：只有在非本地部署通道（如 Azure/云端）且未手动关闭时才展示；本地部署通道下坚决不显示
+  const hintEl = container.querySelector("#voiceCompatHint") as HTMLElement | null;
+  const shouldShowHint = !isLocalChannelActive() && !voiceHintDismissed();
+  if (shouldShowHint) {
+    if (!hintEl) {
+      const filterBar = container.querySelector(".vp-filter-bar");
+      if (filterBar) {
+        filterBar.insertAdjacentHTML("beforebegin", VOICE_HINT_HTML);
+        bindVoiceHintDismiss(container);
+      }
+    } else {
+      hintEl.style.display = "";
+    }
+  } else {
+    if (hintEl) {
+      hintEl.remove();
+    }
+  }
+
   const bar = container.querySelector('.vp-filter-bar') as HTMLElement | null;
   if (bar) {
     bar.innerHTML = renderFilterBarHTML();
@@ -3595,7 +3613,17 @@ async function updateChannelEnableButtons() {
     const channel = btn.getAttribute('data-enable-channel');
     const isActive = channel === effective;
     btn.classList.toggle('active', isActive);
-    btn.textContent = isActive ? '使用中' : '启用此通道';
+    btn.textContent = isActive ? '使用中...' : '启用此通道';
+    const el = btn as HTMLElement;
+    if (isActive) {
+      el.style.setProperty('color', '#22c55e', 'important');
+      el.style.setProperty('border', '1px solid #22c55e', 'important');
+      el.style.setProperty('background-color', 'rgba(34, 197, 94, 0.12)', 'important');
+    } else {
+      el.style.removeProperty('color');
+      el.style.removeProperty('border');
+      el.style.removeProperty('background-color');
+    }
   });
   applyChannelCapabilityUI(isLocalChannelActive());
 }

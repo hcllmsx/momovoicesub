@@ -2,9 +2,17 @@
 
 一个面向 DaVinci Resolve 和 Premiere Pro 的专业级自动剪辑配音插件，支持 Azure Speech 云端语音与 GPT-SoVITS 本地大模型离线部署，把字幕或手动输入的文字转换为高质量配音，并直接精准插入到剪辑时间线。
 
-![DaVinci Resolve 版](docs/momovoicesub-dr-v26.8.4.webp)
+## 界面预览
 
-![Premiere Pro 版](docs/momovoicesub-pr-v26.7.22.webp)
+### DaVinci Resolve 版
+
+![DaVinci Resolve 主界面](docs/momovoicesub-dr-home-v26.9.5.webp)
+![DaVinci Resolve 设置页](docs/momovoicesub-dr-setting-v26.9.5.webp)
+
+### Premiere Pro 版
+
+![Premiere Pro 主界面](docs/momovoicesub-pr-home-v26.9.5.webp)
+![Premiere Pro 设置页](docs/momovoicesub-pr-setting-v26.9.5.webp)
 
 ## 功能特性
 

@@ -1101,6 +1101,38 @@ body {
   flex-shrink: 0;
 }
 
+/* 底部操作条关于按钮：严格正方形微圆角按钮，杜绝 UXP 默认药丸椭圆 */
+.bar-about-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  max-width: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--text-color);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.bar-about-btn:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.bar-about-btn:active {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
 /* 手动配音文本域
    .manual-textarea-wrap 与 .manual-textarea-highlight 各自 flex:1，在有标注时平分可用高度；
    无标注时预览区 display:none（.hidden），文本框自动占满全部空间 */
@@ -2979,30 +3011,59 @@ font-weight: 500;
 .setting-col-service-type,
 .setting-col-mode,
 .setting-col-port,
-.setting-col-lang,
 .setting-col-python,
 .setting-col-script {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
 .setting-col-service-type > * + *,
 .setting-col-mode > * + *,
 .setting-col-port > * + *,
-.setting-col-lang > * + *,
 .setting-col-python > * + *,
 .setting-col-script > * + * {
   margin-top: 4px;
 }
 
-.setting-col-root-dir,
 .setting-col-base-url {
+  flex: 1.5;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.setting-col-base-url > * + * {
+  margin-top: 4px;
+}
+.setting-col-base-url .setting-label {
+  white-space: nowrap;
+}
+
+.setting-col-lang {
+  flex: 1;
+  min-width: 115px;
+  display: flex;
+  flex-direction: column;
+}
+.setting-col-lang > * + * {
+  margin-top: 4px;
+}
+.setting-col-lang .setting-label {
+  white-space: nowrap;
+}
+.setting-col-lang select,
+.setting-col-lang .select-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.setting-col-root-dir {
   width: 100%;
   display: flex;
   flex-direction: column;
 }
-.setting-col-root-dir > * + *,
-.setting-col-base-url > * + * {
+.setting-col-root-dir > * + * {
   margin-top: 4px;
 }
 
@@ -3413,4 +3474,25 @@ font-weight: 500;
 }
 .confirm-actions > * + * {
   margin-left: 10px;
+}
+
+/* ── 通道启用状态按钮（使用中）：绿色边框与绿色文字 ── */
+.channel-enable-btn.active,
+sp-button.channel-enable-btn.active {
+  --spectrum-button-secondary-border-color: #22c55e !important;
+  --spectrum-button-secondary-text-color: #22c55e !important;
+  --spectrum-button-secondary-background-color: rgba(34, 197, 94, 0.12) !important;
+  --spectrum-button-secondary-border-color-hover: #22c55e !important;
+  --spectrum-button-secondary-text-color-hover: #22c55e !important;
+  --spectrum-button-secondary-background-color-hover: rgba(34, 197, 94, 0.18) !important;
+  border: 1px solid #22c55e !important;
+  color: #22c55e !important;
+  background-color: rgba(34, 197, 94, 0.12) !important;
+  border-radius: 4px;
+}
+.channel-enable-btn.active:hover,
+sp-button.channel-enable-btn.active:hover {
+  border: 1px solid #22c55e !important;
+  color: #22c55e !important;
+  background-color: rgba(34, 197, 94, 0.18) !important;
 }

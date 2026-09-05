@@ -35,7 +35,7 @@ const DEFAULT_LOCAL_ENGINE = {
  */
 const DEFAULT_LOCAL_TTS = {
   serviceType: 'gpt-sovits', // 'gpt-sovits'
-  mode: 'url', // 'managed' | 'url'
+  mode: 'managed', // 'managed' | 'url'
   engine: { ...DEFAULT_LOCAL_ENGINE },
   baseUrl: '',
   textLang: 'auto', // 'auto' | 'zh' | 'en' | 'ja' | 'ko' | 'yue'

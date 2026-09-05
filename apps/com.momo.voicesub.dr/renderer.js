@@ -984,8 +984,9 @@ function createVoicePicker(container, options) {
     mode = 'compact', onSelect, onPreview, onToggleFavorite, onRefresh
   } = options;
 
-  // 提示条是否展示：已手动关闭过则不再出现
+  // 提示条是否展示：仅非本地部署通道（如 Azure/云端）且未手动关闭时展示
   function hintHTML() {
+    if (isLocalChannelActive()) return '';
     try {
       if (localStorage.getItem(VOICE_HINT_STORAGE_KEY)) return '';
     } catch (_) { }
@@ -3483,9 +3484,9 @@ function applyChannelCapabilityUI(isLocal) {
  */
 function getLocalMode() {
   const sel = $('localModeSelect');
-  if (sel) return sel.value === 'managed' ? 'managed' : 'url';
+  if (sel) return sel.value === 'url' ? 'url' : 'managed';
   const active = $('localModeSeg')?.querySelector('.seg-btn.active');
-  return active?.dataset.mode === 'managed' ? 'managed' : 'url';
+  return active?.dataset.mode === 'url' ? 'url' : 'managed';
 }
 
 /**
@@ -3497,7 +3498,7 @@ function getLocalTextLang() {
 }
 
 function setLocalMode(mode) {
-  const next = mode === 'managed' ? 'managed' : 'url';
+  const next = mode === 'url' ? 'url' : 'managed';
   if ($('localModeSelect')) {
     $('localModeSelect').value = next;
   }
@@ -3707,35 +3708,9 @@ function renderEngineLogs(logs) {
 async function refreshEngineStatus() {
   try {
     const status = await window.momoVoiceSub.engineStatus();
-    let isRunning = Boolean(status.running);
-    let isReused = Boolean(status.reused);
+    const isRunning = Boolean(status.running);
+    const isReused = Boolean(status.reused);
     const port = status.port || parseInt($('localPort')?.value || '9880', 10) || 9880;
-
-    // 渲染进程（浏览器环境）直接探查端口，保证哪怕由 PR 或外部拉起也能 100% 识别
-    if (!isRunning) {
-      try {
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 1500);
-        const res = await fetch(`http://127.0.0.1:${port}/openapi.json`, { method: 'GET', signal: controller.signal });
-        clearTimeout(tid);
-        if (res.ok) {
-          isRunning = true;
-          isReused = true;
-        }
-      } catch (_) {
-        // 回退根路径探测
-        try {
-          const controller2 = new AbortController();
-          const tid2 = setTimeout(() => controller2.abort(), 800);
-          const res2 = await fetch(`http://127.0.0.1:${port}/`, { method: 'GET', signal: controller2.signal });
-          clearTimeout(tid2);
-          if (res2.status >= 200 && res2.status < 500) {
-            isRunning = true;
-            isReused = true;
-          }
-        } catch (_) {}
-      }
-    }
 
     lastEngineInfo = {
       running: isRunning,
@@ -4204,7 +4179,7 @@ function loadSettingsToForm() {
   const localTts = settings.localTts || {};
   const engine = localTts.engine || {};
   if ($('localServiceType')) $('localServiceType').value = localTts.serviceType || 'gpt-sovits';
-  setLocalMode(localTts.mode === 'managed' ? 'managed' : 'url');
+  setLocalMode(localTts.mode === 'url' ? 'url' : 'managed');
   if ($('localRootDir')) $('localRootDir').value = engine.rootDir || '';
   if ($('localPort')) $('localPort').value = engine.port || 9880;
   if ($('localPythonPath')) $('localPythonPath').value = engine.pythonPath || '';
@@ -5107,8 +5082,10 @@ async function refreshState() {
     state.initialized = true;
     captureSettingsBaseline();
     renderPolyDictTable();
-    // 同步一次引擎进程状态：插件重启后若上次的 api_v2.py 还活着，应显示为运行中
-    refreshEngineStatus();
+    // 仅当当前是本地部署通道时同步一次引擎进程状态
+    if (isLocalChannelActive()) {
+      refreshEngineStatus();
+    }
 
     if (state.selectedSubtitleTrack === 'srt') {
       // SRT 模式：保持已有字幕列表不变，仅刷新按钮可见性
@@ -6065,8 +6042,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       });
     }
     log('插件已启动');
-    // 定时探查本地引擎与端口状态（3秒一次），保证外部（如PR版或命令行）拉起/关闭时状态实时跟随
-    setInterval(refreshEngineStatus, 3000);
+
   } catch (error) {
     $('resolveStatus').textContent = friendlyErrorMessage(error);
     log(friendlyErrorMessage(error));

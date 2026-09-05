@@ -393,24 +393,12 @@ class GptSoVitsEngine {
   }
 
   async getStatus() {
-    let running = Boolean(this.child) && !this.child.killed;
-    let reused = false;
+    const running = Boolean(this.child) && !this.child.killed;
+    const reused = Boolean(this.reused);
     const port = this.port || 9880;
 
-    if (!running) {
-      const baseUrl = normalizeBaseUrl(`http://127.0.0.1:${port}`);
-      try {
-        const probe = await probeGptSoVits({ baseUrl, fetchImpl: this.fetchImpl, timeoutMs: 2000 });
-        if (probe && probe.ok) {
-          running = true;
-          reused = true;
-          this.port = port;
-        }
-      } catch (_) {}
-    }
-
     return {
-      running,
+      running: running || reused,
       reused,
       pid: this.child ? this.child.pid : null,
       port,
@@ -438,6 +426,7 @@ class GptSoVitsEngine {
     try {
       const probe = await probeGptSoVits({ baseUrl, timeoutMs: 2000 });
       this.port = port;
+      this.reused = true;
       this._log('info', `检测到 ${baseUrl} 已有 GPT-SoVITS 服务在运行，直接接管（不重复启动）。`);
       return { status: 'reused', baseUrl, endpoints: probe.endpoints };
     } catch {
@@ -543,6 +532,7 @@ class GptSoVitsEngine {
   }
 
   async stop() {
+    this.reused = false;
     const child = this.child;
     if (!child) {
       this.port = null;
