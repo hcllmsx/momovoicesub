@@ -15,9 +15,59 @@ export interface VoiceInfo {
   wordsPerMinute: number | null;
 }
 
+export interface LocalTtsEngineSettings {
+  rootDir: string;
+  port: number;
+  pythonPath: string;
+  script: string;
+}
+
+export interface LocalTtsVoice {
+  id: string;
+  name: string;
+  avatarType?: string;
+  emotion?: string;
+  gender?: string;
+  avatar?: string;
+  modelName?: string;
+  modelVersion?: string;
+  gptWeightsPath?: string;
+  sovitsWeightsPath?: string;
+  refAudioPath?: string;
+  promptText?: string;
+  promptLang?: string;
+  auxRefAudioPaths?: string[];
+}
+
+export interface LocalTtsSettings {
+  serviceType: 'gpt-sovits';
+  mode: 'managed' | 'url';
+  engine: LocalTtsEngineSettings;
+  baseUrl: string;
+  textLang: string;
+  voices: LocalTtsVoice[];
+  lastVoice?: string;
+}
+
+export const DEFAULT_LOCAL_TTS: LocalTtsSettings = {
+  serviceType: 'gpt-sovits',
+  mode: 'managed',
+  engine: {
+    rootDir: '',
+    port: 9880,
+    pythonPath: '',
+    script: 'api_v2.py'
+  },
+  baseUrl: 'http://127.0.0.1:9880',
+  textLang: 'auto',
+  voices: []
+};
+
 export interface Settings {
   region: string;
   endpoint: string;
+  activeChannel?: 'cloud' | 'azure' | 'local' | '';
+  localTts?: LocalTtsSettings;
   defaultVoice: string;
   defaultStyle: string;
   defaultStyledegree: string;
@@ -28,7 +78,6 @@ export interface Settings {
   overwriteMode: string;
   rememberKey: boolean;
   azureKey?: string;
-  azureKeyDisabled?: boolean;
   voices: VoiceInfo[];
   favoriteVoices: string[];
   cacheDir: string;
@@ -39,6 +88,8 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   region: 'eastasia',
   endpoint: '',
+  activeChannel: '',
+  localTts: DEFAULT_LOCAL_TTS,
   defaultVoice: 'zh-CN-XiaoxiaoNeural',
   defaultStyle: '',
   defaultStyledegree: '1.0',
@@ -48,7 +99,6 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultPitch: '0%',
   overwriteMode: 'skip',
   rememberKey: true,
-  azureKeyDisabled: false,
   voices: [],
   favoriteVoices: [],
   cacheDir: '',
@@ -84,6 +134,32 @@ export class SettingsStore {
 
   private ensureDefaults(settings: Partial<Settings>): Settings {
     const merged = { ...DEFAULT_SETTINGS, ...settings } as Settings;
+
+    // 迁移：老配置中 azureKeyDisabled === true 且未显式指定 activeChannel 时，迁移为 'cloud'
+    if (!merged.activeChannel && (settings as any)?.azureKeyDisabled === true) {
+      merged.activeChannel = 'cloud';
+    }
+    delete (merged as any).azureKeyDisabled;
+
+    // 补全 localTts 缺省字段
+    const rawLocal = (settings as any)?.localTts || {};
+    merged.localTts = {
+      serviceType: rawLocal.serviceType || 'gpt-sovits',
+      mode: rawLocal.mode === 'managed' ? 'managed' : 'url',
+      engine: {
+        rootDir: rawLocal.engine?.rootDir || '',
+        port: Number(rawLocal.engine?.port) || 9880,
+        pythonPath: rawLocal.engine?.pythonPath || '',
+        script: rawLocal.engine?.script || 'api_v2.py'
+      },
+      baseUrl: rawLocal.baseUrl || 'http://127.0.0.1:9880',
+      textLang: rawLocal.textLang || 'auto',
+      voices: Array.isArray(rawLocal.voices) ? rawLocal.voices : []
+    };
+    if (rawLocal.lastVoice) {
+      merged.localTts.lastVoice = rawLocal.lastVoice;
+    }
+
     // 迁移：早期 PR 版默认音色曾为「小艺」(zh-CN-XiaoyiNeural)，统一改为「晓晓」(zh-CN-XiaoxiaoNeural)，
     // 与达芬奇版默认音色保持一致。宽松匹配以兼容大小写差异。
     if (typeof merged.defaultVoice === 'string' && merged.defaultVoice.toLowerCase().includes('xiaoyi')) {
@@ -168,6 +244,7 @@ export class SettingsStore {
 
     // 保存主设置
     const fileSettings = { ...settings };
+    delete (fileSettings as any).azureKeyDisabled;
     // 在返回前，为安全起见，从返回的数据结构里脱敏
     await this.saveFileContent(SETTINGS_FILE, JSON.stringify(fileSettings, null, 2));
 

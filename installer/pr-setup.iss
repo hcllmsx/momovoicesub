@@ -3,7 +3,7 @@
 ; ───────────────────────────────────────────────────────────────────
 
 #define MyAppName "默默配音助手 (Premiere Pro 版)"
-#define MyAppVersion "26.9.2"
+#define MyAppVersion "26.9.5"
 #define MyAppPublisher "hcllmsx"
 #define MyAppURL "https://github.com/hcllmsx/momovoicesub"
 

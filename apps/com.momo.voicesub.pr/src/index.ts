@@ -1,12 +1,22 @@
 // @ts-ignore
 import uxp from "uxp";
-import { SettingsStore, VoiceInfo } from "./lib/settings-store";
+import { SettingsStore, VoiceInfo, LocalTtsSettings, DEFAULT_LOCAL_TTS } from "./lib/settings-store";
 import { AzureTtsProvider, styleNameCn } from "./lib/azure-tts";
 import { CloudClient } from "./lib/cloud-client";
 import { CloudStore } from "./lib/cloud-store";
 import { CloudTtsProvider } from "./lib/cloud-tts-provider";
 import { DelegatingTtsProvider } from "./lib/delegating-tts-provider";
+import { LocalTtsProvider, probeGptSoVits, stripAnnotations } from "./lib/local-tts-provider";
+import {
+  detect as engineDetect,
+  scanModels as engineScanModels,
+  scanReferenceAudios as engineScanReferenceAudios,
+  lookupPromptText as engineLookupPromptText,
+  launchGptSoVitsService,
+  ScannedModel
+} from "./lib/gptsovits-engine";
 import { PremiereAdapter, SubtitleItem } from "./adapter/premiere-adapter";
+import { promptLangToLocale } from "./lib/preview-text";
 import polyphonicBuiltin from "./lib/polyphonic-builtin.json";
 
 declare const require: any;
@@ -30,7 +40,17 @@ const settingsStore = new SettingsStore();
 const premiereAdapter = new PremiereAdapter();
 const cloudClient = new CloudClient();
 const cloudStore = new CloudStore();
+let localProvider: LocalTtsProvider;
 let ttsProvider: DelegatingTtsProvider;
+let cachedEffectiveChannel = '';
+
+function toggleHidden(el: Element | null, hidden: boolean) {
+  if (el) el.classList.toggle('hidden', hidden);
+}
+
+function isLocalChannelActive(): boolean {
+  return cachedEffectiveChannel === 'local';
+}
 
 // 全局状态管理
 const state = {
@@ -40,10 +60,10 @@ const state = {
   fps: 24,
   audioTracks: [] as any[],
   captionTracks: [] as any[],
-  
+
   // 当前加载的字幕轨索引
   activeCaptionTrackIndex: -2, // -2 表示初始未加载, -1 表示无轨道, >=0 表示选定的索引
-  
+
   // 字幕列表
   subtitleItems: [] as SubtitleItem[],
 
@@ -55,10 +75,10 @@ const state = {
   // 「连读」分组：集合内存放「与上一行合并为同一句话」的字幕 id。
   // 配音时同一连读组会拼成一段完整文本一次性送 TTS，从而得到连贯的语气。
   linkedIds: new Set<number>(),
-  
+
   // 选中的音色
   selectedVoice: null as VoiceInfo | null,
-  
+
   // 参数预设列表
   presets: [] as any[],
   defaultPresetId: 'preset-default',
@@ -66,6 +86,7 @@ const state = {
 
   // 音色列表（缓存）
   voices: [] as VoiceInfo[],
+  localVoices: [] as VoiceInfo[],
   favoriteVoices: [] as string[],
 
   // ─── 标注编辑追踪（与达芬奇版对齐：文本框显示干净文字，底层存储带标注文本） ───
@@ -86,16 +107,47 @@ const state = {
   updateLatestVersion: '' as string
 };
 
-// ─── 音色选择器辅助定义（移植自达芬奇版 renderer.js） ───
+// ─── 音色选择器与声音形象辅助定义（与达芬奇版对齐） ───
+const AVATAR_CONFIG: Record<string, { value: string; label: string; gender: string; img: string }> = {
+  woman: { value: 'woman', label: '青年女声', gender: 'Female', img: './img/woman-default.jpg' },
+  man: { value: 'man', label: '青年男声', gender: 'Male', img: './img/man-default.jpg' },
+  littleGirl: { value: 'littleGirl', label: '小女孩', gender: 'Female', img: './img/littleGirl-default.jpg' },
+  littleBoy: { value: 'littleBoy', label: '小男孩', gender: 'Male', img: './img/littleBoy-default.jpg' },
+  grandma: { value: 'grandma', label: '老奶奶', gender: 'Female', img: './img/grandma-default.jpg' },
+  grandpa: { value: 'grandpa', label: '老爷爷', gender: 'Male', img: './img/grandpa-default.jpg' }
+};
 
-// 头像图片路径。
-// ⚠️ UXP 的 <img src> 不支持 data: URI（文档仅声明 string|File），且 SVG 渲染器
-// 针对简单图标、复杂 SVG 可能无法渲染（见 UXP Known Issues）。因此必须用真实图片文件，
-// 不能用 data:image/svg+xml 内联。路径相对于 index.html（构建后 dist/ 同级 img/）。
+const PROMPT_LANG_MAP: Record<string, string> = {
+  zh: '中文',
+  en: '英文',
+  ja: '日文',
+  ko: '韩文',
+  yue: '粤语'
+};
+
+// 头像图片路径
 const AVATAR_MAP: Record<string, string> = {
   Female: "./img/woman-default.jpg",
-  Male: "./img/man-default.jpg"
+  Male: "./img/man-default.jpg",
+  woman: "./img/woman-default.jpg",
+  man: "./img/man-default.jpg",
+  littleGirl: "./img/littleGirl-default.jpg",
+  littleBoy: "./img/littleBoy-default.jpg",
+  grandma: "./img/grandma-default.jpg",
+  grandpa: "./img/grandpa-default.jpg"
 };
+
+function getVoiceAvatar(voice?: any): string {
+  if (!voice) return "./img/woman-default.jpg";
+  if (voice.avatar) return voice.avatar;
+  if (voice.avatarType && AVATAR_CONFIG[voice.avatarType]) {
+    return AVATAR_CONFIG[voice.avatarType].img;
+  }
+  if (voice.gender && AVATAR_MAP[voice.gender]) {
+    return AVATAR_MAP[voice.gender];
+  }
+  return "./img/woman-default.jpg";
+}
 
 // 语种分组定义：match 函数判断 locale 是否属于该组，subs 为子分类
 interface LocaleSubDef { label: string; locales: string[] | null }
@@ -108,63 +160,79 @@ interface LocaleGroupDef {
 
 const LOCALE_GROUPS: LocaleGroupDef[] = [
   { id: 'all', label: '全部', match: () => true, subs: {} },
-  { id: 'zh', label: '中文', match: (l) => !!l && (l.startsWith('zh-') || l.startsWith('yue-') || l.startsWith('wuu-')),
+  {
+    id: 'zh', label: '中文', match: (l) => !!l && (l.startsWith('zh-') || l.startsWith('yue-') || l.startsWith('wuu-')),
     subs: {
       'zh-CN': { label: '普通话', locales: ['zh-CN'] },
-      'yue':   { label: '粤语',   locales: ['zh-HK', 'yue-CN'] },
+      'yue': { label: '粤语', locales: ['zh-HK', 'yue-CN'] },
       'zh-TW': { label: '国语(台湾)', locales: ['zh-TW'] },
-    } },
-  { id: 'en', label: 'English', match: (l) => !!l && l.startsWith('en-'),
+    }
+  },
+  {
+    id: 'en', label: 'English', match: (l) => !!l && l.startsWith('en-'),
     subs: {
-      'en-US': { label: '美国',   locales: ['en-US'] },
-      'en-GB': { label: '英国',   locales: ['en-GB'] },
-      'en-AU': { label: '澳洲',   locales: ['en-AU'] },
+      'en-US': { label: '美国', locales: ['en-US'] },
+      'en-GB': { label: '英国', locales: ['en-GB'] },
+      'en-AU': { label: '澳洲', locales: ['en-AU'] },
       'en-CA': { label: '加拿大', locales: ['en-CA'] },
-      'en-IN': { label: '印度',   locales: ['en-IN'] },
-    } },
+      'en-IN': { label: '印度', locales: ['en-IN'] },
+    }
+  },
   { id: 'ja', label: '日本語', match: (l) => l === 'ja-JP', subs: {} },
   { id: 'ko', label: '한국어', match: (l) => l === 'ko-KR', subs: {} },
-  { id: 'fr', label: 'Français', match: (l) => !!l && l.startsWith('fr-'),
+  {
+    id: 'fr', label: 'Français', match: (l) => !!l && l.startsWith('fr-'),
     subs: {
-      'fr-FR': { label: '法国',   locales: ['fr-FR'] },
+      'fr-FR': { label: '法国', locales: ['fr-FR'] },
       'fr-CA': { label: '加拿大', locales: ['fr-CA'] },
-      'fr-CH': { label: '瑞士',   locales: ['fr-CH'] },
-    } },
-  { id: 'de', label: 'Deutsch', match: (l) => !!l && l.startsWith('de-'),
+      'fr-CH': { label: '瑞士', locales: ['fr-CH'] },
+    }
+  },
+  {
+    id: 'de', label: 'Deutsch', match: (l) => !!l && l.startsWith('de-'),
     subs: {
-      'de-DE': { label: '德国',   locales: ['de-DE'] },
+      'de-DE': { label: '德国', locales: ['de-DE'] },
       'de-AT': { label: '奥地利', locales: ['de-AT'] },
-      'de-CH': { label: '瑞士',   locales: ['de-CH'] },
-    } },
-  { id: 'es', label: 'Español', match: (l) => !!l && l.startsWith('es-'),
+      'de-CH': { label: '瑞士', locales: ['de-CH'] },
+    }
+  },
+  {
+    id: 'es', label: 'Español', match: (l) => !!l && l.startsWith('es-'),
     subs: {
       'es-ES': { label: '西班牙', locales: ['es-ES'] },
       'es-MX': { label: '墨西哥', locales: ['es-MX'] },
-    } },
-  { id: 'pt', label: 'Português', match: (l) => !!l && l.startsWith('pt-'),
+    }
+  },
+  {
+    id: 'pt', label: 'Português', match: (l) => !!l && l.startsWith('pt-'),
     subs: {
-      'pt-BR': { label: '巴西',   locales: ['pt-BR'] },
+      'pt-BR': { label: '巴西', locales: ['pt-BR'] },
       'pt-PT': { label: '葡萄牙', locales: ['pt-PT'] },
-    } },
+    }
+  },
   { id: 'it', label: 'Italiano', match: (l) => l === 'it-IT', subs: {} },
   { id: 'ru', label: 'Русский', match: (l) => l === 'ru-RU', subs: {} },
-  { id: 'ar', label: 'العربية', match: (l) => !!l && l.startsWith('ar-'),
+  {
+    id: 'ar', label: 'العربية', match: (l) => !!l && l.startsWith('ar-'),
     subs: {
-      'ar-SA': { label: '沙特',     locales: ['ar-SA'] },
-      'ar-EG': { label: '埃及',     locales: ['ar-EG'] },
-      'ar-AE': { label: '阿联酋',   locales: ['ar-AE'] },
+      'ar-SA': { label: '沙特', locales: ['ar-SA'] },
+      'ar-EG': { label: '埃及', locales: ['ar-EG'] },
+      'ar-AE': { label: '阿联酋', locales: ['ar-AE'] },
       'ar-DZ': { label: '阿尔及利亚', locales: ['ar-DZ'] },
-      'ar-IQ': { label: '伊拉克',   locales: ['ar-IQ'] },
-      'ar-KW': { label: '科威特',   locales: ['ar-KW'] },
-      'ar-MA': { label: '摩洛哥',   locales: ['ar-MA'] },
-      'ar-QA': { label: '卡塔尔',   locales: ['ar-QA'] },
-      'ar-SY': { label: '叙利亚',   locales: ['ar-SY'] },
-    } },
-  { id: 'other', label: '其他', match: (l) => {
-    if (!l) return true;
-    const known = ['zh-', 'yue-', 'wuu-', 'en-', 'ja-JP', 'ko-KR', 'fr-', 'de-', 'es-', 'pt-', 'it-IT', 'ru-RU', 'ar-'];
-    return !known.some(p => l.startsWith(p) || l === p);
-  }, subs: {} }
+      'ar-IQ': { label: '伊拉克', locales: ['ar-IQ'] },
+      'ar-KW': { label: '科威特', locales: ['ar-KW'] },
+      'ar-MA': { label: '摩洛哥', locales: ['ar-MA'] },
+      'ar-QA': { label: '卡塔尔', locales: ['ar-QA'] },
+      'ar-SY': { label: '叙利亚', locales: ['ar-SY'] },
+    }
+  },
+  {
+    id: 'other', label: '其他', match: (l) => {
+      if (!l) return true;
+      const known = ['zh-', 'yue-', 'wuu-', 'en-', 'ja-JP', 'ko-KR', 'fr-', 'de-', 'es-', 'pt-', 'it-IT', 'ru-RU', 'ar-'];
+      return !known.some(p => l.startsWith(p) || l === p);
+    }, subs: {}
+  }
 ];
 
 /** 判断 locale 是否被某个 sub 匹配 */
@@ -253,7 +321,7 @@ function showToast(message: string, type: "success" | "error" | "info" | "warnin
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
   toast.innerText = message;
-  
+
   area.appendChild(toast);
   setTimeout(() => {
     toast.remove();
@@ -264,16 +332,16 @@ function showToast(message: string, type: "success" | "error" | "info" | "warnin
 export function parseAnnotations(annotatedText: string): { cleanText: string, annotations: any[] } {
   let cleanText = "";
   const annotations: any[] = [];
-  
+
   let i = 0;
   while (i < annotatedText.length) {
     const char = annotatedText[i];
-    
+
     if (char === "[") {
       const closeIdx = annotatedText.indexOf("]", i);
       if (closeIdx !== -1) {
         const tagContent = annotatedText.slice(i + 1, closeIdx).trim();
-        
+
         if (tagContent.startsWith("break:")) {
           const duration = tagContent.replace("break:", "");
           annotations.push({
@@ -295,11 +363,11 @@ export function parseAnnotations(annotatedText: string): { cleanText: string, an
         continue;
       }
     }
-    
+
     cleanText += char;
     i++;
   }
-  
+
   return { cleanText, annotations };
 }
 
@@ -821,6 +889,99 @@ async function showUpdateDialog({ currentVersion, latestVersion, downloadUrl }: 
   }
 }
 
+/**
+ * 复制文本到系统剪贴板（UXP / Web Clipboard）
+ */
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (uxp && (uxp as any).clipboard && typeof (uxp as any).clipboard.setContent === 'function') {
+      await (uxp as any).clipboard.setContent({ 'text/plain': text });
+      return true;
+    }
+    if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) {
+    console.warn('[Momo] 复制剪贴板失败:', err);
+  }
+  return false;
+}
+
+let _aboutDialogEventsBound = false;
+
+/**
+ * 弹出「官方 QQ 交流群二维码」独立对话框 (纯图展示)
+ */
+async function showQrcodeModalDialog() {
+  const qrcodeDialog = $("qrcodeModalDialog") as any;
+  if (!qrcodeDialog) return;
+
+  try {
+    await qrcodeDialog.uxpShowModal({
+      title: "QQ 交流群二维码",
+      resize: "none",
+      size: { width: 360, height: 400 }
+    });
+  } catch (e) {
+    console.warn("打开二维码弹窗异常:", e);
+  }
+}
+
+/**
+ * 弹出「关于 & 交流反馈」对话框 (UXP 原生 Modal，标题栏由 uxpShowModal 渲染)
+ */
+async function showAboutDialog() {
+  const dialog = $("aboutDialog") as any;
+  if (!dialog) return;
+
+  const verEl = $("aboutAppVersion");
+  if (verEl && typeof __APP_VERSION__ !== 'undefined') {
+    verEl.textContent = `v${__APP_VERSION__}`;
+  }
+
+  if (!_aboutDialogEventsBound) {
+    _aboutDialogEventsBound = true;
+
+    $("aboutOfficialSiteLink")?.addEventListener("click", () => {
+      openExternalUrl("https://momovoicesub.sxrec.com/", "项目官网主页");
+    });
+
+    $("aboutGithubRepoLink")?.addEventListener("click", () => {
+      openExternalUrl("https://github.com/hcllmsx/momovoicesub", "GitHub 开源仓库页面");
+    });
+
+    $("aboutCopyQqBtn")?.addEventListener("click", async () => {
+      const qqNumber = "967672306";
+      const ok = await copyTextToClipboard(qqNumber);
+      if (ok) {
+        showToast(`QQ群号已复制到剪贴板: ${qqNumber}`, "success");
+      } else {
+        showToast(`官方QQ群号: ${qqNumber}`, "info");
+      }
+    });
+
+    const qrcodeWrap = $("aboutQrcodeWrap");
+    qrcodeWrap?.addEventListener("click", async () => {
+      try {
+        dialog.close();
+      } catch (_) { }
+      await showQrcodeModalDialog();
+      showAboutDialog();
+    });
+  }
+
+  try {
+    await dialog.uxpShowModal({
+      title: "关于 & 交流反馈",
+      resize: "none",
+      size: { width: 480, height: 320 }
+    });
+  } catch (e) {
+    console.warn("打开关于弹窗异常:", e);
+  }
+}
+
 function renderUpdateStatus() {
   const el = document.getElementById('updateStatus');
   const verNumEl = document.querySelector('#appVersion .app-version-num');
@@ -864,54 +1025,61 @@ function renderUpdateStatus() {
 async function initPlugin() {
   try {
     // 设置页底部版本号显示（构建时从 VERSION 文件注入）
-    // 「momoVoicesub」为指向 GitHub 仓库的超链接，点击调 shell.openExternal 打开浏览器
+    // 「momoVoicesub」为指向官网主页的超链接，点击调 shell.openExternal 打开浏览器
     const appVersionEl = $("appVersion");
     if (appVersionEl) {
       appVersionEl.innerHTML = `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） <span class="app-version-num">v${__APP_VERSION__}</span>`;
       const linkEl = $("appVersionLink");
       if (linkEl) {
-        linkEl.addEventListener("click", async () => {
-          if (uxpShell && typeof (uxpShell as any).openExternal === "function") {
-            const err = await (uxpShell as any).openExternal(
-              "https://github.com/hcllmsx/momovoicesub",
-              "默默配音助手将打开 GitHub 开源仓库页面"
-            );
-            if (err && String(err).length > 0) {
-              showToast(`打开链接失败：${err}`, "error");
-            }
-          } else {
-            showToast("当前运行时不支持打开外部链接", "error");
-          }
+        linkEl.addEventListener("click", () => {
+          openExternalUrl("https://momovoicesub.sxrec.com/", "项目官网主页");
         });
       }
     }
 
+    // 绑定关于弹窗入口（左下角操作栏按钮与设置页底部链接）
+    $("openAboutLink")?.addEventListener("click", () => {
+      showAboutDialog();
+    });
+    document.querySelectorAll(".bar-about-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        showAboutDialog();
+      });
+    });
+
     const settings = await settingsStore.load();
     state.voices = settings.voices || [];
     state.favoriteVoices = settings.favoriteVoices || [];
-    
+
+    localProvider = new LocalTtsProvider({
+      getSettings: () => settingsStore.load()
+    });
+
     ttsProvider = new DelegatingTtsProvider({
       azureProvider: new AzureTtsProvider({
         getSettings: () => settingsStore.load(),
         getAzureKey: () => settingsStore.getAzureKey()
       }),
       cloudProvider: new CloudTtsProvider({ cloudClient, cloudStore }),
+      localProvider,
       cloudStore,
       getAzureKey: () => settingsStore.getAzureKey(),
-      isAzureKeyDisabled: () => settingsStore.load().then(s => s.azureKeyDisabled === true)
+      getActiveChannel: () => settingsStore.load().then(s => s.activeChannel || ''),
+      getSettings: () => settingsStore.load()
     });
+
+    // 初始化本地设置面板表单与通道按钮
+    loadLocalSettingsToForm();
+    await updateChannelEnableButtons();
+    if (isLocalChannelActive()) {
+      await syncLocalVoices();
+    }
+    bindLocalTtsEvents();
 
     const rememberKeyCheckbox = $("settingRememberKey") as any;
     if (rememberKeyCheckbox) {
       rememberKeyCheckbox.checked = settings.rememberKey;
     }
-
-    // 临时禁用自填 Key 的勾选状态
-    const azureKeyDisabledCheckbox = $("settingAzureKeyDisabled") as any;
-    if (azureKeyDisabledCheckbox) {
-      azureKeyDisabledCheckbox.checked = settings.azureKeyDisabled === true;
-    }
-    updateApiKeyPanelDisabledState();
 
     // 若已有保存的 key，输入框显示占位符（不回填明文，避免误清空与安全问题）
     const keyInput = $("settingAzureKey") as any;
@@ -951,7 +1119,7 @@ async function initPlugin() {
     setInterval(syncWithPremiere, 3000);
 
     await updateVoiceTriggers();
-  if (state.currentTab === 'voices') renderVoicesPage();
+    if (state.currentTab === 'voices') renderVoicesPage();
 
     // 首次安装 / 音色列表为空时，自动从公开接口获取（不阻塞初始化）
     if (!state.voices || state.voices.length === 0) {
@@ -1009,7 +1177,7 @@ async function sendStartupHeartbeat() {
       if (cloudState && cloudState.isLoggedIn) {
         mode = 'cloud';
       }
-    } catch (_) {}
+    } catch (_) { }
 
     if (mode === 'unconfigured') {
       const s = await settingsStore.load();
@@ -1087,7 +1255,7 @@ async function syncWithPremiere() {
   if (projectChanged || sequenceChanged || state.audioTracks.length !== summary.audioTracks.length || state.captionTracks.length !== summary.captionTracks.length) {
     state.audioTracks = summary.audioTracks;
     state.captionTracks = summary.captionTracks;
-    
+
     updateTrackDropdowns();
 
     if (state.captionTracks.length > 0 && (sequenceChanged || state.activeCaptionTrackIndex === -2)) {
@@ -1201,13 +1369,13 @@ async function manualRefresh() {
       // 确认该轨道仍然存在
       const stillExists = state.captionTracks.some(t => t.index === trackIdx);
       if (stillExists) {
-const items = await premiereAdapter.loadSubtitlesFromTrack(trackIdx, state.fps);
-// 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
-mergeSubtitleAnnotations(state.subtitleItems, items);
-state.subtitleItems = items;
-renderSubtitleList();
-const textCount = items.filter(i => i.text && i.text.trim()).length;
-showToast(`已刷新：${items.length} 条字幕（含 ${textCount} 条文字）`, "success");
+        const items = await premiereAdapter.loadSubtitlesFromTrack(trackIdx, state.fps);
+        // 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
+        mergeSubtitleAnnotations(state.subtitleItems, items);
+        state.subtitleItems = items;
+        renderSubtitleList();
+        const textCount = items.filter(i => i.text && i.text.trim()).length;
+        showToast(`已刷新：${items.length} 条字幕（含 ${textCount} 条文字）`, "success");
       } else {
         // 原选中的轨道已不存在，清空列表
         state.activeCaptionTrackIndex = -1;
@@ -1230,25 +1398,25 @@ showToast(`已刷新：${items.length} 条字幕（含 ${textCount} 条文字）
 async function autoLoadSubtitleTrack(trackIndex: number) {
   state.activeCaptionTrackIndex = trackIndex;
   updateImportSrtBtnVisibility();
-  
+
   const dropdown = $("subtitleTrackDropdown") as any;
   if (dropdown) {
     setPickerValue(dropdown, String(trackIndex));
   }
 
   try {
-// 保存项目，确保读取 .prproj 时拿到最新内容（含手动编辑、剃刀分割等操作）
-try {
-  await premiereAdapter.saveProject();
-} catch (saveErr) {
-  console.warn("[Momo] autoLoadSubtitleTrack: 保存项目失败，仍尝试读取:", saveErr);
-}
-const items = await premiereAdapter.loadSubtitlesFromTrack(trackIndex, state.fps);
-// 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
-mergeSubtitleAnnotations(state.subtitleItems, items);
-state.subtitleItems = items;
-renderSubtitleList();
-// 根据是否读到字幕文字，给出不同的提示
+    // 保存项目，确保读取 .prproj 时拿到最新内容（含手动编辑、剃刀分割等操作）
+    try {
+      await premiereAdapter.saveProject();
+    } catch (saveErr) {
+      console.warn("[Momo] autoLoadSubtitleTrack: 保存项目失败，仍尝试读取:", saveErr);
+    }
+    const items = await premiereAdapter.loadSubtitlesFromTrack(trackIndex, state.fps);
+    // 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
+    mergeSubtitleAnnotations(state.subtitleItems, items);
+    state.subtitleItems = items;
+    renderSubtitleList();
+    // 根据是否读到字幕文字，给出不同的提示
     if (items.length > 0) {
       const textCount = items.filter(i => i.text && i.text.trim()).length;
       if (textCount === 0) {
@@ -1312,6 +1480,9 @@ interface VoicePageState {
   filterGender: string;
   filterVoiceType: string;
   showFavoritesOnly: boolean;
+  filterLocalLang: string;
+  filterLocalAvatar: string;
+  filterLocalEmotion: string;
   returnTab: string;
   built: boolean;
   loading: boolean;
@@ -1325,15 +1496,61 @@ const voicePage: VoicePageState = {
   filterGender: 'all',
   filterVoiceType: 'all',
   showFavoritesOnly: false,
+  filterLocalLang: 'all',
+  filterLocalAvatar: 'all',
+  filterLocalEmotion: 'all',
   returnTab: 'subtitles',
   built: false,
   loading: false,
   loadError: '',
 };
 
+function getChannelVoiceList(): VoiceInfo[] {
+  if (isLocalChannelActive()) {
+    return state.localVoices || [];
+  }
+  return state.voices || [];
+}
+
+async function syncLocalVoices(): Promise<VoiceInfo[]> {
+  try {
+    if (!localProvider) return [];
+    const list = await localProvider.listVoices();
+    state.localVoices = list || [];
+    return state.localVoices;
+  } catch (_) {
+    state.localVoices = [];
+    return [];
+  }
+}
+
+function getLocalLanguages(): string[] {
+  const langSet = new Set<string>();
+  for (const v of getChannelVoiceList()) {
+    const l = ((v as any).promptLang || v.locale || 'zh').toLowerCase();
+    if (l) {
+      const norm = l.startsWith('zh') ? 'zh' : (l.startsWith('en') ? 'en' : (l.startsWith('ja') ? 'ja' : (l.startsWith('ko') ? 'ko' : (l.startsWith('yue') ? 'yue' : l))));
+      if (PROMPT_LANG_MAP[norm]) {
+        langSet.add(norm);
+      }
+    }
+  }
+  return Array.from(langSet);
+}
+
+function getLocalEmotions(): string[] {
+  const emotions = new Set<string>();
+  for (const v of getChannelVoiceList()) {
+    const em = ((v as any).emotion || '').trim();
+    if (em) emotions.add(em);
+  }
+  return Array.from(emotions);
+}
+
 function getLocaleGroups() {
+  const voices = getChannelVoiceList();
   return LOCALE_GROUPS.map(g => {
-    const count = state.voices.filter(v => g.match(v.locale)).length;
+    const count = voices.filter(v => g.match(v.locale)).length;
     return { ...g, count };
   }).filter(g => g.count > 0 || g.id === 'all');
 }
@@ -1342,9 +1559,10 @@ function getActiveSubLocales(): [string, { label: string; count: number }][] {
   const group = LOCALE_GROUPS.find(g => g.id === voicePage.filterLocaleGroup);
   if (!group || !Object.keys(group.subs).length) return [];
 
+  const voices = getChannelVoiceList();
   const result: [string, { label: string; count: number }][] = [];
   for (const [key, subDef] of Object.entries(group.subs)) {
-    const count = state.voices.filter(v => group.match(v.locale) && subMatchesLocale(subDef, v.locale)).length;
+    const count = voices.filter(v => group.match(v.locale) && subMatchesLocale(subDef, v.locale)).length;
     result.push([key, { label: subDef.label, count }]);
   }
 
@@ -1353,19 +1571,40 @@ function getActiveSubLocales(): [string, { label: string; count: number }][] {
   for (const subDef of Object.values(group.subs)) {
     if (subDef.locales) subDef.locales.forEach(l => coveredLocales.add(l));
   }
-  const uncovered = state.voices
+  const uncovered = voices
     .filter(v => group.match(v.locale) && !coveredLocales.has(v.locale))
     .map(v => v.locale);
   const uniqUncovered = Array.from(new Set(uncovered));
   for (const loc of uniqUncovered) {
-    const count = state.voices.filter(v => v.locale === loc).length;
+    const count = voices.filter(v => v.locale === loc).length;
     result.push([loc, { label: localeLabel(loc), count }]);
   }
   return result;
 }
 
 function filteredVoices(): VoiceInfo[] {
-  const result = state.voices.filter((v) => {
+  const currentVoices = getChannelVoiceList();
+  const isLocal = isLocalChannelActive();
+  if (isLocal) {
+    return currentVoices.filter((v: any) => {
+      const vLang = (v.promptLang || v.locale || 'zh').toLowerCase();
+      const normLang = vLang.startsWith('zh') ? 'zh' : (vLang.startsWith('en') ? 'en' : (vLang.startsWith('ja') ? 'ja' : (vLang.startsWith('ko') ? 'ko' : (vLang.startsWith('yue') ? 'yue' : vLang))));
+      if (voicePage.filterLocalLang !== 'all' && normLang !== voicePage.filterLocalLang) return false;
+      const vAvatar = v.avatarType || (v.gender === 'Male' ? 'man' : 'woman');
+      if (voicePage.filterLocalAvatar !== 'all' && vAvatar !== voicePage.filterLocalAvatar) return false;
+      if (voicePage.filterLocalEmotion !== 'all' && (v.emotion || '通用') !== voicePage.filterLocalEmotion) return false;
+      if (!voicePage.filterText) return true;
+      const q = voicePage.filterText.toLowerCase();
+      const name = cleanVoiceName(v.localName || v.displayName || v.shortName || v.name || '').toLowerCase();
+      const roleTag = ((AVATAR_CONFIG[vAvatar]?.label) || '').toLowerCase();
+      const emotionTag = (v.emotion || '').toLowerCase();
+      const modelTag = (v.modelName || v.model || v.modelVersion || '').toLowerCase();
+      const langTag = (PROMPT_LANG_MAP[normLang] || normLang).toLowerCase();
+      return name.includes(q) || (v.shortName || '').toLowerCase().includes(q) || roleTag.includes(q) || emotionTag.includes(q) || modelTag.includes(q) || langTag.includes(q);
+    });
+  }
+
+  const result = currentVoices.filter((v) => {
     if (voicePage.filterText) {
       const q = voicePage.filterText.toLowerCase();
       const name = cleanVoiceName(v.localName || v.displayName || v.shortName).toLowerCase();
@@ -1409,9 +1648,37 @@ function filteredVoices(): VoiceInfo[] {
 function renderVoiceCard(voice: VoiceInfo): HTMLElement {
   const isSelected = voice.shortName === state.selectedVoice?.shortName;
   const isFav = state.favoriteVoices.includes(voice.shortName);
-  const avatarSrc = AVATAR_MAP[voice.gender] || AVATAR_MAP.Female;
+  const isLocal = isLocalChannelActive() || (voice as any).channel === 'local' || (voice as any).voiceType === 'LocalTTS';
+  const avatarSrc = getVoiceAvatar(voice);
   const styleTags = (voice.styles || []).slice(0, 2);
   const extraStyles = (voice.styles || []).length - 2;
+
+  let tagsHtml = '';
+  if (isLocal) {
+    const vAvatar = (voice as any).avatarType || (voice.gender === 'Male' ? 'man' : 'woman');
+    const roleLabel = AVATAR_CONFIG[vAvatar]?.label || (voice.gender === 'Male' ? '男声' : '女声');
+    const emotionLabel = ((voice as any).emotion || '').trim();
+    let modelLabel = (voice as any).modelName || (voice as any).model || (voice as any).modelVersion || '';
+    if (modelLabel.includes('通用底模')) {
+      modelLabel = '通用底模';
+    }
+    const vLang = ((voice as any).promptLang || voice.locale || 'zh').toLowerCase();
+    const normLang = vLang.startsWith('zh') ? 'zh' : (vLang.startsWith('en') ? 'en' : (vLang.startsWith('ja') ? 'ja' : (vLang.startsWith('ko') ? 'ko' : (vLang.startsWith('yue') ? 'yue' : vLang))));
+    const langLabel = PROMPT_LANG_MAP[normLang] || normLang.toUpperCase();
+    tagsHtml = `
+      <span class="vp-card-tag">${escapeHtml(langLabel)}</span>
+      <span class="vp-card-tag">${escapeHtml(roleLabel)}</span>
+      ${emotionLabel && emotionLabel !== '通用' ? `<span class="vp-card-tag style-tag">${escapeHtml(emotionLabel)}</span>` : ''}
+      ${modelLabel ? `<span class="vp-card-tag">${escapeHtml(modelLabel)}</span>` : ''}
+    `;
+  } else {
+    tagsHtml = `
+      <span class="vp-card-tag">${localeLabel(voice.locale) || voice.locale}</span>
+      <span class="vp-card-tag">${voice.gender === 'Female' ? '女声' : voice.gender === 'Male' ? '男声' : voice.gender || ''}</span>
+      ${styleTags.map(s => `<span class="vp-card-tag style-tag">${styleNameCn(s)}</span>`).join('')}
+      ${extraStyles > 0 ? `<span class="vp-card-tag">+${extraStyles}</span>` : ''}
+    `;
+  }
 
   const card = document.createElement('div');
   card.className = `vp-card${isSelected ? ' selected' : ''}`;
@@ -1422,15 +1689,12 @@ function renderVoiceCard(voice: VoiceInfo): HTMLElement {
     <div class="vp-card-info">
       <div class="vp-card-name">${cleanVoiceName(voice.localName || voice.displayName || voice.shortName)}</div>
       <div class="vp-card-meta">
-        <span class="vp-card-tag">${localeLabel(voice.locale) || voice.locale}</span>
-        <span class="vp-card-tag">${voice.gender === 'Female' ? '女声' : voice.gender === 'Male' ? '男声' : voice.gender || ''}</span>
-        ${styleTags.map(s => `<span class="vp-card-tag style-tag">${styleNameCn(s)}</span>`).join('')}
-        ${extraStyles > 0 ? `<span class="vp-card-tag">+${extraStyles}</span>` : ''}
+        ${tagsHtml}
       </div>
     </div>
     <div class="vp-card-actions">
       <div class="vp-card-preview-btn" role="button" tabindex="0" title="试听">▶</div>
-      <div class="vp-card-fav-btn${isFav ? ' favorited' : ''}" role="button" tabindex="0" title="${isFav ? '取消收藏' : '收藏'}">${isFav ? '❤' : '♡'}</div>
+      ${!isLocal ? `<div class="vp-card-fav-btn${isFav ? ' favorited' : ''}" role="button" tabindex="0" title="${isFav ? '取消收藏' : '收藏'}">${isFav ? '❤' : '♡'}</div>` : ''}
     </div>
   `;
 
@@ -1459,13 +1723,17 @@ function renderVoiceGrid() {
   const grid = $('voicesGrid');
   if (!grid) return;
   const filtered = filteredVoices();
+  const currentVoices = getChannelVoiceList();
+  const isLocal = isLocalChannelActive();
   grid.innerHTML = '';
 
   if (!filtered.length) {
     const empty = document.createElement('div');
     empty.className = 'vp-grid-empty';
-    if (!state.voices || state.voices.length === 0) {
-      if (voicePage.loading) {
+    if (!currentVoices || currentVoices.length === 0) {
+      if (isLocal) {
+        empty.textContent = '暂无本地音色，请前往「设置 -> 本地部署」添加或从服务器同步音色';
+      } else if (voicePage.loading) {
         empty.className = 'vp-grid-loading';
         empty.textContent = '正在获取音色列表…';
       } else if (voicePage.loadError) {
@@ -1473,6 +1741,8 @@ function renderVoiceGrid() {
       } else {
         empty.textContent = '暂无音色数据，请点「刷新音色」获取';
       }
+    } else if (isLocal) {
+      empty.textContent = '未找到匹配的本地音色';
     } else if (voicePage.showFavoritesOnly) {
       empty.textContent = '暂无收藏的音色';
     } else {
@@ -1489,6 +1759,41 @@ function renderVoiceGrid() {
 }
 
 function renderFilterBarHTML(): string {
+  const isLocal = isLocalChannelActive();
+  if (isLocal) {
+    const langs = getLocalLanguages();
+    const emotions = getLocalEmotions();
+    const avatarTypes = Object.entries(AVATAR_CONFIG).map(([key, cfg]) => ({
+      id: key,
+      label: cfg.label
+    }));
+    return `
+      <sp-textfield class="vp-filter-search" type="search" placeholder="搜索音色名、语种、模型、形象或情绪..." value="${escapeHtml(voicePage.filterText)}"></sp-textfield>
+      <div class="vp-filter-rows">
+        <div class="vp-filter-group">
+          <span class="vp-filter-label">语种</span>
+          <span class="vp-tag${voicePage.filterLocalLang === 'all' ? ' active' : ''}" data-local-lang="all">全部</span>
+          ${langs.map(l => `<span class="vp-tag${voicePage.filterLocalLang === l ? ' active' : ''}" data-local-lang="${l}">${PROMPT_LANG_MAP[l] || l.toUpperCase()}</span>`).join('')}
+        </div>
+      </div>
+      <div class="vp-filter-rows">
+        <div class="vp-filter-group">
+          <span class="vp-filter-label">形象</span>
+          <span class="vp-tag${voicePage.filterLocalAvatar === 'all' ? ' active' : ''}" data-local-avatar="all">全部</span>
+          ${avatarTypes.map(a => `<span class="vp-tag${voicePage.filterLocalAvatar === a.id ? ' active' : ''}" data-local-avatar="${a.id}">${a.label}</span>`).join('')}
+        </div>
+      </div>
+      ${emotions.length > 0 ? `
+      <div class="vp-filter-rows vp-filter-rows-spaced">
+        <div class="vp-filter-group">
+          <span class="vp-filter-label">情绪</span>
+          <span class="vp-tag${voicePage.filterLocalEmotion === 'all' ? ' active' : ''}" data-local-emotion="all">全部</span>
+          ${emotions.map(e => `<span class="vp-tag${voicePage.filterLocalEmotion === e ? ' active' : ''}" data-local-emotion="${escapeHtml(e)}">${escapeHtml(e)}</span>`).join('')}
+        </div>
+      </div>` : ''}
+    `;
+  }
+
   const groups = getLocaleGroups();
 
   const localeHTML = groups.map(g =>
@@ -1503,15 +1808,15 @@ function renderFilterBarHTML(): string {
         <span class="vp-filter-label">子类</span>
         <span class="vp-tag${voicePage.filterLocaleSub === null ? ' active' : ''}" data-locale-sub="">全部</span>
         ${getActiveSubLocales().map(([key, info]) =>
-          `<span class="vp-tag${voicePage.filterLocaleSub === key ? ' active' : ''}" data-locale-sub="${key}">${info.label} (${info.count})</span>`
-        ).join('')}
+      `<span class="vp-tag${voicePage.filterLocaleSub === key ? ' active' : ''}" data-locale-sub="${key}">${info.label} (${info.count})</span>`
+    ).join('')}
       </div>
     </div>`;
   }
 
-return `
-<sp-textfield class="vp-filter-search" type="search" placeholder="搜索音色名 / 语种..." value="${voicePage.filterText}"></sp-textfield>
-<div class="vp-filter-rows">
+  return `
+    <sp-textfield class="vp-filter-search" type="search" placeholder="搜索音色名 / 语种..." value="${escapeHtml(voicePage.filterText)}"></sp-textfield>
+    <div class="vp-filter-rows">
       <div class="vp-filter-group">
         <span class="vp-filter-label">语种</span>
         ${localeHTML}
@@ -1543,6 +1848,37 @@ function bindFilterEvents() {
   if (!container) return;
   const search = container.querySelector('.vp-filter-search') as any;
   if (search) search.addEventListener('input', () => { voicePage.filterText = search.value || ''; renderVoiceGrid(); });
+
+  const isLocal = isLocalChannelActive();
+  if (isLocal) {
+    container.querySelectorAll('[data-local-lang]').forEach(el => {
+      el.addEventListener('click', () => {
+        container.querySelectorAll('[data-local-lang]').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+        voicePage.filterLocalLang = (el as HTMLElement).dataset.localLang || 'all';
+        renderVoiceGrid();
+      });
+    });
+
+    container.querySelectorAll('[data-local-avatar]').forEach(el => {
+      el.addEventListener('click', () => {
+        container.querySelectorAll('[data-local-avatar]').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+        voicePage.filterLocalAvatar = (el as HTMLElement).dataset.localAvatar || 'all';
+        renderVoiceGrid();
+      });
+    });
+
+    container.querySelectorAll('[data-local-emotion]').forEach(el => {
+      el.addEventListener('click', () => {
+        container.querySelectorAll('[data-local-emotion]').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+        voicePage.filterLocalEmotion = (el as HTMLElement).dataset.localEmotion || 'all';
+        renderVoiceGrid();
+      });
+    });
+    return;
+  }
 
   container.querySelectorAll('[data-locale-group]').forEach(el => {
     el.addEventListener('click', () => {
@@ -1616,7 +1952,7 @@ function bindVoiceHintDismiss(container: HTMLElement) {
   const hint = container.querySelector("#voiceCompatHint");
   if (!hint) return;
   hint.querySelector(".vp-hint-close")?.addEventListener("click", () => {
-    try { localStorage.setItem(VOICE_HINT_STORAGE_KEY, "1"); } catch (_) {}
+    try { localStorage.setItem(VOICE_HINT_STORAGE_KEY, "1"); } catch (_) { }
     hint.remove();
   });
 }
@@ -1627,7 +1963,7 @@ function renderVoicesPage() {
   if (!container) return;
   if (!voicePage.built) {
     container.innerHTML = `
-      ${voiceHintDismissed() ? '' : VOICE_HINT_HTML}
+      ${isLocalChannelActive() || voiceHintDismissed() ? '' : VOICE_HINT_HTML}
       <div class="vp-filter-bar"></div>
       <div class="vp-grid" id="voicesGrid"></div>
     `;
@@ -1645,32 +1981,34 @@ function renderVoicesPage() {
 
 // ─── 渲染字幕/手动页的「当前音色 + 更换」触发行 ───
 async function updateVoiceTriggers() {
-  // 若当前未选中或选中音色已不在列表中，尝试从设置恢复上次选中的音色
-  if (state.voices.length > 0) {
+  const currentVoices = getChannelVoiceList();
+  if (currentVoices.length > 0) {
     const cur = state.selectedVoice;
-    if (!cur || !state.voices.some(v => v.shortName === cur.shortName)) {
+    if (!cur || !currentVoices.some(v => v.shortName === cur.shortName)) {
       // 优先从设置中恢复上次选中的音色
       try {
         const settings = await settingsStore.load();
-        const savedVoice = settings.defaultVoice;
+        const savedVoice = isLocalChannelActive() ? (settings.localTts as any)?.lastVoice : settings.defaultVoice;
         if (savedVoice) {
-          const found = state.voices.find(v => v.shortName === savedVoice);
+          const found = currentVoices.find(v => v.shortName === savedVoice);
           if (found) {
             state.selectedVoice = found;
             renderStylesAndRoles(found);
           } else {
-            state.selectedVoice = state.voices[0];
-            renderStylesAndRoles(state.voices[0]);
+            state.selectedVoice = currentVoices[0];
+            renderStylesAndRoles(currentVoices[0]);
           }
         } else {
-          state.selectedVoice = state.voices[0];
-          renderStylesAndRoles(state.voices[0]);
+          state.selectedVoice = currentVoices[0];
+          renderStylesAndRoles(currentVoices[0]);
         }
       } catch (_) {
-        state.selectedVoice = state.voices[0];
-        renderStylesAndRoles(state.voices[0]);
+        state.selectedVoice = currentVoices[0];
+        renderStylesAndRoles(currentVoices[0]);
       }
     }
+  } else {
+    state.selectedVoice = null;
   }
 
   // 容器前缀 → tab 名映射（容器 id 用 subtitle，但导航 tab 用 subtitles）
@@ -1680,9 +2018,18 @@ async function updateVoiceTriggers() {
     if (!container) continue;
     const voice = state.selectedVoice;
     const hasVoice = !!voice;
-    const avatar = hasVoice ? (AVATAR_MAP[voice.gender] || AVATAR_MAP.Female) : AVATAR_MAP.Female;
+    const avatar = hasVoice ? getVoiceAvatar(voice) : AVATAR_MAP.Female;
     const name = hasVoice ? cleanVoiceName(voice.localName || voice.displayName || voice.shortName) : '请选择音色';
-    const locale = hasVoice ? (localeLabel(voice.locale) || voice.locale || '') : '';
+    let locale = '';
+    if (hasVoice) {
+      if (isLocalChannelActive() || (voice as any).channel === 'local' || (voice as any).voiceType === 'LocalTTS') {
+        const l = ((voice as any).promptLang || voice.locale || 'zh').toLowerCase();
+        const norm = l.startsWith('zh') ? 'zh' : (l.startsWith('en') ? 'en' : (l.startsWith('ja') ? 'ja' : (l.startsWith('ko') ? 'ko' : (l.startsWith('yue') ? 'yue' : l))));
+        locale = PROMPT_LANG_MAP[norm] || norm.toUpperCase();
+      } else {
+        locale = localeLabel(voice.locale) || voice.locale || '';
+      }
+    }
     container.innerHTML = `
       <img class="vt-avatar" src="${avatar}" alt="">
       <div class="vt-info">
@@ -1701,9 +2048,19 @@ function updateVoicePageStatus() {
   const label = $('voicePageCurrentLabel');
   if (!label) return;
   const voice = state.selectedVoice;
-  label.textContent = voice
-    ? `${cleanVoiceName(voice.localName || voice.displayName || voice.shortName)} · ${localeLabel(voice.locale) || voice.locale}`
-    : '未选择音色';
+  if (!voice) {
+    label.textContent = '未选择音色';
+    return;
+  }
+  let locTxt = '';
+  if (isLocalChannelActive() || (voice as any).channel === 'local' || (voice as any).voiceType === 'LocalTTS') {
+    const l = ((voice as any).promptLang || voice.locale || 'zh').toLowerCase();
+    const norm = l.startsWith('zh') ? 'zh' : (l.startsWith('en') ? 'en' : (l.startsWith('ja') ? 'ja' : (l.startsWith('ko') ? 'ko' : (l.startsWith('yue') ? 'yue' : l))));
+    locTxt = PROMPT_LANG_MAP[norm] || norm.toUpperCase();
+  } else {
+    locTxt = localeLabel(voice.locale) || voice.locale;
+  }
+  label.textContent = `${cleanVoiceName(voice.localName || voice.displayName || voice.shortName)} · ${locTxt}`;
 }
 
 /** 切换到指定 tab（封装导航逻辑，供音色页返回使用） */
@@ -1718,7 +2075,8 @@ async function openVoicePicker(fromTab: string) {
   switchToTab('voices');
 
   // 若已有音色数据，直接渲染即可
-  if (state.voices && state.voices.length > 0) {
+  const currentVoices = getChannelVoiceList();
+  if (currentVoices && currentVoices.length > 0) {
     renderVoicesPage();
     return;
   }
@@ -1728,9 +2086,13 @@ async function openVoicePicker(fromTab: string) {
   voicePage.loadError = '';
   renderVoicesPage(); // 先显示 "正在获取音色列表…"
   try {
-    const voices = await ttsProvider.listVoices();
-    await settingsStore.save({ voices });
-    state.voices = voices;
+    if (isLocalChannelActive()) {
+      await syncLocalVoices();
+    } else {
+      const voices = await ttsProvider.listVoices();
+      await settingsStore.save({ voices });
+      state.voices = voices;
+    }
     updateVoiceTriggers();
   } catch (err: any) {
     voicePage.loadError = err?.message || String(err);
@@ -1776,20 +2138,37 @@ async function selectVoice(voice: VoiceInfo, persist: boolean = true) {
   updateVoiceTriggers();
   if (!persist) return;
   // 持久化选中的音色，下次打开插件时恢复
-  // 只传 defaultVoice 字段，避免 load() 失败时用默认值覆盖文件中的其他数据
   try {
-    await settingsStore.save({ defaultVoice: voice.shortName });
+    if (isLocalChannelActive()) {
+      const cur = await settingsStore.load();
+      const localTts = { ...(cur.localTts || DEFAULT_LOCAL_TTS), lastVoice: voice.shortName };
+      await settingsStore.save({ localTts });
+    } else {
+      await settingsStore.save({ defaultVoice: voice.shortName });
+    }
   } catch (e) {
     console.error("[Momo] 保存选中音色失败:", e);
   }
 }
 
 function renderStylesAndRoles(voice: VoiceInfo) {
+  const isLocal = (voice as any)?.channel === 'local' || (voice as any)?.voiceType === 'LocalTTS';
   const renderPanel = (prefix: "subtitle" | "manual") => {
     const styleTagsWrap = $(`${prefix}StyleTags`);
+    const styledegreeArea = $(`${prefix}StyledegreeArea`);
+    const roleArea = $(`${prefix}RoleArea`);
+    const roleTagsWrap = $(`${prefix}RoleTags`);
+
+    if (isLocal) {
+      if (styleTagsWrap) styleTagsWrap.innerHTML = '<div class="tag-item active" data-style="">通用</div>';
+      if (styledegreeArea) styledegreeArea.classList.add("hidden");
+      if (roleArea) roleArea.classList.add("hidden");
+      return;
+    }
+
     if (styleTagsWrap) {
       let html = '<div class="tag-item active" data-style="">通用</div>';
-      for (const style of voice.styles) {
+      for (const style of (voice.styles || [])) {
         html += `<div class="tag-item" data-style="${style}">${styleNameCn(style)}</div>`;
       }
       styleTagsWrap.innerHTML = html;
@@ -1798,9 +2177,8 @@ function renderStylesAndRoles(voice: VoiceInfo) {
         tag.addEventListener("click", () => {
           styleTagsWrap.querySelectorAll(".tag-item").forEach(t => t.classList.remove("active"));
           tag.classList.add("active");
-          
+
           const isGeneral = tag.getAttribute("data-style") === "";
-          const styledegreeArea = $(`${prefix}StyledegreeArea`);
           if (styledegreeArea) {
             if (isGeneral) styledegreeArea.classList.add("hidden");
             else styledegreeArea.classList.remove("hidden");
@@ -1809,8 +2187,6 @@ function renderStylesAndRoles(voice: VoiceInfo) {
       });
     }
 
-    const roleArea = $(`${prefix}RoleArea`);
-    const roleTagsWrap = $(`${prefix}RoleTags`);
     if (roleArea && roleTagsWrap) {
       if (voice.roles && voice.roles.length > 0) {
         roleArea.classList.remove("hidden");
@@ -1843,7 +2219,20 @@ function renderStylesAndRoles(voice: VoiceInfo) {
 // （UXP 不支持 HTML5 <audio> 元素，故采用 shell.openPath 调用系统播放器）
 async function previewVoice(shortName: string) {
   try {
-    const voice = state.voices.find(v => v.shortName === shortName);
+    let voice = state.voices.find(v => v.shortName === shortName);
+    if (!voice) {
+      const s = await settingsStore.load();
+      const lv = (s.localTts?.voices || []).find((v: any) => v.id === shortName);
+      if (lv) {
+        voice = {
+          shortName: lv.id,
+          localName: lv.name,
+          displayName: lv.name,
+          gender: lv.gender || 'Female',
+          locale: promptLangToLocale(lv.promptLang)
+        } as any;
+      }
+    }
     if (!voice) return;
 
     if (!uxpShell || typeof uxpShell.openPath !== 'function') {
@@ -1851,29 +2240,32 @@ async function previewVoice(shortName: string) {
       return;
     }
 
-    // 找到试听按钮并标记 loading 状态
-    const btn = document.querySelector(`.vp-card[data-short-name="${shortName}"] .vp-card-preview-btn`) as HTMLElement | null;
+    // 找到试听按钮并标记 loading 状态（支持音色选择页和本地设置页）
+    const btn = (document.querySelector(`.vp-card[data-short-name="${shortName}"] .vp-card-preview-btn`)
+      || document.querySelector(`.local-voice-item[data-voice-id="${shortName}"] .local-preview-btn`)) as HTMLElement | null;
     if (btn) btn.classList.add('loading');
 
     const voiceName = cleanVoiceName(voice.localName || voice.displayName || voice.shortName);
     showToast(`正在准备「${voiceName}」的试听样本...`, "info");
 
+    const dataFolder = await uxp.storage.localFileSystem.getDataFolder();
+    let previewFolder;
+    try {
+      previewFolder = await dataFolder.getEntry('preview');
+    } catch (_) {
+      previewFolder = await dataFolder.createFolder('preview');
+    }
+
     const result = await ttsProvider.synthesizePreview({
       shortName,
       localName: voice.localName,
       displayName: voice.displayName,
-      locale: voice.locale
+      locale: voice.locale,
+      previewFolder
     });
 
     if (result && result.wavBuffer) {
       // 写入固定文件名（覆盖旧内容），路径固定 → openPath 权限只弹一次
-      const dataFolder = await uxp.storage.localFileSystem.getDataFolder();
-      let previewFolder;
-      try {
-        previewFolder = await dataFolder.getEntry('preview');
-      } catch (_) {
-        previewFolder = await dataFolder.createFolder('preview');
-      }
       const playFile = await previewFolder.createEntry('momo_preview.wav', { overwrite: true });
       await playFile.write(result.wavBuffer, { format: uxp.storage.formats.binary });
 
@@ -2134,7 +2526,7 @@ function renderPresetsGrid() {
       inputEl.setAttribute('placeholder', '预设名称');
       spanEl.replaceWith(inputEl);
       inputEl.focus();
-      try { inputEl.select(); } catch (_) {}
+      try { inputEl.select(); } catch (_) { }
 
       let committed = false;
       const commit = async (save: boolean) => {
@@ -2385,13 +2777,11 @@ $("saveSettingsBtn")?.addEventListener("click", async () => {
   const keyInput = $("settingAzureKey") as any;
   const rememberKeyCheckbox = $("settingRememberKey") as any;
   const regionInput = $("settingRegion") as any;
-  const azureKeyDisabledCheckbox = $("settingAzureKeyDisabled") as any;
 
   // 读取表单值
   const formSettings: any = {
     rememberKey: rememberKeyCheckbox.checked,
-    region: regionInput.value.trim(),
-    azureKeyDisabled: azureKeyDisabledCheckbox?.checked ?? false
+    region: regionInput.value.trim()
   };
 
   // 只有用户输入了新 key（非空、非占位符）才传 azureKey；
@@ -2409,10 +2799,7 @@ $("saveSettingsBtn")?.addEventListener("click", async () => {
   if (keyInput) {
     keyInput.value = saved.hasAzureKey ? "__SAVED_KEY_PLACEHOLDER__" : "";
   }
-  updateApiKeyPanelDisabledState();
-  const savedMsg = (azureKeyDisabledCheckbox?.checked)
-    ? '自填 Key 已禁用'
-    : (saved.hasAzureKey ? '设置已保存，密钥可用' : '设置已保存，但没有可用密钥');
+  const savedMsg = saved.hasAzureKey ? '设置已保存，密钥可用' : '设置已保存，但没有可用密钥';
   showToast(savedMsg, "success");
 });
 
@@ -2474,7 +2861,7 @@ $("testTtsConnection")?.addEventListener("click", async () => {
 
     state.voices = voices;
     updateVoiceTriggers();
-  if (state.currentTab === 'voices') renderVoicesPage();
+    if (state.currentTab === 'voices') renderVoicesPage();
 
     showToast(`连接测试成功！获取到 ${voices.length} 种音色`, "success");
 
@@ -2489,6 +2876,11 @@ $("testTtsConnection")?.addEventListener("click", async () => {
 // （有自填 key → Azure；有云端登录 → Cloud；都没有 → 公开 manifest 接口）
 const voicePageRefreshBtn = $("voicePageRefreshBtn") as any;
 voicePageRefreshBtn?.addEventListener("click", async () => {
+  if (isLocalChannelActive()) {
+    switchToTab('settings');
+    (document.querySelector('.auth-tab[data-auth-tab="local"]') as HTMLElement)?.click();
+    return;
+  }
   const originalText = voicePageRefreshBtn?.textContent;
   if (voicePageRefreshBtn) {
     voicePageRefreshBtn.setAttribute("disabled", "true");
@@ -2791,38 +3183,45 @@ async function refreshCloudAccount() {
 }
 
 /**
- * 根据已保存的 azureKeyDisabled 状态，切换自填 Key 面板控件的禁用样式。
- * 仅在初始化 / 保存后调用，故"保存后"才生效（与 DR 版一致）。
- */
-function updateApiKeyPanelDisabledState() {
-  const checkbox = $("settingAzureKeyDisabled") as any;
-  const disabled = Boolean(checkbox?.checked);
-  const panel = document.querySelector('.auth-panel[data-auth-panel="apikey"]');
-  if (panel) (panel as HTMLElement).classList.toggle('auth-panel-key-disabled', disabled);
-}
-
-/**
- * 根据认证状态自动切换"连接设置"的选项卡
+ * 根据当前 activeChannel 设置或认证状态自动切换"连接设置"的选项卡：
+ *   1. 显式设置 activeChannel: 'local' → 'local', 'cloud' → 'account', 'azure' → 'apikey'
+ *   2. 未显式设置时隐式推断：
+ *      a. 有自填 Azure Key → "自填 Key" (apikey)
+ *      b. 已登录云端 → "登录账号" (account)
+ *      c. 有 local 配置 → "本地部署" (local)
+ *      d. 默认 → "自填 Key" (apikey)
+ * 仅在用户切到设置页时触发，不干扰用户手动切换。
  */
 async function autoSelectAuthTab() {
   try {
     const settings = await settingsStore.load();
-    // 禁用自填 Key 时，优先切到登录账号面板
-    if (settings.azureKeyDisabled) {
-      const tabBtn = document.querySelector('.auth-tab[data-auth-tab="account"]');
-      if (tabBtn && !tabBtn.classList.contains('active')) (tabBtn as HTMLElement).click();
-      return;
+    const explicit = settings.activeChannel;
+    let targetTab = 'apikey';
+    if (explicit === 'local') {
+      targetTab = 'local';
+    } else if (explicit === 'cloud') {
+      targetTab = 'account';
+    } else if (explicit === 'azure') {
+      targetTab = 'apikey';
+    } else {
+      const hasAzureKey = Boolean(await settingsStore.getAzureKey());
+      if (hasAzureKey) {
+        targetTab = 'apikey';
+      } else {
+        const cloudState = await cloudGetState();
+        if (cloudState.isLoggedIn) {
+          targetTab = 'account';
+        } else if (settings.localTts?.baseUrl && Array.isArray(settings.localTts?.voices) && settings.localTts.voices.length > 0) {
+          targetTab = 'local';
+        } else {
+          targetTab = 'apikey';
+        }
+      }
     }
-    const hasAzureKey = Boolean(await settingsStore.getAzureKey());
-    if (hasAzureKey) {
-      const tabBtn = document.querySelector('.auth-tab[data-auth-tab="apikey"]');
-      if (tabBtn && !tabBtn.classList.contains('active')) (tabBtn as HTMLElement).click();
-      return;
-    }
-    const cloudState = await cloudGetState();
-    const targetTab = cloudState.isLoggedIn ? 'account' : 'apikey';
     const tabBtn = document.querySelector(`.auth-tab[data-auth-tab="${targetTab}"]`);
-    if (tabBtn && !tabBtn.classList.contains('active')) (tabBtn as HTMLElement).click();
+    if (tabBtn && !tabBtn.classList.contains('active')) {
+      (tabBtn as HTMLElement).click();
+    }
   } catch {
     // 查询失败时不干扰默认状态
   }
@@ -2838,6 +3237,10 @@ document.querySelectorAll('.auth-tab').forEach((tab) => {
     tab.classList.add('active');
     const panel = document.querySelector(`.auth-panel[data-auth-panel="${target}"]`);
     if (panel) panel.classList.add('active');
+    updateLocalHeaderStatus();
+    if (target === 'local') {
+      renderLocalVoicesList();
+    }
   });
 });
 
@@ -2887,11 +3290,11 @@ async function showLoginDialog() {
     submitBtn.addEventListener('click', handler);
   }
 
-await dialog.uxpShowModal({
-title: '登录 MoMoVoiceSub',
-resize: 'none',
-size: { width: 380, height: 360 }
-});
+  await dialog.uxpShowModal({
+    title: '登录 MoMoVoiceSub',
+    resize: 'none',
+    size: { width: 380, height: 360 }
+  });
 }
 
 // 打开登录弹窗按钮
@@ -2901,32 +3304,41 @@ $("openLoginPopup")?.addEventListener('click', () => {
 
 // 忘记密码 → 跳转官网
 $("loginForgot")?.addEventListener('click', (e: Event) => {
-e.preventDefault();
-openExternalUrl(WEB_PUBLIC_URL + '/login', '打开登录页面');
+  e.preventDefault();
+  openExternalUrl(WEB_PUBLIC_URL + '/login', '打开登录页面');
 });
 
 // 去官网注册
 $("openSignupWeb")?.addEventListener('click', (e: Event) => {
-e.preventDefault();
-openExternalUrl(WEB_PUBLIC_URL + '/login', '打开注册页面');
+  e.preventDefault();
+  openExternalUrl(WEB_PUBLIC_URL + '/login', '打开注册页面');
 });
 
 // 用户协议
 $("openTerms")?.addEventListener('click', (e: Event) => {
-e.preventDefault();
-openExternalUrl(WEB_PUBLIC_URL + '/terms', '打开用户协议');
+  e.preventDefault();
+  openExternalUrl(WEB_PUBLIC_URL + '/terms', '打开用户协议');
 });
 
 // 隐私政策
 $("openPrivacy")?.addEventListener('click', (e: Event) => {
-e.preventDefault();
-openExternalUrl(WEB_PUBLIC_URL + '/privacy', '打开隐私政策');
+  e.preventDefault();
+  openExternalUrl(WEB_PUBLIC_URL + '/privacy', '打开隐私政策');
 });
 
 // ─── 通用确认对话框 ───
 
 /** 显示确认对话框，返回用户是否点击了"确认" */
-async function showConfirmDialog(opts: { title?: string; message: string; detail?: string; confirmText?: string; danger?: boolean }): Promise<boolean> {
+async function showConfirmDialog(opts: {
+  title?: string;
+  message: string;
+  detail?: string;
+  confirmText?: string;
+  danger?: boolean;
+  width?: number;
+  height?: number;
+  hideCancel?: boolean;
+}): Promise<boolean> {
   const dialog = $("confirmDialog") as any;
   if (!dialog) return false;
 
@@ -2943,6 +3355,9 @@ async function showConfirmDialog(opts: { title?: string; message: string; detail
     if (opts.danger) okBtn.setAttribute('variant', 'negative');
     else okBtn.setAttribute('variant', 'primary');
   }
+  if (cancelBtn) {
+    cancelBtn.style.display = opts.hideCancel ? 'none' : '';
+  }
 
   // 绑定按钮事件（每次重新绑定）
   const bindBtn = (btn: any, handler: () => void) => {
@@ -2955,10 +3370,15 @@ async function showConfirmDialog(opts: { title?: string; message: string; detail
   bindBtn(okBtn, () => dialog.close('ok'));
   bindBtn(cancelBtn, () => dialog.close('cancel'));
 
+  const dlgWidth = opts.width || 420;
+  // 根据 detail 字数智能适配弹窗高度，防止文字换行溢出裁切按钮
+  const extraH = opts.detail && opts.detail.length > 50 ? 60 : 0;
+  const dlgHeight = opts.height || (190 + extraH);
+
   const result = await dialog.uxpShowModal({
     title: opts.title || '确认操作',
     resize: 'none',
-    size: { width: 360, height: 160 }
+    size: { width: dlgWidth, height: dlgHeight }
   });
 
   return result === 'ok';
@@ -2998,8 +3418,952 @@ $("refreshQuota")?.addEventListener('click', async () => {
 
 // 续费/升级 → 跳转官网
 $("openBuyPlan")?.addEventListener('click', () => {
-openExternalUrl(WEB_PUBLIC_URL + '/pricing', '打开定价页面');
+  openExternalUrl(WEB_PUBLIC_URL + '/pricing', '打开定价页面');
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// 本地引擎与音色管理（GPT-SoVITS 本地部署）
+// ═══════════════════════════════════════════════════════════════════════
+
+let lastEngineInfo = { running: false, port: 9880, pid: null as any, state: 'stopped', errorMsg: '' };
+let lastUrlConnState: 'idle' | 'testing' | 'connected' | 'error' = 'idle';
+let scannedModels: ScannedModel[] = [];
+let editingVoiceId: string | null = null;
+let enginePollTimer: any = null;
+
+/** 读取当前接入方式：'managed' = 插件托管本地整合包；'url' = 连接已有服务 */
+function getLocalMode(): 'managed' | 'url' {
+  const sel = $("localModeSelect") as any;
+  return sel?.value === 'url' ? 'url' : 'managed';
+}
+
+function setLocalMode(mode: 'managed' | 'url') {
+  const sel = $("localModeSelect") as any;
+  if (sel) sel.value = mode;
+  applyLocalModeVisibility();
+}
+
+function applyLocalModeVisibility() {
+  const isManaged = getLocalMode() === 'managed';
+  const managedBox = $("localManagedBox");
+  const urlBox = $("localUrlBox");
+  const startBtn = $("engineStartBtn");
+  const stopBtn = $("engineStopBtn");
+  const testBtn = $("testLocalConn");
+  if (managedBox) managedBox.classList.toggle('hidden', !isManaged);
+  if (urlBox) urlBox.classList.toggle('hidden', isManaged);
+  if (startBtn) startBtn.classList.toggle('hidden', !isManaged);
+  if (stopBtn) stopBtn.classList.toggle('hidden', !isManaged);
+  if (testBtn) testBtn.classList.toggle('hidden', isManaged);
+  updateLocalHeaderStatus();
+}
+
+function getLocalTextLang(): string {
+  if (getLocalMode() === 'managed') return ($("localTextLang") as any)?.value || 'auto';
+  return ($("localTextLangUrl") as any)?.value || 'auto';
+}
+
+/** 更新卡片头部右上角的状态徽章 */
+function updateLocalHeaderStatus(stateStr?: string, portNum?: number) {
+  const badge = $("localHeaderEngineStatus");
+  if (!badge) return;
+
+  const currentTab = document.querySelector('.auth-tab.active')?.getAttribute('data-auth-tab');
+  if (currentTab !== 'local') {
+    badge.classList.add('hidden');
+    return;
+  }
+  badge.classList.remove('hidden');
+
+  const isManaged = getLocalMode() === 'managed';
+  if (isManaged) {
+    if (lastEngineInfo.state === 'starting') {
+      badge.className = 'header-engine-badge status-starting';
+      badge.textContent = '启动中...';
+      badge.title = '正在启动本地服务并探测接口';
+    } else if (lastEngineInfo.state === 'stopping') {
+      badge.className = 'header-engine-badge status-starting';
+      badge.textContent = '停止中...';
+      badge.title = '正在停止本地服务';
+    } else if (lastEngineInfo.state === 'error') {
+      badge.className = 'header-engine-badge status-error';
+      badge.textContent = '启动失败';
+      badge.title = lastEngineInfo.errorMsg || '服务启动失败';
+    } else if (lastEngineInfo.running) {
+      badge.className = 'header-engine-badge status-running';
+      badge.textContent = `运行中: ${lastEngineInfo.port || 9880}`;
+      badge.title = `服务运行中 (端口: ${lastEngineInfo.port || 9880})`;
+    } else {
+      badge.className = 'header-engine-badge';
+      badge.textContent = '未启动';
+      badge.title = '本地服务未启动';
+    }
+  } else {
+    if (lastUrlConnState === 'testing') {
+      badge.className = 'header-engine-badge status-starting';
+      badge.textContent = '测试中...';
+      badge.title = '正在测试连接...';
+    } else if (lastUrlConnState === 'connected') {
+      badge.className = 'header-engine-badge status-running';
+      badge.textContent = '已连接';
+      badge.title = ($("localBaseUrl") as any)?.value?.trim() || '服务正常';
+    } else if (lastUrlConnState === 'error') {
+      badge.className = 'header-engine-badge status-error';
+      badge.textContent = '未连接';
+      badge.title = '连接失败，请确认服务已启动且端口正确';
+    } else {
+      badge.className = 'header-engine-badge';
+      badge.textContent = '未测试';
+      badge.title = '点击测试连接验证服务状态';
+    }
+  }
+
+  syncEngineButtonsUI();
+}
+
+/** 同步本地托管模式下的启动/停止按钮状态 */
+function syncEngineButtonsUI() {
+  const isManaged = getLocalMode() === 'managed';
+  const startBtn = $("engineStartBtn") as any;
+  const stopBtn = $("engineStopBtn") as any;
+  if (!isManaged) return;
+
+  const isRunning = Boolean(lastEngineInfo.running);
+  const isStarting = lastEngineInfo.state === 'starting';
+  const isStopping = lastEngineInfo.state === 'stopping';
+
+  if (startBtn) {
+    if (isRunning || isStarting || isStopping) {
+      startBtn.setAttribute('disabled', 'true');
+      startBtn.disabled = true;
+    } else {
+      startBtn.removeAttribute('disabled');
+      startBtn.disabled = false;
+    }
+  }
+
+  if (stopBtn) {
+    if (isRunning && !isStopping) {
+      stopBtn.removeAttribute('disabled');
+      stopBtn.disabled = false;
+    } else {
+      stopBtn.setAttribute('disabled', 'true');
+      stopBtn.disabled = true;
+    }
+  }
+}
+
+/** 获取当前生效的通道 */
+async function getEffectiveChannel(): Promise<string> {
+  const s = await settingsStore.load();
+  if (s.activeChannel) return s.activeChannel;
+  if (await settingsStore.getAzureKey()) return 'azure';
+  const cloud = await cloudGetState();
+  if (cloud.isLoggedIn) return 'cloud';
+  if (s.localTts?.baseUrl && s.localTts?.voices && s.localTts.voices.length > 0) return 'local';
+  return (await settingsStore.getAzureKey()) ? 'azure' : (cloud.isLoggedIn ? 'cloud' : 'azure');
+}
+
+function applyChannelCapabilityUI(isLocal: boolean) {
+  for (const prefix of ['subtitle', 'manual']) {
+    toggleHidden($(`${prefix}PresetBar`), isLocal);
+    toggleHidden($(`${prefix}PolyToggle`), isLocal);
+    toggleHidden($(`${prefix}StyleArea`), isLocal);
+    toggleHidden($(`${prefix}PitchArea`), isLocal);
+    toggleHidden($(`${prefix}VolumeArea`), isLocal);
+    toggleHidden($(`${prefix}InsertPause`), isLocal);
+    toggleHidden($(`${prefix}SingleCorrect`), isLocal);
+    toggleHidden($(`${prefix}BatchCorrect`), isLocal);
+  }
+  toggleHidden($('polyDictCard'), isLocal);
+  toggleHidden($('presetsCard'), isLocal);
+  if (!isLocal) {
+    renderPresetsGrid();
+    renderPresetDropdown();
+  }
+  const refreshBtn = $('voicePageRefreshBtn');
+  if (refreshBtn) {
+    refreshBtn.textContent = isLocal ? '管理本地音色' : '刷新音色';
+  }
+}
+
+/** 更新通道启用按钮状态并同步各面板能力UI */
+async function updateChannelEnableButtons() {
+  const effective = await getEffectiveChannel();
+  cachedEffectiveChannel = effective;
+  document.querySelectorAll('.channel-enable-btn').forEach((btn) => {
+    const channel = btn.getAttribute('data-enable-channel');
+    const isActive = channel === effective;
+    btn.classList.toggle('active', isActive);
+    btn.textContent = isActive ? '使用中' : '启用此通道';
+  });
+  applyChannelCapabilityUI(isLocalChannelActive());
+}
+
+/** 探测并显示整合包信息 */
+async function detectLocalEngine(rootDir: string) {
+  const resultEl = $("localDetectResult");
+  if (!resultEl) return;
+  if (!rootDir) {
+    resultEl.classList.add("hidden");
+    resultEl.textContent = "";
+    return;
+  }
+  try {
+    const det = await engineDetect(rootDir);
+    resultEl.classList.remove("hidden");
+    if (det.ok) {
+      resultEl.className = "detect-result detect-success";
+      resultEl.textContent = `已识别 GPT-SoVITS 整合包（${det.hasRuntime ? '自带 Python 环境' : '系统 Python'}）`;
+    } else {
+      resultEl.className = "detect-result detect-error";
+      resultEl.textContent = `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${(det.issues || []).join('；') || '缺少必要脚本'}）`;
+    }
+  } catch (e: any) {
+    resultEl.className = "detect-result detect-error";
+    resultEl.textContent = `探测失败：${e.message || e}`;
+  }
+}
+
+/** 探测本地服务是否可连通 */
+async function checkLocalServiceStatus(silent: boolean = true) {
+  const settings = await settingsStore.load();
+  const isManaged = getLocalMode() === 'managed';
+  let url = '';
+  if (isManaged) {
+    const port = parseInt(($("localPort") as any)?.value || String(settings.localTts?.engine?.port || 9880), 10);
+    url = `http://127.0.0.1:${port}`;
+  } else {
+    url = ($("localBaseUrl") as any)?.value?.trim() || settings.localTts?.baseUrl || '';
+  }
+  if (!url) return;
+  try {
+    const res = await probeGptSoVits(url);
+    if (isManaged) {
+      lastEngineInfo.running = Boolean(res.ok && res.ready);
+      lastEngineInfo.port = parseInt(($("localPort") as any)?.value || '9880', 10);
+      lastEngineInfo.state = lastEngineInfo.running ? 'running' : 'stopped';
+    } else {
+      lastUrlConnState = (res.ok && res.ready) ? 'connected' : (silent ? 'idle' : 'error');
+    }
+    updateLocalHeaderStatus();
+  } catch {
+    if (isManaged) {
+      lastEngineInfo.running = false;
+      lastEngineInfo.state = 'stopped';
+    } else {
+      lastUrlConnState = silent ? 'idle' : 'error';
+    }
+    updateLocalHeaderStatus();
+  }
+}
+
+/** 将本地设置回填至表单 */
+async function loadLocalSettingsToForm() {
+  const settings = await settingsStore.load();
+  const local = (settings.localTts || DEFAULT_LOCAL_TTS) as any;
+  const serviceTypeSel = $("localServiceType") as any;
+  if (serviceTypeSel) serviceTypeSel.value = local.serviceType || 'gpt-sovits';
+  setLocalMode(local.mode === 'url' ? 'url' : 'managed');
+
+  const rootDirInput = $("localRootDir") as any;
+  if (rootDirInput) rootDirInput.value = local.engine?.rootDir || '';
+  const portInput = $("localPort") as any;
+  if (portInput) portInput.value = String(local.engine?.port || 9880);
+  const baseUrlInput = $("localBaseUrl") as any;
+  if (baseUrlInput) baseUrlInput.value = local.baseUrl || '';
+  const textLangManaged = $("localTextLang") as any;
+  if (textLangManaged) textLangManaged.value = local.textLang || 'auto';
+  const textLangUrl = $("localTextLangUrl") as any;
+  if (textLangUrl) textLangUrl.value = local.textLang || 'auto';
+
+  renderLocalVoicesList();
+  applyLocalModeVisibility();
+
+  if (local.engine?.rootDir) {
+    detectLocalEngine(local.engine.rootDir);
+  }
+  checkLocalServiceStatus(true);
+}
+
+/** 保存本地设置 */
+async function saveLocalSettings() {
+  const settings = await settingsStore.load();
+  const mode = getLocalMode();
+  const serviceType = ($("localServiceType") as any)?.value || 'gpt-sovits';
+  const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
+  const port = parseInt(($("localPort") as any)?.value || '9880', 10);
+  const textLang = getLocalTextLang();
+  const rawUrl = ($("localBaseUrl") as any)?.value?.trim() || '';
+  const baseUrl = mode === 'managed' ? `http://127.0.0.1:${port}` : rawUrl;
+
+  const localTts: LocalTtsSettings = {
+    serviceType: 'gpt-sovits',
+    mode,
+    baseUrl,
+    textLang,
+    engine: {
+      rootDir,
+      port,
+      pythonPath: settings.localTts?.engine?.pythonPath || '',
+      script: settings.localTts?.engine?.script || 'api_v2.py'
+    },
+    voices: (settings.localTts?.voices || []) as any
+  };
+
+  await settingsStore.save({ localTts });
+  showToast("本地部署设置已保存", "success");
+  await updateChannelEnableButtons();
+  if (isLocalChannelActive()) {
+    await syncLocalVoices();
+    updateVoiceTriggers();
+    if (state.currentTab === 'voices') renderVoicesPage();
+  }
+}
+
+/** 渲染本地音色列表 */
+function renderLocalVoicesList() {
+  const container = $("localVoicesList");
+  if (!container) return;
+  settingsStore.load().then(settings => {
+    const voices = settings.localTts?.voices || [];
+    if (!voices.length) {
+      container.innerHTML = '<div class="table-placeholder" style="cursor:pointer;" id="placeholderAddLocalVoiceBtn">暂未配置音色。点击「+ 新增音色」，选择已训练的模型并指定参考音频即可。</div>';
+      container.querySelector('#placeholderAddLocalVoiceBtn')?.addEventListener('click', () => openVoiceEditor(null));
+      return;
+    }
+    container.innerHTML = voices.map(v => {
+      const avatarType = (v as any).avatarType || ((v as any).gender === 'Male' ? 'man' : 'woman');
+      const avatarCfg = AVATAR_CONFIG[avatarType] || AVATAR_CONFIG.woman;
+      const avatarImg = (v as any).avatar || avatarCfg.img;
+      const model = (v as any).sovitsWeightsPath || (v as any).gptWeightsPath
+        ? `${(v as any).sovitsWeightsPath || '—'} / ${(v as any).gptWeightsPath || '—'}`
+        : '未指定模型';
+      const refFileName = (v as any).refAudioPath ? (v as any).refAudioPath.split(/[\\/]/).pop() : '';
+      const meta = refFileName ? `${model}｜参考：${refFileName}` : model;
+      const langLabel = PROMPT_LANG_MAP[(v as any).promptLang] || ((v as any).promptLang ? (v as any).promptLang.toUpperCase() : '中文');
+      const emotionTag = (v as any).emotion && (v as any).emotion !== '通用'
+        ? `<span class="local-voice-tag local-voice-emotion-tag" title="情绪风格：${(v as any).emotion}">${(v as any).emotion}</span>`
+        : '';
+      return `
+        <div class="local-voice-item" data-voice-id="${v.id}">
+          <img class="local-voice-avatar" src="${avatarImg}" alt="" title="${avatarCfg.label}" width="36" height="36">
+          <div class="local-voice-info">
+            <div class="local-voice-title-wrap">
+              <span class="local-voice-name" title="${v.name || v.id}">${v.name || v.id}</span>
+              <span class="local-voice-tag" title="参考音频语种：${langLabel}">${langLabel}</span>
+              <span class="local-voice-tag" title="${avatarCfg.label}">${avatarCfg.label}</span>
+              ${emotionTag}
+            </div>
+            <span class="local-voice-meta" title="${meta}">(${meta})</span>
+          </div>
+          <div class="local-voice-actions">
+            <button class="local-voice-action-btn local-preview-btn" data-voice-id="${v.id}" title="试听 ${v.name || v.id}">试听</button>
+            <button class="local-voice-action-btn local-edit-btn" data-voice-id="${v.id}" title="编辑">编辑</button>
+            <button class="local-voice-action-btn btn-danger local-del-btn" data-voice-id="${v.id}" title="删除">删除</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll('.local-preview-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-voice-id');
+        if (id) previewVoice(id);
+      });
+    });
+
+    container.querySelectorAll('.local-edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-voice-id');
+        const target = voices.find(v => v.id === id);
+        if (target) openVoiceEditor(target);
+      });
+    });
+
+    container.querySelectorAll('.local-del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-voice-id');
+        const target = voices.find(v => v.id === id);
+        if (!target) return;
+        const ok = await showConfirmDialog({
+          title: "删除本地音色",
+          message: `确定删除本地音色「${target.name || target.id}」吗？`,
+          detail: "删除后不可恢复，如需重新使用需再次添加。",
+          confirmText: "删除",
+          danger: true
+        });
+        if (!ok) return;
+        const nextVoices = voices.filter(v => v.id !== id);
+        const curSettings = await settingsStore.load();
+        const nextLocal: LocalTtsSettings = {
+          ...(curSettings.localTts || DEFAULT_LOCAL_TTS),
+          serviceType: 'gpt-sovits',
+          voices: nextVoices as any
+        };
+        await settingsStore.save({ localTts: nextLocal });
+        renderLocalVoicesList();
+        state.localVoices = await syncLocalVoices();
+        updateVoiceTriggers();
+        if (state.currentTab === 'voices') renderVoicesPage();
+        showToast('已删除音色', 'success');
+      });
+    });
+  });
+}
+
+// ─── 本地音色编辑弹窗 ───
+
+function currentEditorModel(): ScannedModel | null {
+  const sel = $("voiceModelSelect") as any;
+  const idx = parseInt(sel?.value || "-1", 10);
+  return idx >= 0 && idx < scannedModels.length ? scannedModels[idx] : null;
+}
+
+function fillWeightSelects() {
+  const model = currentEditorModel();
+  const gptSel = $("voiceGptSelect") as any;
+  const sovitsSel = $("voiceSovitsSelect") as any;
+  if (!gptSel || !sovitsSel) return;
+
+  if (!model) {
+    gptSel.innerHTML = '<option value="">未找到 GPT 权重</option>';
+    sovitsSel.innerHTML = '<option value="">未找到 SoVITS 权重</option>';
+    return;
+  }
+
+  gptSel.innerHTML = (model.gpt || []).map((w: any) => `<option value="${w.path}">${w.file}</option>`).join('')
+    || '<option value="">无可用 GPT 权重</option>';
+  sovitsSel.innerHTML = (model.sovits || []).map((w: any) => `<option value="${w.path}">${w.file}</option>`).join('')
+    || '<option value="">无可用 SoVITS 权重</option>';
+}
+
+async function scanModelsIntoEditor() {
+  const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
+  if (!rootDir) {
+    showToast("请先在本地部署设置中指定整合包目录", "error");
+    return;
+  }
+  const scanBtn = $("scanModelsBtn");
+  if (scanBtn) scanBtn.textContent = '扫描中…';
+  try {
+    scannedModels = await engineScanModels(rootDir);
+    const modelSel = $("voiceModelSelect") as any;
+    if (modelSel) {
+      if (!scannedModels.length) {
+        modelSel.innerHTML = '<option value="-1">未扫描到模型权重</option>';
+      } else {
+        const customItems: { index: number; label: string }[] = [];
+        const baseItems: { index: number; label: string }[] = [];
+        scannedModels.forEach((m, i) => {
+          const label = m.isBase
+            ? m.name
+            : `${m.name}（${m.version}${m.complete ? "" : " — 权重不完整"}）`;
+          if (m.isBase) {
+            baseItems.push({ index: i, label });
+          } else {
+            customItems.push({ index: i, label });
+          }
+        });
+
+        let html = '';
+        if (customItems.length && baseItems.length) {
+          html += '<option disabled>── 已训练模型 ──</option>';
+          html += customItems.map(item => `<option value="${item.index}">${escapeHtml(item.label)}</option>`).join('');
+          html += '<option disabled>─── 官方通用底模，配合参考音频快速使用 ───</option>';
+          html += baseItems.map(item => `<option value="${item.index}">${escapeHtml(item.label)}</option>`).join('');
+        } else if (customItems.length) {
+          html = customItems.map(item => `<option value="${item.index}">${escapeHtml(item.label)}</option>`).join('');
+        } else if (baseItems.length) {
+          html = '<option disabled>── 官方通用底模 ──</option>' +
+            baseItems.map(item => `<option value="${item.index}">${escapeHtml(item.label)}</option>`).join('');
+        }
+        modelSel.innerHTML = html;
+      }
+    }
+    fillWeightSelects();
+    showToast(`已扫描到 ${scannedModels.length} 个模型`, "success");
+  } catch (err: any) {
+    showToast(`扫描失败：${err.message || err}`, "error");
+  } finally {
+    if (scanBtn) scanBtn.textContent = '扫描';
+  }
+}
+
+function getVoiceEmotionUI(): string {
+  const sel = $("voiceEmotionSelect") as any;
+  if (sel?.value === '__custom__') {
+    return ($("voiceEmotionCustom") as any)?.value?.trim() || '通用';
+  }
+  return sel?.value || '通用';
+}
+
+function setVoiceEmotionUI(emotion: string = '通用') {
+  const sel = $("voiceEmotionSelect") as any;
+  const customBox = $("voiceEmotionCustomBox");
+  const customInput = $("voiceEmotionCustom") as any;
+  if (!sel) return;
+
+  const knownOptions = ['通用', '高兴', '悲伤', '愤怒', '温柔', '严肃', '激动', '低语', '冷淡', '讲故事'];
+  if (knownOptions.includes(emotion)) {
+    sel.value = emotion;
+    sel.classList.remove('hidden');
+    if (customBox) customBox.classList.add('hidden');
+  } else {
+    sel.value = '__custom__';
+    sel.classList.add('hidden');
+    if (customBox) customBox.classList.remove('hidden');
+    if (customInput) customInput.value = emotion;
+  }
+}
+
+async function openVoiceEditor(voice?: any) {
+  const dialog = $("localVoiceEditorDialog") as any;
+  if (!dialog) return;
+
+  const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
+  if (!scannedModels.length && rootDir) {
+    try {
+      await scanModelsIntoEditor();
+    } catch (_) { }
+  }
+
+  editingVoiceId = voice?.id || null;
+  const nameInput = $("voiceName") as any;
+  if (nameInput) nameInput.value = voice?.name || '';
+  const refAudioInput = $("voiceRefAudio") as any;
+  if (refAudioInput) refAudioInput.value = voice?.refAudioPath || '';
+  const promptTextInput = $("voicePromptText") as any;
+  if (promptTextInput) promptTextInput.value = voice?.promptText || '';
+  const promptLangSel = $("voicePromptLang") as any;
+  if (promptLangSel) promptLangSel.value = voice?.promptLang || 'zh';
+
+  const avatarType = voice?.avatarType || (voice?.gender === 'Male' ? 'man' : 'woman');
+  const avatarTypeSel = $("voiceAvatarType") as any;
+  if (avatarTypeSel) avatarTypeSel.value = avatarType;
+  const avatarPreview = $("voiceAvatarPreview") as any;
+  if (avatarPreview) {
+    const cfg = AVATAR_CONFIG[avatarType] || AVATAR_CONFIG.woman;
+    avatarPreview.src = voice?.avatar || cfg.img;
+  }
+  setVoiceEmotionUI(voice?.emotion || '通用');
+
+  let idx = voice
+    ? scannedModels.findIndex(m => m.name === voice.modelName && m.version === voice.modelVersion)
+    : 0;
+  // 容错：如果上次保存未成功记入 modelName，尝试通过权重路径逆向查找匹配的模型
+  if (voice && idx < 0 && (voice.gptWeightsPath || voice.sovitsWeightsPath)) {
+    idx = scannedModels.findIndex(m =>
+      (m.gpt || []).some((w: any) => w.path === voice.gptWeightsPath) ||
+      (m.sovits || []).some((w: any) => w.path === voice.sovitsWeightsPath)
+    );
+  }
+  if (idx < 0) idx = 0;
+
+  const modelSel = $("voiceModelSelect") as any;
+  if (modelSel && idx >= 0 && idx < scannedModels.length) {
+    modelSel.value = String(idx);
+  }
+  fillWeightSelects();
+
+  if (voice?.gptWeightsPath) {
+    const gptSel = $("voiceGptSelect") as any;
+    if (gptSel) gptSel.value = voice.gptWeightsPath;
+  }
+  if (voice?.sovitsWeightsPath) {
+    const sovitsSel = $("voiceSovitsSelect") as any;
+    if (sovitsSel) sovitsSel.value = voice.sovitsWeightsPath;
+  }
+
+  // 若已有参考音频但参考文本为空，自动尝试从整合包 2-name2text.txt 回填
+  if (!voice?.promptText && voice?.refAudioPath && rootDir) {
+    const model = currentEditorModel();
+    if (model?.name) {
+      try {
+        const autoText = await engineLookupPromptText({
+          rootDir,
+          modelName: model.name,
+          wavFileName: voice.refAudioPath
+        });
+        if (autoText && promptTextInput && !promptTextInput.value.trim()) {
+          promptTextInput.value = autoText;
+          const hint = $("refAudioHint");
+          if (hint) hint.textContent = '已自动从切片日志填入参考文本，请确认无误。';
+        }
+      } catch (_) { }
+    }
+  }
+
+  if (typeof dialog.uxpShowModal === 'function') {
+    await dialog.uxpShowModal({
+      title: voice ? '编辑音色' : '新增音色',
+      resize: 'both',
+      size: { width: 580, height: 540 }
+    });
+  } else if (typeof dialog.showModal === 'function') {
+    dialog.showModal();
+  }
+}
+
+function closeVoiceEditor() {
+  editingVoiceId = null;
+  const dialog = $("localVoiceEditorDialog") as any;
+  if (dialog && typeof dialog.close === 'function') {
+    dialog.close();
+  }
+}
+
+async function saveVoiceFromEditor() {
+  const name = ($("voiceName") as any)?.value?.trim();
+  if (!name) return showToast('请填写音色名称', 'error');
+
+  const gptWeightsPath = ($("voiceGptSelect") as any)?.value || '';
+  const sovitsWeightsPath = ($("voiceSovitsSelect") as any)?.value || '';
+  if (!gptWeightsPath || !sovitsWeightsPath) {
+    return showToast('请完整选择 GPT 与 SoVITS 权重（缺一方无法推理）', 'error');
+  }
+
+  const refAudioPath = ($("voiceRefAudio") as any)?.value?.trim();
+  if (!refAudioPath) return showToast('请选择参考音频（建议 3~10 秒）', 'error');
+
+  const targetVoiceId = editingVoiceId || `local_${Date.now().toString(36)}`;
+
+  const avatarType = ($("voiceAvatarType") as any)?.value || 'woman';
+  const avatarCfg = AVATAR_CONFIG[avatarType] || AVATAR_CONFIG.woman;
+  const emotion = getVoiceEmotionUI();
+  const model = currentEditorModel();
+  const payload = {
+    name,
+    avatarType,
+    emotion,
+    gender: avatarCfg.gender,
+    avatar: avatarCfg.img,
+    modelName: model?.name || '',
+    modelVersion: model?.version || '',
+    gptWeightsPath,
+    sovitsWeightsPath,
+    refAudioPath,
+    promptText: ($("voicePromptText") as any)?.value?.trim() || '',
+    promptLang: ($("voicePromptLang") as any)?.value || 'zh'
+  };
+
+  const settings = await settingsStore.load();
+  const voices = settings.localTts?.voices || [];
+  if (editingVoiceId) {
+    const target = voices.find(v => v.id === editingVoiceId);
+    if (target) Object.assign(target, payload);
+  } else {
+    voices.push({ id: targetVoiceId, ...payload });
+  }
+
+  const localTts: LocalTtsSettings = {
+    ...(settings.localTts || DEFAULT_LOCAL_TTS),
+    serviceType: 'gpt-sovits',
+    voices: voices as any
+  };
+
+  await settingsStore.save({ localTts });
+  renderLocalVoicesList();
+  state.localVoices = await syncLocalVoices();
+  updateVoiceTriggers();
+  if (state.currentTab === 'voices') renderVoicesPage();
+  closeVoiceEditor();
+  showToast('音色已保存', 'success');
+}
+
+function bindLocalTtsEvents() {
+  // 浏览整合包目录
+  $("browseRootDir")?.addEventListener('click', async () => {
+    try {
+      const folder = await (uxp.storage.localFileSystem as any).getFolder();
+      if (folder && folder.nativePath) {
+        const rootDirInput = $("localRootDir") as any;
+        if (rootDirInput) rootDirInput.value = folder.nativePath;
+        detectLocalEngine(folder.nativePath);
+      }
+    } catch (e: any) {
+      console.warn('[browseRootDir] 取消或失败:', e);
+    }
+  });
+
+  // 模式切换
+  $("localModeSelect")?.addEventListener('change', () => {
+    applyLocalModeVisibility();
+  });
+
+  // 启动本地服务
+  $("engineStartBtn")?.addEventListener('click', async () => {
+    const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
+    if (!rootDir) {
+      showToast("请先选择 GPT-SoVITS 整合包目录", "error");
+      return;
+    }
+    const port = parseInt(($("localPort") as any)?.value || '9880', 10);
+    const startBtn = $("engineStartBtn") as any;
+    if (startBtn) startBtn.setAttribute('disabled', 'true');
+    lastEngineInfo.state = 'starting';
+    lastEngineInfo.port = port;
+    updateLocalHeaderStatus();
+    showToast("正在启动本地服务...", "info");
+
+    try {
+      // 先探测端口是否已经在运行
+      const probe = await probeGptSoVits(`http://127.0.0.1:${port}`);
+      if (probe.ok && probe.ready) {
+        lastEngineInfo.running = true;
+        lastEngineInfo.state = 'running';
+        updateLocalHeaderStatus();
+        showToast("本地服务已就绪（复用已有实例）", "success");
+        if (startBtn) startBtn.removeAttribute('disabled');
+        return;
+      }
+
+      // 未运行则拉起脚本
+      const launchRes = await launchGptSoVitsService({ rootDir, port });
+      if (launchRes.status === 'reused') {
+        lastEngineInfo.running = true;
+        lastEngineInfo.state = 'running';
+        updateLocalHeaderStatus();
+        showToast("本地服务已就绪（复用已有实例）", "success");
+        return;
+      }
+
+      if ((launchRes as any).manualBat) {
+        showToast("已在整合包目录生成「momo_start_api_v2.bat」并打开文件夹，请双击运行它，插件正在等待连接...", "info");
+      } else {
+        showToast("已唤起启动脚本，正在等待本地服务初始化就绪...", "info");
+      }
+
+      // 启动轮询检查服务是否就绪（最多45秒）
+      let attempts = 0;
+      if (enginePollTimer) clearInterval(enginePollTimer);
+      enginePollTimer = setInterval(async () => {
+        attempts++;
+        try {
+          const p = await probeGptSoVits(`http://127.0.0.1:${port}`);
+          if (p.ok && p.ready) {
+            clearInterval(enginePollTimer);
+            enginePollTimer = null;
+            lastEngineInfo.running = true;
+            lastEngineInfo.state = 'running';
+            updateLocalHeaderStatus();
+            showToast("本地 GPT-SoVITS 服务已就绪", "success");
+            return;
+          }
+        } catch (_) { }
+
+        if (attempts >= 25) {
+          clearInterval(enginePollTimer);
+          enginePollTimer = null;
+          lastEngineInfo.state = 'error';
+          lastEngineInfo.errorMsg = '服务启动超时，请检查控制台窗口输出';
+          updateLocalHeaderStatus();
+          showToast("服务启动超时，请在弹出的命令行窗口中查看报错", "error");
+        }
+      }, 2000);
+
+    } catch (err: any) {
+      lastEngineInfo.state = 'error';
+      lastEngineInfo.errorMsg = err.message || String(err);
+      updateLocalHeaderStatus();
+      showToast(`启动服务出错：${err.message || err}`, "error");
+    }
+  });
+
+  // 停止服务按钮
+  $("engineStopBtn")?.addEventListener('click', async () => {
+    await showConfirmDialog({
+      title: '停止本地服务',
+      message: 'GPT-SoVITS 正在外部独立命令行窗口中运行。',
+      detail: '插件无法直接关闭外部控制台窗口。请在系统任务栏关闭黑色的命令行窗口，关闭后插件会自动更新状态。',
+      confirmText: '我知道了',
+      width: 420,
+      height: 280,
+      hideCancel: true
+    });
+
+    lastEngineInfo.state = 'stopping';
+    updateLocalHeaderStatus();
+
+    let checkCount = 0;
+    const stopCheckTimer = setInterval(async () => {
+      checkCount++;
+      const port = parseInt(($("localPort") as any)?.value || '9880', 10);
+      try {
+        const p = await probeGptSoVits({ baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 1000 });
+        if (!p.ok || !p.ready) {
+          clearInterval(stopCheckTimer);
+          lastEngineInfo.running = false;
+          lastEngineInfo.state = 'stopped';
+          updateLocalHeaderStatus();
+          showToast("本地服务已停止", "success");
+          return;
+        }
+      } catch (_) {
+        clearInterval(stopCheckTimer);
+        lastEngineInfo.running = false;
+        lastEngineInfo.state = 'stopped';
+        updateLocalHeaderStatus();
+        showToast("本地服务已停止", "success");
+        return;
+      }
+      if (checkCount >= 10) {
+        clearInterval(stopCheckTimer);
+        await checkLocalServiceStatus(true);
+      }
+    }, 2000);
+  });
+
+  // URL 模式下测试连接
+  $("testLocalConn")?.addEventListener('click', async () => {
+    const rawUrl = ($("localBaseUrl") as any)?.value?.trim() || '';
+    if (!rawUrl) {
+      showToast("请输入服务地址（URL）", "error");
+      return;
+    }
+    const testBtn = $("testLocalConn") as any;
+    if (testBtn) testBtn.setAttribute('disabled', 'true');
+    lastUrlConnState = 'testing';
+    updateLocalHeaderStatus();
+    showToast("正在测试与 GPT-SoVITS 服务连接...", "info");
+
+    try {
+      const probe = await probeGptSoVits(rawUrl);
+      if (probe.ok && probe.ready) {
+        lastUrlConnState = 'connected';
+        updateLocalHeaderStatus();
+        showToast("连接成功，GPT-SoVITS 服务正常响应", "success");
+      } else {
+        lastUrlConnState = 'error';
+        updateLocalHeaderStatus();
+        showToast(`连接失败：${probe.error || '服务未就绪'}`, "error");
+      }
+    } catch (e: any) {
+      lastUrlConnState = 'error';
+      updateLocalHeaderStatus();
+      showToast(`连接失败：${e.message || e}`, "error");
+    } finally {
+      if (testBtn) testBtn.removeAttribute('disabled');
+    }
+  });
+
+  // 保存本地部署设置
+  $("saveLocalSettingsBtn")?.addEventListener('click', () => {
+    saveLocalSettings();
+  });
+
+  // 通道启用按钮点击
+  document.querySelectorAll('.channel-enable-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const channel = btn.getAttribute('data-enable-channel') as 'azure' | 'cloud' | 'local';
+      if (!channel) return;
+      await settingsStore.save({ activeChannel: channel });
+      await updateChannelEnableButtons();
+      try {
+        if (channel === 'local') {
+          state.localVoices = await syncLocalVoices();
+        } else {
+          state.voices = await ttsProvider.listVoices();
+        }
+        updateVoiceTriggers();
+        if (state.currentTab === 'voices') renderVoicesPage();
+        const chName = channel === 'local' ? '本地部署' : (channel === 'cloud' ? '云端会员' : '自填 Key');
+        showToast(`已切换至「${chName}」通道`, "success");
+      } catch (err: any) {
+        showToast(`切换通道成功，但刷新音色失败：${err.message || err}`, "error");
+      }
+    });
+  });
+
+  // 打开新增音色弹窗（兼容 addLocalVoiceBtn 与 openAddLocalVoiceBtn）
+  $("addLocalVoiceBtn")?.addEventListener('click', () => {
+    openVoiceEditor(null);
+  });
+  $("openAddLocalVoiceBtn")?.addEventListener('click', () => {
+    openVoiceEditor(null);
+  });
+
+  // 弹窗内部事件
+  $("scanModelsBtn")?.addEventListener('click', () => scanModelsIntoEditor());
+  $("voiceModelSelect")?.addEventListener('change', async () => {
+    fillWeightSelects();
+    const promptInput = $("voicePromptText") as any;
+    const refAudioInput = $("voiceRefAudio") as any;
+    if (promptInput && !promptInput.value.trim() && refAudioInput?.value?.trim()) {
+      const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
+      const model = currentEditorModel();
+      if (rootDir && model?.name) {
+        try {
+          const text = await engineLookupPromptText({
+            rootDir,
+            modelName: model.name,
+            wavFileName: refAudioInput.value.trim()
+          });
+          if (text) {
+            promptInput.value = text;
+            const hint = $("refAudioHint");
+            if (hint) hint.textContent = '已自动填入该切片对应的文本，请确认无误。';
+          }
+        } catch (_) { }
+      }
+    }
+  });
+  $("voiceEditorCancel")?.addEventListener('click', closeVoiceEditor);
+  $("voiceEditorSave")?.addEventListener('click', saveVoiceFromEditor);
+
+  $("voiceEmotionSelect")?.addEventListener('change', (e: any) => {
+    if (e.target.value === '__custom__') {
+      e.target.classList.add('hidden');
+      $("voiceEmotionCustomBox")?.classList.remove('hidden');
+      ($("voiceEmotionCustom") as any)?.focus();
+    }
+  });
+
+  $("voiceEmotionBackBtn")?.addEventListener('click', () => {
+    $("voiceEmotionCustomBox")?.classList.add('hidden');
+    $("voiceEmotionSelect")?.classList.remove('hidden');
+    const sel = $("voiceEmotionSelect") as any;
+    if (sel) sel.value = '通用';
+  });
+
+  $("voiceAvatarType")?.addEventListener('change', (e: any) => {
+    const type = e.target.value;
+    const cfg = AVATAR_CONFIG[type] || AVATAR_CONFIG.woman;
+    const preview = $("voiceAvatarPreview") as any;
+    if (preview) preview.src = cfg.img;
+  });
+
+  $("browseRefAudio")?.addEventListener('click', async () => {
+    try {
+      const file = await (uxp.storage.localFileSystem as any).getFileForOpening({
+        types: ["wav", "mp3", "flac", "m4a", "ogg"]
+      });
+      if (file && file.nativePath) {
+        const input = $("voiceRefAudio") as any;
+        if (input) input.value = file.nativePath;
+
+        // 自动查询 2-name2text.txt 回填切片文本
+        const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
+        const model = currentEditorModel();
+        if (rootDir && model?.name) {
+          const text = await engineLookupPromptText({
+            rootDir,
+            modelName: model.name,
+            wavFileName: file.nativePath
+          });
+          if (text) {
+            const promptInput = $("voicePromptText") as any;
+            if (promptInput) promptInput.value = text;
+            const hint = $("refAudioHint");
+            if (hint) hint.textContent = '已自动填入该切片对应的文本，请确认无误。';
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[browseRefAudio] 取消或失败:', e);
+    }
+  });
+}
 
 // ─── 多音字字典管理 ───
 
@@ -3433,6 +4797,7 @@ $("importDictBtn")?.addEventListener("click", async () => {
 $("subtitleTrackDropdown")?.addEventListener("change", async (e: any) => {
   const val = parseInt(e.target.value, 10);
   const prevIndex = state.activeCaptionTrackIndex;
+  if (isNaN(val) || prevIndex === val) return;
 
   // 从手动模式切走到字幕轨：备份当前手动导入的 SRT，以便切回时恢复
   if (prevIndex === -1 && val !== -1) {
@@ -3457,18 +4822,18 @@ $("subtitleTrackDropdown")?.addEventListener("change", async (e: any) => {
 
   showToast("正在读取字幕轨...", "info");
   try {
-// 保存项目，确保读取 .prproj 时拿到最新内容
-try {
-  await premiereAdapter.saveProject();
-} catch (saveErr) {
-  console.warn("[Momo] 下拉切换: 保存项目失败，仍尝试读取:", saveErr);
-}
-const items = await premiereAdapter.loadSubtitlesFromTrack(val, state.fps);
-// 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
-mergeSubtitleAnnotations(state.subtitleItems, items);
-state.subtitleItems = items;
-renderSubtitleList();
-const textCount = items.filter(i => i.text && i.text.trim()).length;
+    // 保存项目，确保读取 .prproj 时拿到最新内容
+    try {
+      await premiereAdapter.saveProject();
+    } catch (saveErr) {
+      console.warn("[Momo] 下拉切换: 保存项目失败，仍尝试读取:", saveErr);
+    }
+    const items = await premiereAdapter.loadSubtitlesFromTrack(val, state.fps);
+    // 保留用户已设置的标注（多音字纠音、停顿标记），根据 id 匹配
+    mergeSubtitleAnnotations(state.subtitleItems, items);
+    state.subtitleItems = items;
+    renderSubtitleList();
+    const textCount = items.filter(i => i.text && i.text.trim()).length;
     if (textCount === 0 && items.length > 0) {
       showToast(`已解析到 ${items.length} 条字幕时序，但未能提取文字，请导入 SRT 补全`, "warning");
     } else {
@@ -3481,37 +4846,55 @@ const textCount = items.filter(i => i.text && i.text.trim()).length;
 });
 
 $("subtitleImportSrtBtn")?.addEventListener("click", async () => {
-  // @ts-ignore
-  const file = await uxp.storage.localFileSystem.getFileForOpening({
-    types: ["srt"]
-  });
-
-  if (file && file.isFile) {
-    const content = await file.read({ format: uxp.storage.formats.utf8 });
-    const srtItems = premiereAdapter.parseSrt(content);
-
-    // 如果已有从字幕轨读取的时序数据（有时间位置但文字为空），则按时间匹配合并
-    if (state.subtitleItems.length > 0 && state.activeCaptionTrackIndex >= 0) {
-      const merged = premiereAdapter.mergeSrtWithExisting(state.subtitleItems, srtItems);
-      const textCount = merged.filter(i => i.text && i.text.trim()).length;
-      state.subtitleItems = merged;
-      renderSubtitleList();
-      showToast(`SRT 导入成功！已匹配 ${textCount}/${merged.length} 条字幕文字`, "success");
-    } else {
-      // 没有已读取的时序数据，直接使用 SRT 内容
-      state.subtitleItems = srtItems;
-      renderSubtitleList();
-      showToast(`SRT 导入成功！共 ${srtItems.length} 条字幕`, "success");
+  const btn = $("subtitleImportSrtBtn") as any;
+  const originalText = btn ? btn.textContent : '导入SRT';
+  try {
+    // 点击后立刻显示导入中状态，用户选完文件关闭窗口后能第一时间看到
+    if (btn) {
+      btn.setAttribute('disabled', 'true');
+      btn.textContent = '⏳ 导入中...';
     }
 
-    // 导入后切换到手动模式（-1），下拉选中「无字幕轨(手动SRT模式)」
-    state.activeCaptionTrackIndex = -1;
-    state.manualSrtItemsBackup = state.subtitleItems.slice();
-    // 新导入的字幕 id 与之前不同，清空连读分组
-    state.linkedIds = new Set<number>();
-    const subtitleDropdown = $("subtitleTrackDropdown") as any;
-    if (subtitleDropdown) setPickerValue(subtitleDropdown, "-1");
-    updateImportSrtBtnVisibility();
+    // @ts-ignore
+    const file = await uxp.storage.localFileSystem.getFileForOpening({
+      types: ["srt"]
+    });
+
+    if (file && file.isFile) {
+      const content = await file.read({ format: uxp.storage.formats.utf8 });
+      const srtItems = premiereAdapter.parseSrt(content);
+
+      // 如果已有从字幕轨读取的时序数据（有时间位置但文字为空），则按时间匹配合并
+      if (state.subtitleItems.length > 0 && state.activeCaptionTrackIndex >= 0) {
+        const merged = premiereAdapter.mergeSrtWithExisting(state.subtitleItems, srtItems);
+        const textCount = merged.filter(i => i.text && i.text.trim()).length;
+        state.subtitleItems = merged;
+        renderSubtitleList();
+        showToast(`SRT 导入成功！已匹配 ${textCount}/${merged.length} 条字幕文字`, "success");
+      } else {
+        // 没有已读取的时序数据，直接使用 SRT 内容
+        state.subtitleItems = srtItems;
+        renderSubtitleList();
+        showToast(`SRT 导入成功！共 ${srtItems.length} 条字幕`, "success");
+      }
+
+      // 导入后切换到手动模式（-1），下拉选中「无字幕轨(手动SRT模式)」
+      state.activeCaptionTrackIndex = -1;
+      state.manualSrtItemsBackup = state.subtitleItems.slice();
+      // 新导入的字幕 id 与之前不同，清空连读分组
+      state.linkedIds = new Set<number>();
+      const subtitleDropdown = $("subtitleTrackDropdown") as any;
+      if (subtitleDropdown) setPickerValue(subtitleDropdown, "-1");
+      updateImportSrtBtnVisibility();
+    }
+  } catch (err: any) {
+    console.error("[importSrt] 失败:", err);
+    showToast(`导入 SRT 失败：${err.message || err}`, "error");
+  } finally {
+    if (btn) {
+      btn.removeAttribute('disabled');
+      btn.textContent = originalText;
+    }
   }
 });
 
@@ -3807,7 +5190,7 @@ function syncManualTextFromTextarea() {
   // （弹窗、PR 事务都会触发）并连带派发了事件。此时不同步（否则 state 和 localStorage
   // 备份都会被清掉），只把显示恢复回来。
   if (!newPlain && (state.manualTextWithAnnotations || "").trim() &&
-      Date.now() - manualTextLastKeyDownAt > 200) {
+    Date.now() - manualTextLastKeyDownAt > 200) {
     ensureManualTextareaValue();
     return;
   }
@@ -4614,6 +5997,19 @@ $("generateSubtitles")?.addEventListener("click", async () => {
     }
   }
 
+  // 批量配音锁定统一目标音频轨，避免逐句新建不同音轨
+  let targetTrackIndex = 0;
+  if (targetAudioTrackIndexVal === "auto") {
+    try {
+      targetTrackIndex = await premiereAdapter.ensureTargetAudioTrack();
+    } catch (e: any) {
+      showToast(`无法确定目标音频轨: ${e?.message || e}`, "error");
+      return;
+    }
+  } else {
+    targetTrackIndex = parseInt(targetAudioTrackIndexVal, 10);
+  }
+
   for (const group of groups) {
     const head = group.items[0];
     // 连读组：把多条字幕拼成一整句（自动补标点），其余情况按单条处理
@@ -4626,9 +6022,9 @@ $("generateSubtitles")?.addEventListener("click", async () => {
     try {
       const result = await ttsProvider.synthesize({
         text: cleanText,
-voice: state.selectedVoice.shortName,
-voiceLabel: cleanVoiceName(state.selectedVoice.localName || state.selectedVoice.displayName || state.selectedVoice.shortName),
-style,
+        voice: state.selectedVoice.shortName,
+        voiceLabel: cleanVoiceName(state.selectedVoice.localName || state.selectedVoice.displayName || state.selectedVoice.shortName),
+        style,
         rate,
         pitch,
         styledegree,
@@ -4641,18 +6037,11 @@ style,
       });
 
       if (result && result.filePath) {
-        // 根据下拉框选择调用不同插入方案：
-        // 自动默默配音轨还是手动指定覆盖音轨
-        let insertOk = false;
-        if (targetAudioTrackIndexVal === "auto") {
-          insertOk = await premiereAdapter.insertAudioToTimelineAutoTrack(result.filePath, insertStart);
-        } else {
-          insertOk = await premiereAdapter.insertAudioToTimeline(
-            result.filePath, 
-            insertStart, 
-            parseInt(targetAudioTrackIndexVal, 10)
-          );
-        }
+        const insertOk = await premiereAdapter.insertAudioToTimeline(
+          result.filePath,
+          insertStart,
+          targetTrackIndex
+        );
 
         if (insertOk) {
           group.items.forEach(gi => { gi.status = "成功"; });
@@ -4676,19 +6065,20 @@ style,
     }
   }
 
+  renderSubtitleList();
   showToast("字幕配音生成结束", "success");
 });
 
 // 2. 手动配音生成并插入
 $("insertManual")?.addEventListener("click", async () => {
-const textarea = $("manualText") as any;
-// 先同步文本框值到底层 annotatedText（确保最新编辑被捕获）
-syncManualTextFromTextarea();
-const annotated = state.manualTextWithAnnotations || "";
-if (!textarea || !parseAnnotations(annotated).cleanText.trim()) {
-showToast("请输入需要配音的文字", "info");
-return;
-}
+  const textarea = $("manualText") as any;
+  // 先同步文本框值到底层 annotatedText（确保最新编辑被捕获）
+  syncManualTextFromTextarea();
+  const annotated = state.manualTextWithAnnotations || "";
+  if (!textarea || !parseAnnotations(annotated).cleanText.trim()) {
+    showToast("请输入需要配音的文字", "info");
+    return;
+  }
 
   if (!state.selectedVoice) {
     showToast("请选择配音音色", "error");
@@ -4736,8 +6126,8 @@ return;
   }
 
   try {
-const settings = await settingsStore.load();
-const { cleanText, annotations } = parseAnnotations(annotated);
+    const settings = await settingsStore.load();
+    const { cleanText, annotations } = parseAnnotations(annotated);
 
     const activeProject = await ppro.Project.getActiveProject();
     if (!activeProject) throw new Error("No active project");
@@ -4749,9 +6139,9 @@ const { cleanText, annotations } = parseAnnotations(annotated);
 
     const result = await ttsProvider.synthesize({
       text: cleanText,
-voice: state.selectedVoice.shortName,
-voiceLabel: cleanVoiceName(state.selectedVoice.localName || state.selectedVoice.displayName || state.selectedVoice.shortName),
-style,
+      voice: state.selectedVoice.shortName,
+      voiceLabel: cleanVoiceName(state.selectedVoice.localName || state.selectedVoice.displayName || state.selectedVoice.shortName),
+      style,
       rate,
       pitch,
       styledegree,
@@ -4760,12 +6150,12 @@ style,
       annotations,
       polyphonicDict: enablePoly ? settings.polyphonicDict : [],
       timelineFps: state.fps,
-        projectName: state.projectName
+      projectName: state.projectName
     });
 
     if (result && result.filePath) {
       showToast("合成成功，正在插入到时间轴...", "info");
-      
+
       let insertOk = false;
       if (targetAudioTrackIndexVal === "auto") {
         insertOk = await premiereAdapter.insertAudioToTimelineAutoTrack(result.filePath, startSeconds);

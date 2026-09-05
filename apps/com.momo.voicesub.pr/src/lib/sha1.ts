@@ -169,3 +169,5 @@ export function sha1Hex(value: string): string {
   }
   return hex;
 }
+
+export { sha1Hex as sha1 };

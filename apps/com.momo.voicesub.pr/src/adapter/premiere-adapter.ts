@@ -532,21 +532,21 @@ export class PremiereAdapter {
     const sequence = await project.getActiveSequence();
     if (!sequence) throw new Error("ensureTargetAudioTrack: 当前没有激活的时间线序列");
 
-    const seqGuid = String(sequence.guid || "");
+    const g = (sequence as any).guid;
+    const seqKey = (g && typeof g.toString === "function")
+      ? g.toString()
+      : (typeof g === "string" && g ? g : (sequence.name || "default_sequence"));
     const audioCount = await sequence.getAudioTrackCount();
 
     // 1. 会话内记忆
-    // 注意：不检查 remembered < audioCount，因为 createOverwriteItemAction 传入
-    // 大于等于当前轨道数的索引时，PR 会自动新建轨道。插入失败后轨道可能尚未创建，
-    // 但目标索引仍然有效，无需重新计算。
-    const remembered = this.momoTrackBySeqGuid.get(seqGuid);
+    const remembered = this.momoTrackBySeqGuid.get(seqKey);
     if (remembered !== undefined && remembered >= 0) {
       return remembered;
     }
 
     // 2. 用 audioCount 作为目标索引（PR 会自动新建 A{audioCount+1}）
     const newTrackIndex = audioCount;
-    this.momoTrackBySeqGuid.set(seqGuid, newTrackIndex);
+    this.momoTrackBySeqGuid.set(seqKey, newTrackIndex);
     console.log(`[Momo] 将为序列「${sequence.name}」新建音频轨 A${newTrackIndex + 1}（索引 ${newTrackIndex}）`);
     return newTrackIndex;
   }

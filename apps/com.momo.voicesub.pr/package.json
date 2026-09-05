@@ -1,6 +1,6 @@
 {
   "name": "com.momo.voicesub.pr",
-  "version": "26.9.2",
+  "version": "26.7.21",
   "description": "Momo VoiceSub Premiere Pro UXP Plugin",
   "type": "commonjs",
   "scripts": {
