@@ -23,3 +23,6 @@ _output/
 .workbuddy/
 
 CLAUDE.md
+
+# GitHub Actions（暂不使用自动构建，不推送）
+.github/
