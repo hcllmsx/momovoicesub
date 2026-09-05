@@ -48,20 +48,7 @@ if ([string]::IsNullOrWhiteSpace($canonicalVersion)) {
 }
 $pluginVersion = $canonicalVersion
 
-# ─── 2. 同步 VERSION → package.json（保留原文件格式，仅替换 version 字段）───
-$packageJsonRaw = Get-Content -LiteralPath $packageJsonPath -Raw -Encoding UTF8
-$packageVersionPattern = '"version"\s*:\s*"([^"]*)"'
-if ($packageJsonRaw -notmatch $packageVersionPattern) {
-    throw "package.json is missing 'version' field."
-}
-$currentPackageVersion = $Matches[1]
-if ($currentPackageVersion -ne $pluginVersion) {
-    $packageJsonRaw = $packageJsonRaw -replace $packageVersionPattern, "`"version`": `"$pluginVersion`""
-    Set-Content -LiteralPath $packageJsonPath -Value $packageJsonRaw -NoNewline -Encoding utf8
-    Write-Host "Synced package.json version -> $pluginVersion"
-}
-
-# ─── 3. 同步 package.json → manifest.xml ───
+# ─── 2. 同步 VERSION → manifest.xml（package.json version 保留 26.5.28 纪念版不改写）───
 $manifest = New-Object System.Xml.XmlDocument
 $manifest.PreserveWhitespace = $true
 $manifest.Load($manifestPath)

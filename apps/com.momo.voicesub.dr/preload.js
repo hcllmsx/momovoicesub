@@ -47,6 +47,20 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   listVoices: (settings) => ipcRenderer.invoke('tts:listVoices', settings),
   testConnection: (settings) => ipcRenderer.invoke('tts:testConnection', settings),
   previewVoice: (shortName) => ipcRenderer.invoke('tts:previewVoice', shortName),
+  localTestConnection: () => ipcRenderer.invoke('local:testConnection'),
+  // GPT-SoVITS 整合包引擎（托管模式）
+  engineDetect: (payload) => ipcRenderer.invoke('engine:detect', payload),
+  engineScanModels: (payload) => ipcRenderer.invoke('engine:scanModels', payload),
+  engineScanRefAudios: (payload) => ipcRenderer.invoke('engine:scanRefAudios', payload),
+  engineLookupPromptText: (payload) => ipcRenderer.invoke('engine:lookupPromptText', payload),
+  engineBrowseFolder: () => ipcRenderer.invoke('engine:browseFolder'),
+  engineBrowseAudio: (payload) => ipcRenderer.invoke('engine:browseAudio', payload),
+  engineArchiveRefAudio: (payload) => ipcRenderer.invoke('engine:archiveRefAudio', payload),
+  engineStart: (payload) => ipcRenderer.invoke('engine:start', payload),
+  engineWaitReady: (payload) => ipcRenderer.invoke('engine:waitReady', payload),
+  engineStop: () => ipcRenderer.invoke('engine:stop'),
+  engineStatus: () => ipcRenderer.invoke('engine:status'),
+  engineClearLogs: () => ipcRenderer.invoke('engine:clearLogs'),
   getSubtitleItems: (trackIndex) => ipcRenderer.invoke('resolve:getSubtitleItems', trackIndex),
   importSrt: () => ipcRenderer.invoke('resolve:importSrt'),
   getSummary: () => ipcRenderer.invoke('resolve:getSummary'),
@@ -82,5 +96,9 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   cloudSendHeartbeat: (payload) => ipcRenderer.invoke('cloud:sendHeartbeat', payload),
   onLog: (callback) => {
     ipcRenderer.on('app:log', (_event, payload) => callback(payload));
+  },
+  // GPT-SoVITS 引擎进程日志（托管模式实时输出）
+  onEngineLog: (callback) => {
+    ipcRenderer.on('engine:log', (_event, payload) => callback(payload));
   }
 });

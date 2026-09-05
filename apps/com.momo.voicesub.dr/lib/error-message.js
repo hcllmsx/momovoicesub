@@ -4,6 +4,11 @@ function friendlyErrorMessage(error) {
   let message = typeof error === 'string' ? error : (error && error.message) || '操作失败。';
   message = message.replace(/^Error invoking remote method '[^']+': Error:\s*/i, '');
 
+  // 本地服务（GPT-SoVITS / 本地部署）连接错误：原样输出清晰的排查提示
+  if (/GPT-SoVITS|本地服务|127\.0\.0\.1|localhost/i.test(message)) {
+    return message;
+  }
+
   // ─── 网络 / 云端 API 类错误 ───
   if (/Body is unusable|Body has already been read/i.test(message)) {
     return '云端请求异常，请稍后重试。';

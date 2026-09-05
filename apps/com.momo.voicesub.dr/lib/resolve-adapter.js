@@ -59,7 +59,13 @@ function isMomoClipName(value) {
 
 async function voiceDisplayName(settingsStore, voiceShortName) {
   const settings = await settingsStore.load();
-  const voice = (settings.voices || []).find((item) => item.shortName === voiceShortName);
+  let voice = (settings.voices || []).find((item) => item.shortName === voiceShortName);
+  if (!voice && settings.localTts?.voices) {
+    const lv = settings.localTts.voices.find(v => v.id === voiceShortName);
+    if (lv) {
+      voice = { localName: lv.name, displayName: lv.name };
+    }
+  }
   return sanitizeName(voice?.localName || voice?.displayName || voiceShortName || 'voice');
 }
 
@@ -663,9 +669,13 @@ class ResolveAdapter {
     return mediaPoolItem;
   }
 
-  async insertAudioFile({ filePath, audioTrackIndex, recordFrame, durationFrames, clipName, overwriteMode = 'skip', forceReimport = false }) {
+  async insertAudioFile({ filePath, audioTrackIndex, recordFrame, durationFrames, clipName, overwriteMode = 'skip', forceReimport = false, skipExistingCheck = false }) {
     const { timeline, mediaPool } = await this.getContext();
-    const existing = await this.findGeneratedItemsAt(audioTrackIndex, recordFrame);
+    // skip 模式在合成前已做过占位检查（避免为已存在的片段白白合成），
+    // 传 skipExistingCheck 时不再重复全轨扫描
+    const existing = skipExistingCheck
+      ? []
+      : await this.findGeneratedItemsAt(audioTrackIndex, recordFrame);
 
     if (existing.length && overwriteMode === 'skip') {
       return { status: 'skipped', reason: 'existing', recordFrame };
@@ -807,6 +817,16 @@ class ResolveAdapter {
         continue;
       }
 
+      // 覆盖策略为「跳过」且该位置已有本插件生成的片段 → 直接跳过，
+      // 不调用合成（避免本地重复算 / 云端白烧 token）
+      if (overwriteMode === 'skip') {
+        const existingClips = await this.findGeneratedItemsAt(targetTrack, sub.startFrame);
+        if (existingClips && existingClips.length) {
+          results.push({ text, start: sub.startFrame, end: sub.endFrame, status: 'skipped', reason: 'existing-clip' });
+          continue;
+        }
+      }
+
       const maxFrames = sub.durationFrames;
       const cacheKey = sha1(JSON.stringify({ mode: 'subtitle', text, voiceSettings, annotations: sub.annotations, v: 2 }));
       const speakerName = await voiceDisplayName(this.settingsStore, voiceSettings.voice);
@@ -836,7 +856,8 @@ class ResolveAdapter {
           durationFrames,
           clipName,
           overwriteMode,
-          forceReimport: audio.cacheHit === false
+          forceReimport: audio.cacheHit === false,
+          skipExistingCheck: overwriteMode === 'skip'
         });
         results.push({ text, start: sub.startFrame, end: sub.endFrame, audio, ...insert });
       } catch (synthErr) {
@@ -901,6 +922,22 @@ class ResolveAdapter {
       if (voiceSettings.polyphonicDict) synthOptions.polyphonicDict = voiceSettings.polyphonicDict;
     }
 
+    // 覆盖策略为「跳过」且播放头位置已有本插件生成的片段 → 不合成、不插入
+    if (overwriteMode === 'skip') {
+      const existingClips = await this.findGeneratedItemsAt(targetTrack, recordFrame);
+      if (existingClips && existingClips.length) {
+        return {
+          status: 'skipped',
+          reason: 'existing-clip',
+          currentTimecode,
+          recordFrame,
+          audioTrackIndex: targetTrack,
+          skipped: 1,
+          inserted: 0
+        };
+      }
+    }
+
     const audio = await this.ttsProvider.synthesize(synthOptions);
 
     const insert = await this.insertAudioFile({
@@ -910,7 +947,8 @@ class ResolveAdapter {
       durationFrames: audio.durationFrames,
       clipName,
       overwriteMode,
-      forceReimport: audio.cacheHit === false
+      forceReimport: audio.cacheHit === false,
+      skipExistingCheck: overwriteMode === 'skip'
     });
 
     return {

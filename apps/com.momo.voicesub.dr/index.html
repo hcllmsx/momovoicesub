@@ -1,12 +1,15 @@
 <!doctype html>
 <html lang="zh-CN" spellcheck="false">
+
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://momovoicesub.sxrec.com http://localhost:3000 http://localhost:3001">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://momovoicesub.sxrec.com http://localhost:3000 http://localhost:3001">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>默默配音助手</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
+
 <body spellcheck="false">
   <!-- ═══ 致命错误阻断覆盖层（低版本达芬奇等场景） ═══ -->
   <div id="fatalOverlay" class="fatal-overlay hidden">
@@ -45,8 +48,12 @@
           <span id="resolveDot" class="dot"></span>
           <span id="resolveStatusText" class="nav-btn-label">正在连接...</span>
         </button>
-        <button id="githubBtn" class="sidebar-github-btn" title="GitHub 开源仓库">
-          <img src="img/github.png" alt="GitHub">
+        <button id="aboutBtn" class="sidebar-about-btn" title="关于项目与交流反馈" aria-label="关于项目与交流反馈">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
         </button>
       </div>
     </aside>
@@ -92,7 +99,8 @@
                   <span class="card-icon">📄</span>
                   <span>字幕列表</span>
                   <div class="card-actions">
-                    <button id="subtitleImportSrtBtn" class="btn btn-xs btn-ghost hidden" title="导入本地 SRT 字幕文件作为字幕源">📂 导入SRT</button>
+                    <button id="subtitleImportSrtBtn" class="btn btn-xs btn-ghost hidden" title="导入本地 SRT 字幕文件作为字幕源">📂
+                      导入SRT</button>
                     <div class="mode-group">
                       <button id="subtitleDisableAllBtn" class="btn btn-xs btn-ghost">🚫 全部禁用</button>
                       <span class="mode-separator"></span>
@@ -115,21 +123,24 @@
                 <div class="card-header">
                   <span class="card-icon">🎙</span>
                   <span>配音参数</span>
-                  <label class="toggle-row" title="控制“是否启用多音字纠音词典自动匹配替换”的开关">
+                  <label class="toggle-row" id="subtitlePolyToggleRow" title="控制“是否启用多音字纠音词典自动匹配替换”的开关">
                     <input type="checkbox" id="subtitlePolyToggle" checked>
                     <span class="toggle-text">自定义纠音</span>
                   </label>
                 </div>
                 <div class="param-body">
-                  <div class="preset-bar">
+                  <div class="preset-bar" id="subtitlePresetBar">
                     <select id="subtitlePresetSelect" class="preset-select">
                       <option value="">-- 选择参数预设 --</option>
                     </select>
-                    <button id="saveSubtitlePreset" class="btn btn-xs btn-ghost preset-save-btn" title="将当前面板所有参数（音色、语调等）保存为新预设">💾 保存</button>
+                    <button id="saveSubtitlePreset" class="btn btn-xs btn-ghost preset-save-btn"
+                      title="将当前面板所有参数（音色、语调等）保存为新预设">💾 保存</button>
                   </div>
                   <div id="subtitleVoiceContainer" class="voice-picker-compact"></div>
-                  <label class="param-label">风格</label>
-                  <div id="subtitleStyleTags" class="tag-list"></div>
+                  <div id="subtitleStyleArea">
+                    <label class="param-label">风格</label>
+                    <div id="subtitleStyleTags" class="tag-list"></div>
+                  </div>
                   <div id="subtitleRoleArea" class="hidden">
                     <label class="param-label">角色</label>
                     <div id="subtitleRoleTags" class="tag-list"></div>
@@ -141,20 +152,26 @@
                       <span id="subtitleStyledegreeValue" class="range-val">100%</span>
                     </div>
                   </div>
-                  <label class="param-label">语速</label>
-                  <div class="range-row">
-                    <input id="subtitleRate" type="range" min="-50" max="50" step="5" value="0">
-                    <span id="subtitleRateValue" class="range-val">0%</span>
+                  <div id="subtitleRateArea">
+                    <label class="param-label">语速</label>
+                    <div class="range-row">
+                      <input id="subtitleRate" type="range" min="-50" max="50" step="5" value="0">
+                      <span id="subtitleRateValue" class="range-val">0%</span>
+                    </div>
                   </div>
-                  <label class="param-label">音调</label>
-                  <div class="range-row">
-                    <input id="subtitlePitch" type="range" min="-50" max="50" step="5" value="0">
-                    <span id="subtitlePitchValue" class="range-val">0%</span>
+                  <div id="subtitlePitchArea">
+                    <label class="param-label">音调</label>
+                    <div class="range-row">
+                      <input id="subtitlePitch" type="range" min="-50" max="50" step="5" value="0">
+                      <span id="subtitlePitchValue" class="range-val">0%</span>
+                    </div>
                   </div>
-                  <label class="param-label">音量</label>
-                  <div class="range-row">
-                    <input id="subtitleVolume" type="range" min="0" max="200" step="10" value="100">
-                    <span id="subtitleVolumeValue" class="range-val">100%</span>
+                  <div id="subtitleVolumeArea">
+                    <label class="param-label">音量</label>
+                    <div class="range-row">
+                      <input id="subtitleVolume" type="range" min="0" max="200" step="10" value="100">
+                      <span id="subtitleVolumeValue" class="range-val">100%</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -187,7 +204,8 @@
                   <span class="card-icon">✏️</span>
                   <span>文本编辑</span>
                   <div class="card-actions">
-                    <button id="manualClearText" class="btn btn-xs btn-ghost text-danger" title="清空文本框所有文字与标注">🧹 一键清空</button>
+                    <button id="manualClearText" class="btn btn-xs btn-ghost text-danger" title="清空文本框所有文字与标注">🧹
+                      一键清空</button>
                     <button id="manualInsertPause" class="btn btn-xs btn-ghost">⏸ 设定停顿</button>
                     <button id="manualSingleCorrect" class="btn btn-xs btn-ghost">🔤 单字纠音</button>
                     <button id="manualBatchCorrect" class="btn btn-xs btn-ghost">🔤 批量纠音</button>
@@ -195,7 +213,8 @@
                 </div>
                 <div class="card-body">
                   <div class="manual-textarea-wrap">
-                    <textarea id="manualText" class="manual-textarea" spellcheck="false" placeholder="输入要生成配音的文字...&#10;选中文字后点击「单字纠音」可标注指定读音"></textarea>
+                    <textarea id="manualText" class="manual-textarea" spellcheck="false"
+                      placeholder="输入要生成配音的文字...&#10;选中文字后点击「单字纠音」可标注指定读音"></textarea>
                   </div>
                   <div id="manualPreviewTitle" class="manual-preview-title hidden">效果预览（含多音字纠音与停顿标记）：</div>
                   <div id="manualTextHighlight" class="manual-textarea-highlight hidden"></div>
@@ -207,21 +226,24 @@
                 <div class="card-header">
                   <span class="card-icon">🎙</span>
                   <span>配音参数</span>
-                  <label class="toggle-row" title="控制“是否启用多音字纠音词典自动匹配替换”的开关">
+                  <label class="toggle-row" id="manualPolyToggleRow" title="控制“是否启用多音字纠音词典自动匹配替换”的开关">
                     <input type="checkbox" id="manualPolyToggle" checked>
                     <span class="toggle-text">自定义纠音</span>
                   </label>
                 </div>
                 <div class="param-body">
-                  <div class="preset-bar">
+                  <div class="preset-bar" id="manualPresetBar">
                     <select id="manualPresetSelect" class="preset-select">
                       <option value="">-- 选择参数预设 --</option>
                     </select>
-                    <button id="saveManualPreset" class="btn btn-xs btn-ghost preset-save-btn" title="将当前面板所有参数（音色、语调等）保存为新预设">💾 保存</button>
+                    <button id="saveManualPreset" class="btn btn-xs btn-ghost preset-save-btn"
+                      title="将当前面板所有参数（音色、语调等）保存为新预设">💾 保存</button>
                   </div>
                   <div id="manualVoiceContainer" class="voice-picker-compact"></div>
-                  <label class="param-label">风格</label>
-                  <div id="manualStyleTags" class="tag-list"></div>
+                  <div id="manualStyleArea">
+                    <label class="param-label">风格</label>
+                    <div id="manualStyleTags" class="tag-list"></div>
+                  </div>
                   <div id="manualRoleArea" class="hidden">
                     <label class="param-label">角色</label>
                     <div id="manualRoleTags" class="tag-list"></div>
@@ -233,20 +255,26 @@
                       <span id="manualStyledegreeValue" class="range-val">100%</span>
                     </div>
                   </div>
-                  <label class="param-label">语速</label>
-                  <div class="range-row">
-                    <input id="manualRate" type="range" min="-50" max="50" step="5" value="0">
-                    <span id="manualRateValue" class="range-val">0%</span>
+                  <div id="manualRateArea">
+                    <label class="param-label">语速</label>
+                    <div class="range-row">
+                      <input id="manualRate" type="range" min="-50" max="50" step="5" value="0">
+                      <span id="manualRateValue" class="range-val">0%</span>
+                    </div>
                   </div>
-                  <label class="param-label">音调</label>
-                  <div class="range-row">
-                    <input id="manualPitch" type="range" min="-50" max="50" step="5" value="0">
-                    <span id="manualPitchValue" class="range-val">0%</span>
+                  <div id="manualPitchArea">
+                    <label class="param-label">音调</label>
+                    <div class="range-row">
+                      <input id="manualPitch" type="range" min="-50" max="50" step="5" value="0">
+                      <span id="manualPitchValue" class="range-val">0%</span>
+                    </div>
                   </div>
-                  <label class="param-label">音量</label>
-                  <div class="range-row">
-                    <input id="manualVolume" type="range" min="0" max="200" step="10" value="100">
-                    <span id="manualVolumeValue" class="range-val">100%</span>
+                  <div id="manualVolumeArea">
+                    <label class="param-label">音量</label>
+                    <div class="range-row">
+                      <input id="manualVolume" type="range" min="0" max="200" step="10" value="100">
+                      <span id="manualVolumeValue" class="range-val">100%</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -266,13 +294,15 @@
             <div class="card-header">
               <span class="card-icon">🔌</span>
               <span>连接设置</span>
+              <span id="localHeaderEngineStatus" class="header-engine-badge hidden">⚪ 未启动</span>
               <div class="auth-tabs" role="tablist" aria-label="连接方式">
                 <button class="auth-tab active" data-auth-tab="apikey" role="tab" aria-selected="true">自填 Key</button>
                 <button class="auth-tab" data-auth-tab="account" role="tab" aria-selected="false">登录账号</button>
+                <button class="auth-tab" data-auth-tab="local" role="tab" aria-selected="false">本地部署</button>
               </div>
             </div>
 
-            <!-- 自填 Key 面板（保留原有逻辑，不做改动） -->
+            <!-- 自填 Key 面板 -->
             <div class="auth-panel active" data-auth-panel="apikey">
               <div class="connection-settings-row">
                 <div class="setting-col-region">
@@ -293,14 +323,11 @@
               <div class="card-footer settings-actions">
                 <button id="testAzure" class="btn btn-secondary">测试连接</button>
                 <button id="saveSettings" class="btn btn-primary">保存设置</button>
-                <label class="checkbox-row azure-key-disable-row" title="勾选后忽略自填 Key，始终走登录账号通道（即便 Key 有效也不使用；未登录账号时配音会失败）">
-                  <input id="azureKeyDisabled" type="checkbox">
-                  <span>临时禁用</span>
-                </label>
+                <button class="btn btn-secondary channel-enable-btn" data-enable-channel="azure">启用此通道</button>
               </div>
             </div>
 
-            <!-- 登录账号 面板（云端模式 · UI 占位） -->
+            <!-- 登录账号 面板（云端模式） -->
             <div class="auth-panel" data-auth-panel="account">
               <div id="accountLoading" class="account-state account-loading">
                 <div class="account-loading-spinner"></div>
@@ -316,7 +343,8 @@
                   <button id="openLoginPopup" class="btn btn-primary">登录账号</button>
                 </div>
                 <p class="account-footnote">
-                  登录即代表同意 <a href="#" class="link-muted" id="openTerms">《用户协议》</a> 与 <a href="#" class="link-muted" id="openPrivacy">《隐私政策》</a>
+                  登录即代表同意 <a href="#" class="link-muted" id="openTerms">《用户协议》</a> 与 <a href="#" class="link-muted"
+                    id="openPrivacy">《隐私政策》</a>
                 </p>
               </div>
 
@@ -338,7 +366,9 @@
                       <span id="quotaCharsLeft">—</span>
                       <span class="quota-unit"> / <span id="quotaCharsTotal">—</span> 字符</span>
                     </div>
-                    <div class="quota-bar"><div class="quota-bar-fill" id="quotaCharsBar"></div></div>
+                    <div class="quota-bar">
+                      <div class="quota-bar-fill" id="quotaCharsBar"></div>
+                    </div>
                   </div>
                   <div class="quota-cell">
                     <div class="quota-label" id="quotaNeuralLabel">神经语音（终身）</div>
@@ -346,7 +376,9 @@
                       <span id="quotaNeuralLeft">—</span>
                       <span class="quota-unit"> / <span id="quotaNeuralTotal">—</span> 字符</span>
                     </div>
-                    <div class="quota-bar"><div class="quota-bar-fill" id="quotaNeuralBar"></div></div>
+                    <div class="quota-bar">
+                      <div class="quota-bar-fill" id="quotaNeuralBar"></div>
+                    </div>
                   </div>
                   <div class="quota-cell">
                     <div class="quota-label">已绑定设备</div>
@@ -359,14 +391,139 @@
                 <div class="card-footer settings-actions">
                   <button id="refreshQuota" class="btn btn-secondary">刷新配额</button>
                   <button id="openBuyPlan" class="btn btn-primary">续费 / 升级</button>
+                  <button class="btn btn-secondary channel-enable-btn" data-enable-channel="cloud">启用此通道</button>
                   <span class="btn-separator"></span>
                   <button id="accountLogout" class="btn btn-ghost btn-xs">退出登录</button>
                 </div>
               </div>
             </div>
+
+            <!-- 本地部署 面板（GPT-SoVITS） -->
+            <div class="auth-panel" data-auth-panel="local">
+              <div class="local-tts-settings">
+                <div class="local-tts-row">
+                  <div class="setting-col-service-type">
+                    <label>服务类型</label>
+                    <select id="localServiceType" class="select-input">
+                      <option value="gpt-sovits" selected>GPT-SoVITS</option>
+                    </select>
+                  </div>
+                  <div class="setting-col-mode">
+                    <label>接入方式</label>
+                    <select id="localModeSelect" class="select-input">
+                      <option value="managed">插件托管（本地整合包）</option>
+                      <option value="url">连接已有服务（URL）</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- ── 托管模式：配置整合包目录，由插件拉起 api_v2.py ── -->
+                <div id="localManagedBox" class="local-mode-box">
+                  <div class="local-tts-row">
+                    <div class="setting-col-root-dir">
+                      <label>GPT-SoVITS 整合包目录</label>
+                      <div class="input-with-btn">
+                        <input id="localRootDir" type="text" placeholder="例如 D:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604">
+                        <button type="button" id="browseRootDir" class="btn btn-xs btn-secondary">浏览…</button>
+                      </div>
+                      <div class="field-hint">训练请在整合包自带的 webui（go-webui.bat）中完成，插件只负责使用训练产物。</div>
+                    </div>
+                  </div>
+
+                  <div id="localDetectResult" class="detect-result hidden"></div>
+
+                  <div class="local-tts-row">
+                    <div class="setting-col-port">
+                      <label>服务端口</label>
+                      <input id="localPort" type="number" min="1" max="65535" placeholder="9880">
+                    </div>
+                    <div class="setting-col-lang">
+                      <label>文本语言</label>
+                      <select id="localTextLang" class="select-input">
+                        <option value="auto">自动识别 (auto)</option>
+                        <option value="zh">中文 (zh)</option>
+                        <option value="en">英文 (en)</option>
+                        <option value="ja">日文 (ja)</option>
+                        <option value="ko">韩文 (ko)</option>
+                        <option value="yue">粤语 (yue)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <details class="local-advanced">
+                    <summary>高级</summary>
+                    <div class="local-tts-row">
+                      <div class="setting-col-python">
+                        <label>Python 解释器（留空自动探测 runtime\python.exe）</label>
+                        <input id="localPythonPath" type="text" placeholder="自动探测">
+                      </div>
+                      <div class="setting-col-script">
+                        <label>启动脚本</label>
+                        <input id="localScript" type="text" placeholder="api_v2.py">
+                      </div>
+                    </div>
+                  </details>
+
+                  <div id="engineLogShell" class="engine-log-shell hidden">
+                    <div class="engine-log-toolbar">
+                      <span class="engine-log-title">引擎日志</span>
+                      <div class="engine-log-actions">
+                        <button type="button" id="engineLogCopy" class="btn btn-xs btn-ghost">⧉ 复制</button>
+                        <button type="button" id="engineLogClear" class="btn btn-xs btn-ghost">✕ 清空</button>
+                      </div>
+                    </div>
+                    <div id="engineLog" class="engine-log"></div>
+                  </div>
+                </div>
+
+                <!-- ── URL 模式：连到已有服务（如装在带显卡的远程机器）── -->
+                <div id="localUrlBox" class="local-mode-box hidden">
+                  <div class="local-tts-row">
+                    <div class="setting-col-base-url">
+                      <label>服务地址 (Base URL)</label>
+                      <input id="localBaseUrl" type="text" placeholder="http://127.0.0.1:9880 或远程地址亦可">
+                    </div>
+                    <div class="setting-col-lang">
+                      <label>文本语言</label>
+                      <select id="localTextLangUrl" class="select-input">
+                        <option value="auto">自动识别 (auto)</option>
+                        <option value="zh">中文 (zh)</option>
+                        <option value="en">英文 (en)</option>
+                        <option value="ja">日文 (ja)</option>
+                        <option value="ko">韩文 (ko)</option>
+                        <option value="yue">粤语 (yue)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="field-hint">需自行在目标机器上启动 <code>api_v2.py</code>（默认端口 9880）。注意不要填 webui 的 9874 端口。</div>
+                </div>
+
+                <!-- ── 音色管理（两种模式共用）── -->
+                <div class="local-voices-section">
+                  <div class="local-voices-header">
+                    <span class="local-section-title">音色库</span>
+                    <div class="local-voices-actions">
+                      <button type="button" id="addLocalVoiceBtn" class="btn btn-xs btn-secondary">+ 新增音色</button>
+                    </div>
+                  </div>
+                  <div id="localVoicesList" class="local-voices-list">
+                    <div class="table-placeholder">暂未配置音色。点击「+ 新增音色」，选择已训练的模型并指定参考音频即可。</div>
+                  </div>
+                </div>
+
+              </div>
+
+              <div class="card-footer settings-actions">
+                <button type="button" id="engineStartBtn" class="btn btn-secondary">▶ 启动服务</button>
+                <button type="button" id="engineStopBtn" class="btn btn-secondary" disabled>■ 停止服务</button>
+                <button type="button" id="testLocalConn" class="btn btn-secondary hidden">测试连接</button>
+                <button id="saveLocalSettings" class="btn btn-primary">保存设置</button>
+                <button class="btn btn-secondary channel-enable-btn" data-enable-channel="local">启用此通道</button>
+              </div>
+            </div>
           </div>
 
-          <div class="card">
+          <div class="card" id="presetsCard">
             <div class="card-header">
               <span class="card-icon">⭐</span>
               <span>预设管理</span>
@@ -392,7 +549,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" id="polyDictCard">
             <div class="card-header">
               <span class="card-icon">📖</span>
               <span>多音字字典管理</span>
@@ -460,6 +617,79 @@
   <audio id="previewAudio"></audio>
 
   <!-- ═══ Popups ═══ -->
+  <div id="aboutPopup" class="popup-overlay hidden">
+    <div class="popup-panel popup-about">
+      <div class="popup-header">
+        <div class="popup-header-title">
+          <span>关于 & 交流反馈</span>
+        </div>
+        <button id="aboutPopupClose" class="popup-close">×</button>
+      </div>
+      <div class="popup-body about-popup-body">
+        <!-- 应用头部 -->
+        <div class="about-hero">
+          <img class="about-logo" src="momovoicesub-logo.png" alt="MoMoVoiceSub">
+          <div class="about-hero-info">
+            <div class="about-hero-title">
+              <span>默默配音助手</span>
+              <span id="aboutAppVersion" class="about-version-badge">v1.0.0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 外部链接入口卡片 -->
+        <div class="about-links-grid">
+          <a class="about-link-card" id="aboutOfficialSiteLink" href="javascript:void(0)" title="前往官网主页">
+            <div class="about-link-icon-wrap">🌐</div>
+            <div class="about-link-text">
+              <span class="about-link-title">项目主页</span>
+              <span class="about-link-sub">momovoicesub.sxrec.com</span>
+            </div>
+            <span class="about-link-arrow">↗</span>
+          </a>
+          <a class="about-link-card" id="aboutGithubRepoLink" href="javascript:void(0)" title="前往 GitHub 仓库">
+            <div class="about-link-icon-wrap">
+              <svg class="about-github-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+              </svg>
+            </div>
+            <div class="about-link-text">
+              <span class="about-link-title">开源仓库</span>
+              <span class="about-link-sub">GitHub / momovoicesub</span>
+            </div>
+            <span class="about-link-arrow">↗</span>
+          </a>
+        </div>
+
+        <!-- 交流与问题反馈 -->
+        <div class="about-community-card">
+          <div class="about-community-left">
+            <div class="about-community-title">交流与问题反馈</div>
+            <div class="about-community-desc">遇到使用问题、Bug 反馈或音色模型交流，欢迎加入官方 QQ 交流群：</div>
+            <div class="about-qq-pill">
+              <span class="about-qq-label">QQ 群：</span>
+              <span class="about-qq-number">967672306</span>
+              <button type="button" id="copyQqGroupBtn" class="btn btn-xs btn-secondary about-copy-btn" title="点击复制群号">复制群号</button>
+            </div>
+          </div>
+          <div class="about-community-right">
+            <div class="about-qrcode-wrap" id="aboutQrcodeWrap" title="点击放大二维码">
+              <img class="about-qrcode-img" id="aboutQrcodeThumb" src="img/qq-group-qrcode.webp" alt="QQ群二维码">
+            </div>
+            <div class="about-qrcode-caption">点击放大二维码加群</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 二维码点击放大模态浮层 -->
+  <div id="qrcodeZoomModal" class="popup-overlay qrcode-zoom-overlay hidden" title="点击关闭">
+    <div class="qrcode-zoom-card">
+      <img class="qrcode-zoom-img" src="img/qq-group-qrcode.webp" alt="QQ群二维码">
+    </div>
+  </div>
+
   <div id="polyPopup" class="popup-overlay hidden">
     <div class="popup-panel">
       <div class="popup-header">
@@ -504,9 +734,10 @@
       </div>
       <div class="popup-body">
         <div class="poly-entry-char-row">
-          <label>汉字<input id="polyEntryChar" type="text" placeholder="输入多音字，如：行" class="popup-input" spellcheck="false"></label>
+          <label>汉字<input id="polyEntryChar" type="text" placeholder="输入多音字，如：行" class="popup-input"
+              spellcheck="false"></label>
         </div>
-        
+
         <!-- 动态拼音读音配置列表容器 -->
         <div id="polyPinyinsContainer" class="poly-pinyins-container"></div>
       </div>
@@ -532,7 +763,7 @@
       </div>
     </div>
   </div>
-  
+
   <div id="batchCorrectPopup" class="popup-overlay hidden">
     <div class="popup-panel popup-lg">
       <div class="popup-header">
@@ -585,7 +816,123 @@
     </div>
   </div>
 
+  <!-- ═══ 本地部署音色编辑器弹窗 ═══ -->
+  <div id="localVoiceEditor" class="popup-overlay hidden">
+    <div class="popup-panel popup-voice-editor">
+      <div class="popup-header">
+        <span id="localVoiceEditorTitle">新增音色</span>
+        <button type="button" id="localVoiceEditorClose" class="popup-close">×</button>
+      </div>
+      <div class="popup-body editor-body">
+        <!-- 第 1 排：已训练模型 在前，然后是 音色名称 -->
+        <div class="editor-grid-2">
+          <div class="editor-col">
+            <label>已训练模型</label>
+            <div class="input-with-btn">
+              <select id="voiceModelSelect" class="select-input"></select>
+              <button type="button" id="scanModelsBtn" class="btn btn-xs btn-secondary">扫描</button>
+            </div>
+            <div class="field-hint">扫描整合包中 GPT / SoVITS 权重目录</div>
+          </div>
+          <div class="editor-col">
+            <label>音色名称</label>
+            <input id="voiceName" type="text" placeholder="例如 小默默" class="select-input">
+            <div class="field-hint">在配音音色列表与时间线中显示的名称</div>
+          </div>
+        </div>
+
+        <!-- 第 2 排：GPT 权重 和 SoVITS 权重 -->
+        <div class="editor-grid-2">
+          <div class="editor-col">
+            <label>GPT 权重</label>
+            <select id="voiceGptSelect" class="select-input"></select>
+          </div>
+          <div class="editor-col">
+            <label>SoVITS 权重</label>
+            <select id="voiceSovitsSelect" class="select-input"></select>
+          </div>
+        </div>
+
+        <!-- 第 3 排：声音形象 和 情绪风格 -->
+        <div class="editor-grid-2">
+          <div class="editor-col">
+            <label>声音形象</label>
+            <div class="avatar-field-wrap">
+              <img id="voiceAvatarPreview" class="avatar-preview-thumb" src="img/woman-default.jpg" alt="头像预览">
+              <select id="voiceAvatarType" class="select-input avatar-select">
+                <option value="woman">青年女声（默认）</option>
+                <option value="man">青年男声</option>
+                <option value="littleGirl">小女孩</option>
+                <option value="littleBoy">小男孩</option>
+                <option value="grandma">老奶奶</option>
+                <option value="grandpa">老爷爷</option>
+              </select>
+            </div>
+            <div class="field-hint">用于配音列表中的头像展示与角色筛选</div>
+          </div>
+          <div class="editor-col">
+            <label>情绪风格</label>
+            <div class="emotion-input-wrap">
+              <select id="voiceEmotionSelect" class="select-input">
+                <option value="通用">通用（默认）</option>
+                <option value="高兴">高兴</option>
+                <option value="悲伤">悲伤</option>
+                <option value="愤怒">愤怒</option>
+                <option value="温柔">温柔</option>
+                <option value="严肃">严肃</option>
+                <option value="激动">激动</option>
+                <option value="低语">低语</option>
+                <option value="冷淡">冷淡</option>
+                <option value="讲故事">讲故事</option>
+                <option value="__custom__">✏️ 自定义输入...</option>
+              </select>
+              <div id="voiceEmotionCustomBox" class="input-with-btn hidden">
+                <input id="voiceEmotionCustom" type="text" placeholder="输入自定义情绪，如：傲娇" class="select-input">
+                <button type="button" id="voiceEmotionBackBtn" class="btn btn-xs btn-secondary" title="返回预设列表">预设</button>
+              </div>
+            </div>
+            <div class="field-hint">指定参考音频所表达的情绪，支持下拉选择或自定义</div>
+          </div>
+        </div>
+
+        <!-- 第 4 排：参考音频 和 参考音频语言 -->
+        <div class="editor-grid-audio-lang">
+          <div class="editor-col">
+            <label>参考音频（3~10 秒）</label>
+            <div class="input-with-btn">
+              <input id="voiceRefAudio" type="text" placeholder="选择一段参考音频" class="select-input">
+              <button type="button" id="browseRefAudio" class="btn btn-xs btn-secondary">浏览…</button>
+            </div>
+          </div>
+          <div class="editor-col">
+            <label>参考音频语言</label>
+            <select id="voicePromptLang" class="select-input">
+              <option value="zh">中文 (zh)</option>
+              <option value="en">英文 (en)</option>
+              <option value="ja">日文 (ja)</option>
+              <option value="ko">韩文 (ko)</option>
+              <option value="yue">粤语 (yue)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-hint" id="refAudioHint" style="margin-top: -6px;">
+          建议选用训练素材切片（logs\&lt;模型名&gt;\5-wav32k）或任意 3~10 秒清晰音频，保存时会自动安全备份至插件音色库。</div>
+
+        <!-- 第 5 排：参考音频对应的文本 -->
+        <div class="editor-row">
+          <label>参考音频对应的文本</label>
+          <textarea id="voicePromptText" rows="3" placeholder="选中训练切片后通常会自动填入"></textarea>
+        </div>
+      </div>
+      <div class="popup-footer editor-footer">
+        <button type="button" id="voiceEditorCancel" class="btn btn-secondary">取消</button>
+        <button type="button" id="voiceEditorSave" class="btn btn-primary">保存音色</button>
+      </div>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 
 </body>
+
 </html>

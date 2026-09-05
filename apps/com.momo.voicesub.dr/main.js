@@ -14,7 +14,9 @@ const NODE_TOO_OLD = NODE_MAJOR < MIN_NODE_MAJOR;
 
 // 仅在 Node 版本足够时才加载业务模块，避免老版本在 require 阶段就崩溃。
 let path, fs, WorkflowIntegration, SettingsStore, AzureTtsProvider, ResolveAdapter,
-    CloudClient, CloudStore, CloudTtsProvider, DelegatingTtsProvider, packageInfo;
+    CloudClient, CloudStore, CloudTtsProvider, LocalTtsProvider, DelegatingTtsProvider,
+    GptSoVitsEngine, gptSoVitsDetect, scanGptSoVitsModels, scanGptSoVitsRefAudios,
+    lookupGptSoVitsPromptText, promptLangToLocale, packageInfo;
 
 if (!NODE_TOO_OLD) {
   path = require('path');
@@ -36,7 +38,16 @@ if (!NODE_TOO_OLD) {
   ({ CloudClient } = require('./lib/cloud-client'));
   ({ CloudStore } = require('./lib/cloud-store'));
   ({ CloudTtsProvider } = require('./lib/cloud-tts-provider'));
+  ({ LocalTtsProvider } = require('./lib/local-tts-provider'));
   ({ DelegatingTtsProvider } = require('./lib/delegating-tts-provider'));
+  ({
+    GptSoVitsEngine,
+    detect: gptSoVitsDetect,
+    scanModels: scanGptSoVitsModels,
+    scanReferenceAudios: scanGptSoVitsRefAudios,
+    lookupPromptText: lookupGptSoVitsPromptText
+  } = require('./lib/gptsovits-engine'));
+  ({ promptLangToLocale } = require('./lib/preview-text'));
   packageInfo = require('./package.json');
 }
 
@@ -52,18 +63,22 @@ const { app, BrowserWindow, ipcMain, safeStorage, Menu, clipboard, dialog, shell
 // 在所有版本下都能工作。
 const _path = require('path');
 
-function readPluginIdFromManifest() {
+function readPluginMetaFromManifest() {
+  let id = 'com.momo.voicesub.dr';
+  let version = '26.9.4';
   try {
     const manifestPath = _path.join(__dirname, 'manifest.xml');
     const xml = require('fs').readFileSync(manifestPath, 'utf8');
-    const match = xml.match(/<Id>\s*([^<\s]+)\s*<\/Id>/);
-    if (match && match[1]) return match[1];
+    const idMatch = xml.match(/<Id>\s*([^<\s]+)\s*<\/Id>/);
+    if (idMatch && idMatch[1]) id = idMatch[1];
+    const verMatch = xml.match(/<Version>\s*([^<\s]+)\s*<\/Version>/);
+    if (verMatch && verMatch[1]) version = verMatch[1];
   } catch (e) {
-    console.error('Failed to read plugin id from manifest.xml:', e);
+    console.error('Failed to read plugin meta from manifest.xml:', e);
   }
-  return 'com.momo.voicesub.dr';
+  return { id, version };
 }
-const PLUGIN_ID = readPluginIdFromManifest();
+const { id: PLUGIN_ID, version: PLUGIN_VERSION } = readPluginMetaFromManifest();
 const LOGO_PATH = _path.join(__dirname, 'momovoicesub-logo.png');
 
 // 根据 manifest Id 自动切换环境：dev 版（Id 以 .dev 结尾）连本地，正式版连生产域名。
@@ -96,6 +111,8 @@ let resolveAdapter = null;
 let cloudClient = null;
 let cloudStore = null;
 let cloudTtsProvider = null;
+let localTtsProvider = null;
+let gptSoVitsEngine = null;
 
 function sendLog(message, detail = '', level = 'info') {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -287,14 +304,31 @@ function initServices() {
     cacheDir: path.join(appDataDir, 'cache')
   });
 
-  // 委托 provider：有自填 key 走 AzureTtsProvider，否则登录了云端走 CloudTtsProvider
-  // isAzureKeyDisabled：用户在自填 Key 页勾选"临时禁用"时，强制走云端通道（即便 Key 有效也不用）
+  localTtsProvider = new LocalTtsProvider({
+    getSettings: () => settingsStore.load(),
+    cacheDir: path.join(appDataDir, 'cache'),
+    fetchImpl: globalThis.fetch
+  });
+
+  // 托管模式下的 GPT-SoVITS 进程管理器。日志同时推送给渲染层，
+  // 用户不必去看整合包的黑窗口就能知道模型加载到哪一步了。
+  gptSoVitsEngine = new GptSoVitsEngine({
+    sendLog: (entry) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('engine:log', entry);
+      }
+    }
+  });
+
+  // 委托 provider：根据 activeChannel 设置或可用凭据在 Azure / Cloud / Local 间调度
   ttsProvider = new DelegatingTtsProvider({
     azureProvider,
     cloudProvider: cloudTtsProvider,
+    localProvider: localTtsProvider,
     cloudStore,
     getAzureKey: () => settingsStore.getAzureKey(),
-    isAzureKeyDisabled: () => settingsStore.loadSync().azureKeyDisabled === true
+    getActiveChannel: () => settingsStore.loadSync().activeChannel || '',
+    getSettings: () => settingsStore.load()
   });
 
   resolveAdapter = new ResolveAdapter({
@@ -328,7 +362,7 @@ function registerIpcHandlers() {
     return {
       settings,
       resolve: resolveState,
-      version: packageInfo.version,
+      version: PLUGIN_VERSION,
       nodeWarning: getNodeWarning()
     };
   });
@@ -415,11 +449,140 @@ function registerIpcHandlers() {
     };
   });
 
+  registerLoggedHandler('local:testConnection', async () => {
+    if (!localTtsProvider) throw new Error('LocalTtsProvider 未初始化');
+    return localTtsProvider.testConnection();
+  });
+
+  // ── GPT-SoVITS 引擎（托管模式）─────────────────────────────────────────
+
+  registerLoggedHandler('engine:detect', async (_event, { rootDir, pythonPath } = {}) => {
+    return gptSoVitsDetect(rootDir, { pythonPath });
+  });
+
+  registerLoggedHandler('engine:scanModels', async (_event, { rootDir } = {}) => {
+    return scanGptSoVitsModels(rootDir);
+  });
+
+  registerLoggedHandler('engine:scanRefAudios', async (_event, { rootDir, modelName } = {}) => {
+    return scanGptSoVitsRefAudios({ rootDir, modelName });
+  });
+
+  registerLoggedHandler('engine:lookupPromptText', async (_event, { rootDir, modelName, wavFileName } = {}) => {
+    return lookupGptSoVitsPromptText({ rootDir, modelName, wavFileName });
+  });
+
+  registerLoggedHandler('engine:browseFolder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择 GPT-SoVITS 整合包根目录',
+      properties: ['openDirectory']
+    });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+    // 选完目录顺带探测一次，前端可直接展示校验结果
+    const detection = await gptSoVitsDetect(result.filePaths[0]);
+    return { canceled: false, rootDir: result.filePaths[0], detection };
+  });
+
+  registerLoggedHandler('engine:browseAudio', async (_event, { defaultPath } = {}) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择参考音频（3~10 秒）',
+      defaultPath: defaultPath || undefined,
+      properties: ['openFile'],
+      filters: [{ name: '音频文件', extensions: ['wav', 'mp3', 'flac', 'm4a'] }]
+    });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+    return { canceled: false, filePath: result.filePaths[0] };
+  });
+
+  registerLoggedHandler('engine:archiveRefAudio', async (_event, { sourcePath, voiceId } = {}) => {
+    if (!sourcePath) return { ok: false, error: '源文件路径不能为空' };
+    try {
+      const _fsSync = require('fs');
+      if (!_fsSync.existsSync(sourcePath)) {
+        return { ok: false, error: '源音频文件不存在: ' + sourcePath };
+      }
+      const dataDir = getAppDataDir();
+      const assetsDir = path.join(dataDir, 'voice_assets');
+      if (!_fsSync.existsSync(assetsDir)) {
+        _fsSync.mkdirSync(assetsDir, { recursive: true });
+      }
+
+      // 若 sourcePath 已位于 assetsDir 中，无需重复拷贝
+      const normalizedSource = path.resolve(sourcePath);
+      const normalizedAssets = path.resolve(assetsDir);
+      if (normalizedSource.startsWith(normalizedAssets)) {
+        return { ok: true, archivedPath: sourcePath };
+      }
+
+      const ext = path.extname(sourcePath) || '.wav';
+      const safeId = String(voiceId || ('voice_' + Date.now())).replace(/[<>:"/\\|?*]/g, '_');
+      const targetFilename = `${safeId}${ext}`;
+      const targetPath = path.join(assetsDir, targetFilename);
+
+      _fsSync.copyFileSync(sourcePath, targetPath);
+      sendLog(`参考音频已安全归档至音色库: ${targetPath}`);
+      return { ok: true, archivedPath: targetPath };
+    } catch (e) {
+      console.error('[archiveRefAudio] 归档参考音频失败:', e);
+      return { ok: false, error: e.message || String(e), fallbackPath: sourcePath };
+    }
+  });
+
+  registerLoggedHandler('engine:start', async (_event, { rootDir, pythonPath, script, port } = {}) => {
+    if (!gptSoVitsEngine) throw new Error('引擎未初始化');
+    const started = await gptSoVitsEngine.start({ rootDir, pythonPath, script, port });
+    // 新进程会回到默认权重，清空适配器的切换缓存，否则首次合成沿用旧权重
+    localTtsProvider?.resetWeightCache();
+
+    // 把推导出的地址写回 settings.localTts.baseUrl。
+    // delegating-tts-provider 的通道隐式推断、renderer 的首屏 tab 定位都直接读这个字段，
+    // 托管模式下它是推导值、不写入的话隐式推断会失效。
+    await settingsStore.save({ localTts: { baseUrl: started.baseUrl } });
+    sendLog(`本地服务地址已更新为 ${started.baseUrl}`);
+
+    return { ...started, logs: gptSoVitsEngine.getLogs() };
+  });
+
+  registerLoggedHandler('engine:waitReady', async (_event, { timeoutMs } = {}) => {
+    if (!gptSoVitsEngine) throw new Error('引擎未初始化');
+    return gptSoVitsEngine.waitReady({ timeoutMs });
+  });
+
+  registerLoggedHandler('engine:stop', async () => {
+    if (!gptSoVitsEngine) throw new Error('引擎未初始化');
+    const result = gptSoVitsEngine.stop();
+    localTtsProvider?.resetWeightCache();
+    return result;
+  });
+
+  registerLoggedHandler('engine:status', async () => {
+    if (!gptSoVitsEngine) return { running: false, pid: null, port: null };
+    const status = await gptSoVitsEngine.getStatus();
+    return { ...status, logs: gptSoVitsEngine.getLogs() };
+  });
+
+  registerLoggedHandler('engine:clearLogs', async () => {
+    if (!gptSoVitsEngine) return { ok: true };
+    return gptSoVitsEngine.clearLogs();
+  });
+
   registerLoggedHandler('tts:previewVoice', async (_event, shortName) => {
     if (!shortName) throw new Error('shortName is required');
 
     const settings = await settingsStore.load();
-    const voice = (settings.voices || []).find((v) => v.shortName === shortName);
+    let voice = (settings.voices || []).find((v) => v.shortName === shortName);
+    if (!voice && settings.localTts?.voices) {
+      const lv = settings.localTts.voices.find(v => v.id === shortName);
+      if (lv) {
+        voice = {
+          shortName: lv.id,
+          localName: lv.name,
+          displayName: lv.name,
+          locale: promptLangToLocale ? promptLangToLocale(lv.promptLang) : 'zh-CN'
+        };
+      }
+    }
+
     const cacheDir = settings.cacheDir || path.join(getAppDataDir(), 'cache');
 
     const result = await ttsProvider.synthesizePreview({
@@ -873,4 +1036,17 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   cleanupResolveInterface().catch(() => {});
+  // 托管模式下插件拉起的 api_v2.py 若不回收，会变成孤儿进程继续占用显存。
+  // stop() 内部有 3 秒宽限期，before-quit 不等异步，这里同步补一刀兜底。
+  if (gptSoVitsEngine) {
+    const child = gptSoVitsEngine.child;
+    gptSoVitsEngine.stop().catch(() => {});
+    if (child && child.pid && process.platform === 'win32') {
+      try {
+        require('child_process').execSync(`taskkill /pid ${child.pid} /t /f`, { stdio: 'ignore' });
+      } catch {}
+    } else if (child) {
+      try { child.kill('SIGKILL'); } catch {}
+    }
+  }
 });

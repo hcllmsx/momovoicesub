@@ -37,18 +37,34 @@ const LOCALE_PREVIEW_TEXTS = {
 };
 
 /**
+ * 将简写语言代码（zh/ja/ko/en 等）规范化为完整的标准 locale
+ */
+function promptLangToLocale(lang) {
+  const l = String(lang || '').toLowerCase().trim();
+  if (l.startsWith('zh') || l.startsWith('yue') || l.startsWith('wuu')) return 'zh-CN';
+  if (l.startsWith('ja')) return 'ja-JP';
+  if (l.startsWith('ko')) return 'ko-KR';
+  if (l.startsWith('en')) return 'en-US';
+  return l || 'zh-CN';
+}
+
+/**
  * 生成试听文本。
  * @param {{ locale?: string, localName?: string, displayName?: string, shortName?: string }} voice
  * @returns {string}
  */
 function buildPreviewText(voice) {
   const { locale, localName, displayName } = voice || {};
-  const isChinese = !!locale && (
-    String(locale).startsWith('zh-') ||
-    String(locale).startsWith('yue-') ||
-    String(locale).startsWith('wuu-')
-  );
+  const loc = String(locale || '').toLowerCase();
   const rawName = localName || displayName || '';
+  const isChinese = (
+    loc === 'zh' ||
+    loc.startsWith('zh-') ||
+    loc.startsWith('zh_') ||
+    loc.startsWith('yue') ||
+    loc.startsWith('wuu') ||
+    /[\u4e00-\u9fa5]/.test(rawName)
+  );
   // 移除技术后缀（Dragon、HD、Flash、Latest 等），避免 TTS 读出奇怪词语
   const cleanName = rawName
     .replace(/\b(Dragon|HD|Flash|Latest|Neural|Multilingual|Online|TTS|V\d+|\d+[KkMm]Hz)\b/g, '')
@@ -59,13 +75,25 @@ function buildPreviewText(voice) {
     return `你好，感谢使用默默配音助手，${cleanName}很高兴为你服务。`;
   }
 
-  // 有 locale 专属文本的用它（更好展示音色特色）
-  if (locale && LOCALE_PREVIEW_TEXTS[locale]) {
-    return LOCALE_PREVIEW_TEXTS[locale](cleanName);
+  // 有 locale 专属文本的用它（更好展示音色特色，支持精确匹配或前缀匹配）
+  if (locale) {
+    if (LOCALE_PREVIEW_TEXTS[locale]) {
+      return LOCALE_PREVIEW_TEXTS[locale](cleanName);
+    }
+    const matchedKey = Object.keys(LOCALE_PREVIEW_TEXTS).find(k =>
+      k.toLowerCase() === loc || k.toLowerCase().startsWith(loc + '-')
+    );
+    if (matchedKey) {
+      return LOCALE_PREVIEW_TEXTS[matchedKey](cleanName);
+    }
   }
 
   // 回退：英语
   return `Hello, thank you for using MOMO VoiceSub. ${cleanName} is very glad to serve you.`;
 }
 
-module.exports = { buildPreviewText, LOCALE_PREVIEW_TEXTS };
+module.exports = {
+  buildPreviewText,
+  promptLangToLocale,
+  LOCALE_PREVIEW_TEXTS,
+};
