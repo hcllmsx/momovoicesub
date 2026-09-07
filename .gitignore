@@ -26,3 +26,6 @@ CLAUDE.md
 
 # GitHub Actions（暂不使用自动构建，不推送）
 .github/
+
+# 打包脚本与安装器资源（暂不推送）
+installer/
