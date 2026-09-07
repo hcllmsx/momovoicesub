@@ -17,6 +17,8 @@ import {
 } from "./lib/gptsovits-engine";
 import { PremiereAdapter, SubtitleItem } from "./adapter/premiere-adapter";
 import { promptLangToLocale } from "./lib/preview-text";
+import { getWavInfo } from "./lib/wav";
+import { arrayBufferToBase64, base64ToArrayBuffer } from "./lib/base64";
 import polyphonicBuiltin from "./lib/polyphonic-builtin.json";
 
 declare const require: any;
@@ -3750,6 +3752,221 @@ async function saveLocalSettings() {
 }
 
 /** 渲染本地音色列表 */
+/** 读取本地音频文件为 ArrayBuffer（UXP file: URL 优先，fs 兜底），失败返回 null */
+async function readAudioFileBuffer(filePath: string): Promise<ArrayBuffer | null> {
+  try {
+    // 清理 Windows 扩展路径前缀 \\?\，转 file: URL 获取文件对象
+    const cleanPath = filePath.replace(/^\\\\\?\\/, "");
+    const fileUrl = "file://" + cleanPath.replace(/\\/g, "/");
+    const entry = await (uxp.storage.localFileSystem as any).getEntryWithUrl(fileUrl);
+    if (entry && entry.isFile) {
+      const buf = await entry.read({ format: (uxp.storage as any).formats.binary });
+      if (buf) return buf as ArrayBuffer;
+    }
+  } catch (_) { /* fallthrough */ }
+  try {
+    const nodeBuf = require('fs').readFileSync(filePath);
+    return nodeBuf.buffer.slice(nodeBuf.byteOffset, nodeBuf.byteOffset + nodeBuf.byteLength) as ArrayBuffer;
+  } catch (_) {
+    return null;
+  }
+}
+
+// ─── 本地音色导入导出（与 DR 版互通，参考音频以 base64 内嵌 JSON）───
+
+async function exportLocalVoices(voices: any[]): Promise<void> {
+  if (!voices.length) {
+    showToast("当前没有可导出的本地音色", "info");
+    return;
+  }
+  try {
+    showToast(`正在导出 ${voices.length} 个音色...`, "info");
+    const items: any[] = [];
+    let missingAudio = 0;
+    for (const v of voices) {
+      const entry: any = {
+        id: v.id,
+        name: v.name || v.id,
+        avatarType: v.avatarType || (v.gender === 'Male' ? 'man' : 'woman'),
+        emotion: v.emotion || '通用',
+        gender: v.gender || '',
+        avatar: v.avatar || '',
+        modelName: v.modelName || '',
+        modelVersion: v.modelVersion || '',
+        gptWeightsPath: v.gptWeightsPath || '',
+        sovitsWeightsPath: v.sovitsWeightsPath || '',
+        promptText: v.promptText || '',
+        promptLang: v.promptLang || 'zh'
+      };
+      if (v.refAudioPath) {
+        const buf = await readAudioFileBuffer(v.refAudioPath);
+        if (buf) {
+          const extMatch = String(v.refAudioPath).match(/\.([A-Za-z0-9]+)\s*$/);
+          entry.refAudioExt = extMatch ? extMatch[1].toLowerCase() : 'wav';
+          entry.refAudioBase64 = arrayBufferToBase64(buf);
+        }
+      }
+      if (!entry.refAudioBase64) missingAudio++;
+      items.push(entry);
+    }
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    // @ts-ignore
+    const file = await uxp.storage.localFileSystem.getFileForSaving(
+      `momovoicesub-local-voices-${timestamp}.json`,
+      { types: ["json"] }
+    );
+    if (!file) return;
+    const payload = {
+      type: "momovoicesub-local-voices",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      voices: items
+    };
+    await file.write(JSON.stringify(payload), { format: uxp.storage.formats.utf8 });
+    showToast(missingAudio
+      ? `已导出 ${items.length} 个音色（${missingAudio} 个参考音频读取失败，未内嵌，导入后需手动重选）`
+      : `已导出 ${items.length} 个音色（含参考音频）`, "success");
+  } catch (err: any) {
+    console.error("[Momo] 导出本地音色失败:", err);
+    showToast(err?.message || "导出失败", "error");
+  }
+}
+
+async function importLocalVoices(): Promise<void> {
+  try {
+    // @ts-ignore
+    const file = await uxp.storage.localFileSystem.getFileForOpening({ types: ["json"] });
+    if (!file || !file.isFile) return;
+    const content = await file.read({ format: uxp.storage.formats.utf8 });
+    let data: any;
+    try {
+      data = JSON.parse(content);
+    } catch (_) {
+      showToast("导入文件不是有效的 JSON 格式", "error");
+      return;
+    }
+    const items = (data && Array.isArray(data.voices) ? data.voices : [])
+      .filter((v: any) => v && v.name && v.refAudioBase64);
+    if (!items.length) {
+      showToast("导入文件中没有有效的本地音色（缺少参考音频数据）", "info");
+      return;
+    }
+    const ok = await showConfirmDialog({
+      title: "导入本地音色",
+      message: `将导入 ${items.length} 个音色（含参考音频）`,
+      detail: "若有与本机同名音色，将会另存为副本，不会覆盖现有音色。",
+      confirmText: "确认导入"
+    });
+    if (!ok) return;
+
+    showToast(`正在导入 ${items.length} 个音色...`, "info");
+    const settings = await settingsStore.load();
+    const voices = (settings.localTts?.voices || []).slice();
+    const existingNames = new Set(voices.map(v => v.name));
+    let fsMod: any = null;
+    try { fsMod = require('fs'); } catch (_) { /* fs 不可用时跳过权重检测 */ }
+    // UXP 的 fs 实现不含 existsSync（仅有 readFileSync 等部分 API），需先检测可用性；
+    // 不支持时跳过权重检测（视为存在），避免导入失败
+    const pathExists = (p: string): boolean => {
+      try {
+        if (fsMod && typeof fsMod.existsSync === 'function') return !!fsMod.existsSync(p);
+      } catch (_) { /* ignore */ }
+      return true;
+    };
+
+    let added = 0, renamed = 0, failed = 0;
+    const weightMissing: string[] = [];
+    for (const item of items) {
+      // 同名自动另建副本：xxx (导入) → xxx (导入2) → ...
+      let name = String(item.name);
+      if (existingNames.has(name)) {
+        renamed++;
+        let n = 2;
+        let candidate = `${name} (导入)`;
+        while (existingNames.has(candidate)) {
+          candidate = `${name} (导入${n})`;
+          n++;
+        }
+        name = candidate;
+      }
+
+      const avatarType = item.avatarType && AVATAR_CONFIG[item.avatarType] ? item.avatarType : 'woman';
+      const avatarCfg = AVATAR_CONFIG[avatarType] || AVATAR_CONFIG.woman;
+      const newId = `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
+      // 参考音频写入插件安全目录 voice_assets/
+      let archivedPath = '';
+      try {
+        const lfs = (uxp.storage.localFileSystem as any);
+        const dataFolder = await lfs.getDataFolder();
+        let assetsFolder: any;
+        try {
+          assetsFolder = await dataFolder.getEntry('voice_assets');
+        } catch (_) {
+          assetsFolder = await dataFolder.createFolder('voice_assets');
+        }
+        const ext = String(item.refAudioExt || 'wav').replace(/[^A-Za-z0-9]/g, '') || 'wav';
+        const outFile = await assetsFolder.createEntry(`${newId}.${ext}`, { overwrite: true });
+        await outFile.write(base64ToArrayBuffer(item.refAudioBase64), { format: (uxp.storage as any).formats.binary });
+        archivedPath = (outFile as any).nativePath || '';
+      } catch (err: any) {
+        console.error("[Momo] 导入音色写参考音频失败:", err);
+      }
+      if (!archivedPath) {
+        failed++;
+        continue;
+      }
+
+      // 权重路径存在性检测（本机不存在时提示导入后重选）
+      const gptOk = !item.gptWeightsPath || pathExists(item.gptWeightsPath);
+      const sovitsOk = !item.sovitsWeightsPath || pathExists(item.sovitsWeightsPath);
+      if (!gptOk || !sovitsOk) weightMissing.push(name);
+
+      voices.push({
+        id: newId,
+        name,
+        avatarType,
+        emotion: item.emotion || '通用',
+        gender: item.gender || avatarCfg.gender,
+        avatar: item.avatar || avatarCfg.img,
+        modelName: item.modelName || '',
+        modelVersion: item.modelVersion || '',
+        gptWeightsPath: item.gptWeightsPath || '',
+        sovitsWeightsPath: item.sovitsWeightsPath || '',
+        refAudioPath: archivedPath,
+        promptText: item.promptText || '',
+        promptLang: item.promptLang || 'zh'
+      });
+      existingNames.add(name);
+      added++;
+    }
+
+    if (!added) {
+      showToast("导入失败：参考音频写入失败，请重试", "error");
+      return;
+    }
+    const localTts: LocalTtsSettings = {
+      ...(settings.localTts || DEFAULT_LOCAL_TTS),
+      serviceType: 'gpt-sovits',
+      voices: voices as any
+    };
+    await settingsStore.save({ localTts });
+    renderLocalVoicesList();
+    state.localVoices = await syncLocalVoices();
+    updateVoiceTriggers();
+    if (state.currentTab === 'voices') renderVoicesPage();
+    showToast(`已导入 ${added} 个音色${renamed ? `（${renamed} 个同名另存为副本）` : ''}` +
+      (weightMissing.length ? `；${weightMissing.length} 个音色的模型权重路径在本机不存在，请打开音色编辑重新选择` : ''), "success");
+    if (failed) showToast(`${failed} 个音色导入失败（参考音频写入失败）`, "error");
+  } catch (err: any) {
+    console.error("[Momo] 导入本地音色失败:", err);
+    showToast(err?.message || "导入失败", "error");
+  }
+}
+
 function renderLocalVoicesList() {
   const container = $("localVoicesList");
   if (!container) return;
@@ -3788,6 +4005,7 @@ function renderLocalVoicesList() {
           <div class="local-voice-actions">
             <button class="local-voice-action-btn local-preview-btn" data-voice-id="${v.id}" title="试听 ${v.name || v.id}">试听</button>
             <button class="local-voice-action-btn local-edit-btn" data-voice-id="${v.id}" title="编辑">编辑</button>
+            <button class="local-voice-action-btn local-export-btn" data-voice-id="${v.id}" title="导出">导出</button>
             <button class="local-voice-action-btn btn-danger local-del-btn" data-voice-id="${v.id}" title="删除">删除</button>
           </div>
         </div>
@@ -3806,6 +4024,14 @@ function renderLocalVoicesList() {
         const id = btn.getAttribute('data-voice-id');
         const target = voices.find(v => v.id === id);
         if (target) openVoiceEditor(target);
+      });
+    });
+
+    container.querySelectorAll('.local-export-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-voice-id');
+        const target = voices.find(v => v.id === id);
+        if (target) await exportLocalVoices([target]);
       });
     });
 
@@ -4056,6 +4282,47 @@ async function saveVoiceFromEditor() {
 
   const targetVoiceId = editingVoiceId || `local_${Date.now().toString(36)}`;
 
+  // —— 参考音频校验：GPT-SoVITS 要求 3~10 秒且可解析时长的 WAV ——
+  let finalRefAudioPath = refAudioPath;
+  const audioBuffer = await readAudioFileBuffer(refAudioPath);
+  let wavInfo: ReturnType<typeof getWavInfo> | null = null;
+  if (audioBuffer) {
+    try {
+      wavInfo = getWavInfo(audioBuffer);
+    } catch (_) {
+      wavInfo = null;
+    }
+  }
+  if (!wavInfo || !(wavInfo.durationSeconds > 0)) {
+    return showToast('参考音频无法解析时长，请选择 3-10 秒的参考音频，且需要 wav 格式', 'error');
+  }
+  if (wavInfo.durationSeconds < 3 || wavInfo.durationSeconds > 10) {
+    return showToast(`参考音频时长需在 3~10 秒之间（当前 ${wavInfo.durationSeconds.toFixed(1)} 秒），请更换后重试`, 'error');
+  }
+
+  // 归档参考音频到插件安全目录（voice_assets），防止原始文件被移动或删除导致音色失效
+  if (!refAudioPath.replace(/\\/g, '/').includes('voice_assets')) {
+    try {
+      const lfs = (uxp.storage.localFileSystem as any);
+      const dataFolder = await lfs.getDataFolder();
+      let assetsFolder: any;
+      try {
+        assetsFolder = await dataFolder.getEntry('voice_assets');
+      } catch (_) {
+        assetsFolder = await dataFolder.createFolder('voice_assets');
+      }
+      const extMatch = refAudioPath.match(/\.([A-Za-z0-9]+)\s*$/);
+      const ext = extMatch ? extMatch[1].toLowerCase() : 'wav';
+      const outFile = await assetsFolder.createEntry(`${targetVoiceId}.${ext}`, { overwrite: true });
+      await outFile.write(audioBuffer, { format: (uxp.storage as any).formats.binary });
+      const archivedPath = (outFile as any).nativePath || '';
+      if (!archivedPath) throw new Error('归档文件缺少可访问的本地路径');
+      finalRefAudioPath = archivedPath;
+    } catch (err: any) {
+      return showToast('参考音频归档失败：' + (err?.message || err) + '，请重试', 'error');
+    }
+  }
+
   const avatarType = ($("voiceAvatarType") as any)?.value || 'woman';
   const avatarCfg = AVATAR_CONFIG[avatarType] || AVATAR_CONFIG.woman;
   const emotion = getVoiceEmotionUI();
@@ -4070,7 +4337,7 @@ async function saveVoiceFromEditor() {
     modelVersion: model?.version || '',
     gptWeightsPath,
     sovitsWeightsPath,
-    refAudioPath,
+    refAudioPath: finalRefAudioPath,
     promptText: ($("voicePromptText") as any)?.value?.trim() || '',
     promptLang: ($("voicePromptLang") as any)?.value || 'zh'
   };
@@ -4801,7 +5068,7 @@ $("importDictBtn")?.addEventListener("click", async () => {
     const confirmed = await showConfirmDialog({
       title: "导入多音字词典",
       message: `将导入 ${imported.length} 条词条（涉及 ${new Set(imported.map((e: any) => e.char)).size} 个字）`,
-      detail: "相同汉字的读音将被导入内容覆盖，其余保留。是否继续？",
+      detail: "若导入的汉字在本机词典中已存在，其读音将以导入内容覆盖；其他汉字的读音保持不变。",
       confirmText: "确认导入"
     });
     if (!confirmed) return;
@@ -4819,6 +5086,20 @@ $("importDictBtn")?.addEventListener("click", async () => {
     console.error("[Momo] 导入自定义多音字词典失败:", err);
     showToast(err?.message || "导入失败", "error");
   }
+});
+
+// ─── 本地音色导入导出 ───
+$("exportLocalVoicesBtn")?.addEventListener("click", async () => {
+  try {
+    const settings = await settingsStore.load();
+    await exportLocalVoices(settings.localTts?.voices || []);
+  } catch (err: any) {
+    showToast(err?.message || "导出失败", "error");
+  }
+});
+
+$("importLocalVoicesBtn")?.addEventListener("click", () => {
+  importLocalVoices();
 });
 
 // ─── 字幕读取与载入 ───

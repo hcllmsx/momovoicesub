@@ -494,6 +494,62 @@ function registerIpcHandlers() {
     return { canceled: false, filePath: result.filePaths[0] };
   });
 
+  registerLoggedHandler('engine:readAudioDuration', async (_event, { filePath } = {}) => {
+    if (!filePath) return { ok: false, error: '文件路径不能为空' };
+    try {
+      const _fsSync = require('fs');
+      if (!_fsSync.existsSync(filePath)) {
+        return { ok: false, error: '音频文件不存在: ' + filePath };
+      }
+
+      // 解析 WAV 头计算时长（秒）：data 块大小 / byteRate
+      const readWavDurationSeconds = (fsSync, file) => {
+        const fd = fsSync.openSync(file, 'r');
+        try {
+          const stat = fsSync.fstatSync(fd);
+          const head = Buffer.alloc(12);
+          if (fsSync.readSync(fd, head, 0, 12, 0) < 12) return null;
+          if (head.toString('ascii', 0, 4) !== 'RIFF' || head.toString('ascii', 8, 12) !== 'WAVE') return null;
+          const chunkHeader = Buffer.alloc(8);
+          let offset = 12;
+          let fmt = null;
+          let dataSize = 0;
+          while (offset + 8 <= stat.size) {
+            if (fsSync.readSync(fd, chunkHeader, 0, 8, offset) < 8) break;
+            const chunkId = chunkHeader.toString('ascii', 0, 4);
+            const chunkSize = chunkHeader.readUInt32LE(4);
+            if (chunkId === 'fmt ') {
+              const fmtBuf = Buffer.alloc(Math.min(chunkSize, 16));
+              fsSync.readSync(fd, fmtBuf, 0, fmtBuf.length, offset + 8);
+              fmt = { byteRate: fmtBuf.readUInt32LE(8) };
+            } else if (chunkId === 'data') {
+              dataSize = chunkSize;
+              // 个别工具写 0 或 0xFFFFFFFF，用文件实际大小兜底
+              if (!dataSize || dataSize === 0xFFFFFFFF) {
+                dataSize = stat.size - (offset + 8);
+              }
+              break;
+            }
+            offset += 8 + chunkSize + (chunkSize % 2);
+          }
+          if (!fmt || !fmt.byteRate || !dataSize) return null;
+          return dataSize / fmt.byteRate;
+        } finally {
+          fsSync.closeSync(fd);
+        }
+      };
+
+      const duration = readWavDurationSeconds(_fsSync, filePath);
+      if (duration == null || !isFinite(duration) || duration <= 0) {
+        return { ok: false, error: '无法解析音频时长（仅支持标准 WAV 文件）' };
+      }
+      return { ok: true, durationSeconds: Math.round(duration * 10) / 10 };
+    } catch (e) {
+      console.error('[readAudioDuration] 解析音频时长失败:', e);
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
   registerLoggedHandler('engine:archiveRefAudio', async (_event, { sourcePath, voiceId } = {}) => {
     if (!sourcePath) return { ok: false, error: '源文件路径不能为空' };
     try {
@@ -525,6 +581,138 @@ function registerIpcHandlers() {
     } catch (e) {
       console.error('[archiveRefAudio] 归档参考音频失败:', e);
       return { ok: false, error: e.message || String(e), fallbackPath: sourcePath };
+    }
+  });
+
+  // ── 本地音色导入导出（与 PR 版互通，参考音频以 base64 内嵌 JSON）──
+
+  // 导出本地音色：读取每个音色的参考音频转 base64，弹保存对话框写入 JSON
+  registerLoggedHandler('voice:exportVoices', async (_event, { voices, scope } = {}) => {
+    const list = Array.isArray(voices) ? voices : [];
+    if (!list.length) return { ok: false, error: '没有可导出的音色' };
+    if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true };
+
+    const audioToBase64 = (filePath) => {
+      try {
+        // 注意：顶层 fs 是 fs/promises 封装，同步 API 需直接 require('fs')
+        const _fsSync = require('fs');
+        const buf = _fsSync.readFileSync(filePath);
+        const m = String(filePath).match(/\.([A-Za-z0-9]+)\s*$/);
+        return { base64: buf.toString('base64'), ext: m ? m[1].toLowerCase() : 'wav' };
+      } catch (_) {
+        return null;
+      }
+    };
+
+    const items = [];
+    let missingAudio = 0;
+    for (const v of list) {
+      const item = {
+        id: v.id,
+        name: v.name || v.id,
+        avatarType: v.avatarType || (v.gender === 'Male' ? 'man' : 'woman'),
+        emotion: v.emotion || '通用',
+        gender: v.gender || '',
+        avatar: v.avatar || '',
+        modelName: v.modelName || '',
+        modelVersion: v.modelVersion || '',
+        gptWeightsPath: v.gptWeightsPath || '',
+        sovitsWeightsPath: v.sovitsWeightsPath || '',
+        promptText: v.promptText || '',
+        promptLang: v.promptLang || 'zh'
+      };
+      if (v.refAudioPath) {
+        const audio = audioToBase64(v.refAudioPath);
+        if (audio) {
+          item.refAudioExt = audio.ext;
+          item.refAudioBase64 = audio.base64;
+        }
+      }
+      if (!item.refAudioBase64) missingAudio++;
+      items.push(item);
+    }
+
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const defaultName = scope === 'single' && list[0].name
+      ? `momovoicesub-local-voice-${String(list[0].name).replace(/[<>:"/\\|?*]/g, '_')}.json`
+      : `momovoicesub-local-voices-${timestamp}.json`;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: scope === 'single' ? '导出本地音色' : '导出全部本地音色',
+      defaultPath: defaultName,
+      filters: [{ name: 'JSON 文件', extensions: ['json'] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+
+    const payload = {
+      type: 'momovoicesub-local-voices',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      voices: items
+    };
+    await fs.writeFile(result.filePath, JSON.stringify(payload), 'utf8');
+    return { ok: true, count: items.length, missingAudio, filePath: result.filePath };
+  });
+
+  // 导入本地音色第一步：选择 JSON 文件并解析，返回音色数据（含 base64 参考音频）
+  // 顺便检测 GPT/SoVITS 权重路径在本机是否存在，供导入端提示用户重选
+  registerLoggedHandler('voice:importVoices', async () => {
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择音色导出文件',
+      filters: [{ name: 'JSON 文件', extensions: ['json'] }],
+      properties: ['openFile']
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths.length) {
+      return { canceled: true };
+    }
+    let data;
+    try {
+      data = JSON.parse(await fs.readFile(result.filePaths[0], 'utf8'));
+    } catch (e) {
+      return { ok: false, error: '导入文件不是有效的 JSON 格式' };
+    }
+    const raw = (data && Array.isArray(data.voices)) ? data.voices : [];
+    const _fsSync = require('fs'); // 同步 API（顶层 fs 为 promises 封装）
+    const items = raw
+      .filter(v => v && v.name && v.refAudioBase64)
+      .map(v => {
+        const gptExists = v.gptWeightsPath ? _fsSync.existsSync(v.gptWeightsPath) : true;
+        const sovitsExists = v.sovitsWeightsPath ? _fsSync.existsSync(v.sovitsWeightsPath) : true;
+        return { ...v, weightsMissing: !(gptExists && sovitsExists) };
+      });
+    return { ok: true, count: items.length, voices: items };
+  });
+
+  // 导入本地音色第二步：把 base64 参考音频写入插件安全目录 voice_assets/
+  registerLoggedHandler('voice:saveRefAudios', async (_event, entries = []) => {
+    const list = Array.isArray(entries) ? entries : [];
+    if (!list.length) return { ok: true, results: [] };
+    try {
+      const _fsSync = require('fs'); // 同步 API（顶层 fs 为 promises 封装）
+      const dataDir = getAppDataDir();
+      const assetsDir = path.join(dataDir, 'voice_assets');
+      if (!_fsSync.existsSync(assetsDir)) {
+        _fsSync.mkdirSync(assetsDir, { recursive: true });
+      }
+      const results = [];
+      for (const item of list) {
+        try {
+          const safeId = String(item.voiceId || ('voice_' + Date.now())).replace(/[<>:"/\\|?*]/g, '_');
+          const ext = String(item.ext || 'wav').replace(/[^A-Za-z0-9]/g, '') || 'wav';
+          const targetPath = path.join(assetsDir, `${safeId}.${ext}`);
+          _fsSync.writeFileSync(targetPath, Buffer.from(String(item.base64 || ''), 'base64'));
+          sendLog(`导入音色参考音频已写入: ${targetPath}`);
+          results.push({ voiceId: item.voiceId, ok: true, refAudioPath: targetPath });
+        } catch (e) {
+          console.error('[saveRefAudios] 写入参考音频失败:', e);
+          results.push({ voiceId: item.voiceId, ok: false, error: e.message || String(e) });
+        }
+      }
+      return { ok: true, results };
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
     }
   });
 

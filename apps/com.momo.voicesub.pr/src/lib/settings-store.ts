@@ -145,7 +145,8 @@ export class SettingsStore {
     const rawLocal = (settings as any)?.localTts || {};
     merged.localTts = {
       serviceType: rawLocal.serviceType || 'gpt-sovits',
-      mode: rawLocal.mode === 'managed' ? 'managed' : 'url',
+      // 缺省为 'managed'（插件托管），与 DR 版习惯一致：仅显式 'url' 才视为连接已有服务
+      mode: rawLocal.mode === 'url' ? 'url' : 'managed',
       engine: {
         rootDir: rawLocal.engine?.rootDir || '',
         port: Number(rawLocal.engine?.port) || 9880,
