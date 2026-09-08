@@ -1958,7 +1958,9 @@ function renderSubtitleTable() {
       const prevDisabled = isRowDisabled(idx - 1);
       const tip = prevDisabled
         ? '上一行已被禁用，无法连读'
-        : (linked ? '已与上一句连读，点击断开' : '点击与上一句连读：合并为一句话配音，语气更连贯');
+        : (linked
+          ? '已与上一句连读，点击断开'
+          : '点击与上一句连读：合并为一句话配音，语气更连贯；Shift+点击：连读到本行为止（不并入已有连读组）');
       linkCell = `<button type="button" class="sub-link-btn${linked ? ' is-linked' : ''}" data-frame="${item.startFrame}"${prevDisabled ? ' disabled' : ''} title="${tip}">🔗</button>`;
     }
 
@@ -1979,12 +1981,28 @@ function renderSubtitleTable() {
   wrap.innerHTML = html;
 
   // 连读按钮：切换本行是否与上一行合并为同一句话
+  // Shift+点击：连读到本行为止 —— 把本行及上方连续可连的行全部打上连读标记
   wrap.querySelectorAll('.sub-link-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (btn.disabled) return;
       const frame = Number(btn.dataset.frame);
-      if (state.linkedFrames.has(frame)) {
+      if (e.shiftKey) {
+        // 向上逐行打连读标记：
+        // - 本行已有连读标记 → 它属于上方某个已有组，到此为止，不并入
+        // - 上一行已有连读标记 → 再连会把上一行的组整个吸收进来，同样停止
+        // - 遇到被禁用的行也停止（禁用行会强制断开分组）
+        const idx = state.subtitleItems.findIndex(it => it.startFrame === frame);
+        for (let k = idx; k >= 1; k--) {
+          const cur = state.subtitleItems[k];
+          const prev = state.subtitleItems[k - 1];
+          if (!cur || !prev) break;
+          if (state.linkedFrames.has(cur.startFrame)) break;
+          if (state.linkedFrames.has(prev.startFrame)) break;
+          if (state.disabledFrames.has(cur.startFrame) || state.disabledFrames.has(prev.startFrame)) break;
+          state.linkedFrames.add(cur.startFrame);
+        }
+      } else if (state.linkedFrames.has(frame)) {
         state.linkedFrames.delete(frame);
       } else {
         state.linkedFrames.add(frame);
@@ -3479,53 +3497,16 @@ function applyChannelCapabilityUI(isLocal) {
   }
 }
 
-/**
- * 读取当前接入方式：'managed' = 插件托管整合包进程；'url' = 连接已有服务。
- */
-function getLocalMode() {
-  const sel = $('localModeSelect');
-  if (sel) return sel.value === 'url' ? 'url' : 'managed';
-  const active = $('localModeSeg')?.querySelector('.seg-btn.active');
-  return active?.dataset.mode === 'url' ? 'url' : 'managed';
-}
-
-/**
- * 文本语言下拉在两个模式下各有一份（DOM 结构互斥），按需取当前可见的那个。
- */
 function getLocalTextLang() {
-  if (getLocalMode() === 'managed') return $('localTextLang')?.value || 'auto';
-  return $('localTextLangUrl')?.value || 'auto';
-}
-
-function setLocalMode(mode) {
-  const next = mode === 'url' ? 'url' : 'managed';
-  if ($('localModeSelect')) {
-    $('localModeSelect').value = next;
-  }
-  $('localModeSeg')?.querySelectorAll('.seg-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.mode === next);
-  });
-}
-
-function applyLocalModeVisibility() {
-  const isManaged = getLocalMode() === 'managed';
-  toggleHidden($('localManagedBox'), !isManaged);
-  toggleHidden($('localUrlBox'), isManaged);
-  toggleHidden($('engineStartBtn'), !isManaged);
-  toggleHidden($('engineStopBtn'), !isManaged);
-  toggleHidden($('testLocalConn'), isManaged);
-  updateLocalHeaderStatus();
+  return $('localTextLang')?.value || 'auto';
 }
 
 /**
  * 本地通道是否已具备可用配置。
- * 托管模式下地址由端口推导，只要目录填了就行，不要求手填 URL。
+ * 地址由端口推导，只要目录填了就行。
  */
 function isLocalConfigured() {
-  if (getLocalMode() === 'managed') {
-    return Boolean($('localRootDir')?.value.trim());
-  }
-  return Boolean($('localBaseUrl')?.value.trim());
+  return Boolean($('localRootDir')?.value.trim());
 }
 
 function renderLocalVoicesList() {
@@ -3742,7 +3723,6 @@ function cleanErrorMessage(err) {
 }
 
 let lastEngineInfo = { running: false, port: 9880, pid: null, state: 'stopped', errorMsg: '' };
-let lastUrlConnState = 'idle'; // 'idle' | 'testing' | 'connected' | 'error'
 
 function updateLocalHeaderStatus() {
   const badge = $('localHeaderEngineStatus');
@@ -3755,51 +3735,30 @@ function updateLocalHeaderStatus() {
   }
   badge.classList.remove('hidden');
 
-  const isManaged = getLocalMode() === 'managed';
-  if (isManaged) {
-    if (lastEngineInfo.state === 'starting') {
-      badge.className = 'header-engine-badge status-starting';
-      badge.textContent = '🟡 启动中...';
-      badge.title = '正在拉起 Python 引擎并载入模型';
-    } else if (lastEngineInfo.state === 'stopping') {
-      badge.className = 'header-engine-badge status-starting';
-      badge.textContent = '🟡 停止中...';
-      badge.title = '正在停止本地服务';
-    } else if (lastEngineInfo.state === 'error') {
-      badge.className = 'header-engine-badge status-error';
-      badge.textContent = '🔴 启动失败';
-      badge.title = lastEngineInfo.errorMsg || '服务启动失败，请查看下方引擎日志';
-    } else if (lastEngineInfo.running) {
-      badge.className = 'header-engine-badge status-running';
-      badge.textContent = lastEngineInfo.reused
-        ? `🟢 运行中: ${lastEngineInfo.port || 9880}（已接管）`
-        : `🟢 运行中: ${lastEngineInfo.port || 9880}`;
-      badge.title = lastEngineInfo.reused
-        ? `服务运行中（外部实例，端口: ${lastEngineInfo.port || 9880}）`
-        : `服务运行中 (PID: ${lastEngineInfo.pid || '—'}，端口: ${lastEngineInfo.port || 9880})`;
-    } else {
-      badge.className = 'header-engine-badge';
-      badge.textContent = '⚪ 未启动';
-      badge.title = '本地服务未启动';
-    }
+  if (lastEngineInfo.state === 'starting') {
+    badge.className = 'header-engine-badge status-starting';
+    badge.textContent = '🟡 启动中...';
+    badge.title = '正在拉起 Python 引擎并载入模型';
+  } else if (lastEngineInfo.state === 'stopping') {
+    badge.className = 'header-engine-badge status-starting';
+    badge.textContent = '🟡 停止中...';
+    badge.title = '正在停止本地服务';
+  } else if (lastEngineInfo.state === 'error') {
+    badge.className = 'header-engine-badge status-error';
+    badge.textContent = '🔴 启动失败';
+    badge.title = lastEngineInfo.errorMsg || '服务启动失败，请查看下方引擎日志';
+  } else if (lastEngineInfo.running) {
+    badge.className = 'header-engine-badge status-running';
+    badge.textContent = lastEngineInfo.reused
+      ? `🟢 运行中: ${lastEngineInfo.port || 9880}（已接管）`
+      : `🟢 运行中: ${lastEngineInfo.port || 9880}`;
+    badge.title = lastEngineInfo.reused
+      ? `服务运行中（外部实例，端口: ${lastEngineInfo.port || 9880}）`
+      : `服务运行中 (PID: ${lastEngineInfo.pid || '—'}，端口: ${lastEngineInfo.port || 9880})`;
   } else {
-    if (lastUrlConnState === 'testing') {
-      badge.className = 'header-engine-badge status-starting';
-      badge.textContent = '🟡 测试中...';
-      badge.title = '正在测试连接...';
-    } else if (lastUrlConnState === 'connected') {
-      badge.className = 'header-engine-badge status-running';
-      badge.textContent = '🟢 已连接';
-      badge.title = $('localBaseUrl')?.value.trim() || '服务正常';
-    } else if (lastUrlConnState === 'error') {
-      badge.className = 'header-engine-badge status-error';
-      badge.textContent = '🔴 未连接';
-      badge.title = '连接失败，请确认服务已启动且端口正确';
-    } else {
-      badge.className = 'header-engine-badge';
-      badge.textContent = '⚪ 未连接';
-      badge.title = '尚未测试连接';
-    }
+    badge.className = 'header-engine-badge';
+    badge.textContent = '⚪ 未启动';
+    badge.title = '本地服务未启动';
   }
 }
 
@@ -3861,6 +3820,13 @@ async function refreshEngineStatus() {
 }
 
 /**
+ * 将引擎探测问题列表压缩成短语（与 PR 版文案一致），避免整段长文案。
+ */
+function shortEngineIssues(issues) {
+  return [...new Set((issues || []).map(i => i.includes('Python') ? '未找到 Python 解释器' : '缺少 api_v2.py / webui.py 脚本'))];
+}
+
+/**
  * 校验整合包目录，把探测结果显示在面板上。
  */
 async function detectRootDir({ silent = false } = {}) {
@@ -3871,18 +3837,17 @@ async function detectRootDir({ silent = false } = {}) {
     return null;
   }
   try {
-    const res = await window.momoVoiceSub.engineDetect({
-      rootDir,
-      pythonPath: $('localPythonPath')?.value.trim() || ''
-    });
+    // 以自动探测为准：切换整合包目录后，解释器路径必须跟随新目录，避免沿用旧目录的路径
+    const res = await window.momoVoiceSub.engineDetect({ rootDir });
+    if ($('localPythonPath')) $('localPythonPath').value = res.pythonPath || '';
     if (box) {
       box.className = `detect-result ${res.ok ? 'ok' : 'error'}`;
       box.innerHTML = res.ok
-        ? `✔ 目录有效${res.hasRuntime ? '（已探测到整合包自带 runtime）' : ''}`
-        + (res.versions.length ? `，可用权重版本：${escHtml(res.versions.join(' / '))}` : '')
-        : `✘ ${res.issues.map(escHtml).join('<br>')}`;
+        ? `✔ 已识别到正确的 GPT-SoVITS 整合包（${res.hasRuntime ? '自带 Python' : '系统 Python'}）`
+          + (res.versions?.length ? `，可用权重版本：${escHtml(res.versions.join(' / '))}` : '')
+        : `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${shortEngineIssues(res.issues).join('；') || '缺少必要脚本'}）`;
     }
-    if (res.ok && !silent) showToast('目录校验通过', 'ok');
+    if (res.ok && !silent) showToast(`已识别到正确的 GPT-SoVITS 整合包（${res.hasRuntime ? '自带 Python' : '系统 Python'}）`, 'ok');
     return res;
   } catch (err) {
     if (box) {
@@ -3898,24 +3863,24 @@ function bindLocalEngineControls() {
     const res = await window.momoVoiceSub.engineBrowseFolder();
     if (res?.canceled) return;
     if ($('localRootDir')) $('localRootDir').value = res.rootDir || '';
-    if ($('localPythonPath') && !$('localPythonPath').value.trim() && res?.detection?.pythonPath) {
-      $('localPythonPath').value = res.detection.pythonPath;
-    }
+    // 解释器路径始终跟随新选的整合包目录（留空表示该目录未探测到解释器）
+    if ($('localPythonPath')) $('localPythonPath').value = res?.detection?.pythonPath || '';
     // 浏览回来的探测结果已在主进程算好，直接渲染，省一次 IPC
     const box = $('localDetectResult');
     if (box && res?.detection) {
       const d = res.detection;
       box.className = `detect-result ${d.ok ? 'ok' : 'error'}`;
       box.innerHTML = d.ok
-        ? `✔ 目录有效${d.hasRuntime ? '（已探测到整合包自带 runtime）' : ''}`
-        + (d.versions.length ? `，可用权重版本：${escHtml(d.versions.join(' / '))}` : '')
-        : `✘ ${d.issues.map(escHtml).join('<br>')}`;
+        ? `✔ 已识别到正确的 GPT-SoVITS 整合包（${d.hasRuntime ? '自带 Python' : '系统 Python'}）`
+          + (d.versions?.length ? `，可用权重版本：${escHtml(d.versions.join(' / '))}` : '')
+        : `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${shortEngineIssues(d.issues).join('；') || '缺少必要脚本'}）`;
+      if (d.ok) showToast(`已识别到正确的 GPT-SoVITS 整合包（${d.hasRuntime ? '自带 Python' : '系统 Python'}）`, 'ok');
     }
     updateSaveButton();
     await scanModelsIntoEditor();
   });
 
-  $('localRootDir')?.addEventListener('change', () => detectRootDir({ silent: true }));
+  $('localRootDir')?.addEventListener('change', () => detectRootDir());
 
   $('engineStartBtn')?.addEventListener('click', async () => {
     const btn = $('engineStartBtn');
@@ -4198,6 +4163,8 @@ async function saveVoiceFromEditor() {
   const targetVoiceId = editingVoiceId || `local_${Date.now().toString(36)}`;
 
   // —— 校验参考音频：GPT-SoVITS 要求 3~10 秒且可解析时长的 WAV ——
+  // 参考音频始终从本地选择并归档到插件安全目录（两种接入模式一致）
+  let finalRefAudioPath = refAudioPath;
   const durationRes = await window.momoVoiceSub?.engineReadAudioDuration?.({ filePath: refAudioPath });
   if (!durationRes?.ok) {
     return showToast('参考音频无法解析时长，请选择 3-10 秒的参考音频，且需要 wav 格式', 'error');
@@ -4207,7 +4174,6 @@ async function saveVoiceFromEditor() {
   }
 
   // 自动将参考音频归档到插件的安全数据目录，防止外部原始文件移动或删除导致音色失效
-  let finalRefAudioPath = refAudioPath;
   try {
     if (window.momoVoiceSub?.engineArchiveRefAudio) {
       const archiveRes = await window.momoVoiceSub.engineArchiveRefAudio({
@@ -4322,15 +4288,11 @@ function loadSettingsToForm() {
   const localTts = settings.localTts || {};
   const engine = localTts.engine || {};
   if ($('localServiceType')) $('localServiceType').value = localTts.serviceType || 'gpt-sovits';
-  setLocalMode(localTts.mode === 'url' ? 'url' : 'managed');
   if ($('localRootDir')) $('localRootDir').value = engine.rootDir || '';
   if ($('localPort')) $('localPort').value = engine.port || 9880;
   if ($('localPythonPath')) $('localPythonPath').value = engine.pythonPath || '';
   if ($('localScript')) $('localScript').value = engine.script || 'api_v2.py';
-  if ($('localBaseUrl')) $('localBaseUrl').value = localTts.baseUrl || '';
   if ($('localTextLang')) $('localTextLang').value = localTts.textLang || 'auto';
-  if ($('localTextLangUrl')) $('localTextLangUrl').value = localTts.textLang || 'auto';
-  applyLocalModeVisibility();
   renderLocalVoicesList();
   updateChannelEnableButtons();
   applyChannelCapabilityUI(isLocalChannelActive());
@@ -4444,12 +4406,10 @@ function settingsSnapshotFromForm() {
     region: $('azureRegion')?.value.trim() || '',
     rememberKey: $('rememberKey')?.checked || false,
     azureKeyDraft: $('azureKey')?.value.trim() || '',
-    localMode: getLocalMode(),
     localRootDir: $('localRootDir')?.value.trim() || '',
     localPort: $('localPort')?.value.trim() || '',
     localPythonPath: $('localPythonPath')?.value.trim() || '',
     localScript: $('localScript')?.value.trim() || '',
-    localBaseUrl: $('localBaseUrl')?.value.trim() || '',
     localTextLang: getLocalTextLang()
   };
 }
@@ -4473,14 +4433,13 @@ function updateSaveButton() {
 }
 
 function readSettingsFromForm(includeKey = true) {
-  // managed 模式下 baseUrl 是推导值（127.0.0.1:<port>），不进表单，
+  // baseUrl 是推导值（127.0.0.1:<port>），不进表单，
   // 交由主进程在启动服务时写回，这里不能覆盖成空串。
-  const mode = getLocalMode();
   const serviceType = $('localServiceType')?.value || 'gpt-sovits';
   const localTts = {
     ...(state.settings?.localTts || {}),
     serviceType,
-    mode,
+    mode: 'managed',
     engine: {
       ...(state.settings?.localTts?.engine || {}),
       rootDir: $('localRootDir')?.value.trim() || '',
@@ -4491,9 +4450,6 @@ function readSettingsFromForm(includeKey = true) {
     textLang: getLocalTextLang(),
     voices: state.settings?.localTts?.voices || []
   };
-  if (mode === 'url') {
-    localTts.baseUrl = $('localBaseUrl')?.value.trim() || '';
-  }
 
   const settings = {
     region: $('azureRegion')?.value.trim() || '',
@@ -5552,31 +5508,16 @@ function setupEvents() {
     });
   }
 
-  for (const id of ['azureRegion', 'azureKey', 'rememberKey', 'localServiceType', 'localModeSelect',
+  for (const id of ['azureRegion', 'azureKey', 'rememberKey', 'localServiceType',
     'localRootDir', 'localPort',
-    'localPythonPath', 'localScript', 'localBaseUrl',
-    'localTextLang', 'localTextLangUrl']) {
+    'localPythonPath', 'localScript',
+    'localTextLang']) {
     const el = $(id);
     if (el) {
       el.addEventListener('input', updateSaveButton);
       el.addEventListener('change', updateSaveButton);
     }
   }
-
-  // 接入方式下拉框切换
-  $('localModeSelect')?.addEventListener('change', () => {
-    applyLocalModeVisibility();
-    updateSaveButton();
-  });
-
-  // 兼容分段按钮切换（若存在）
-  $('localModeSeg')?.querySelectorAll('.seg-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      setLocalMode(btn.dataset.mode);
-      applyLocalModeVisibility();
-      updateSaveButton();
-    });
-  });
 
   if ($('saveLocalSettings')) {
     $('saveLocalSettings').addEventListener('click', saveSettings);
@@ -5588,37 +5529,6 @@ function setupEvents() {
   // 引擎进程实时日志
   if (typeof window.momoVoiceSub.onEngineLog === 'function') {
     window.momoVoiceSub.onEngineLog(appendEngineLog);
-  }
-
-  // 本地连接测试（URL 模式）
-  if ($('testLocalConn')) {
-    $('testLocalConn').addEventListener('click', async () => {
-      const btn = $('testLocalConn');
-      lastUrlConnState = 'testing';
-      updateLocalHeaderStatus();
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = '测试中...';
-      }
-      try {
-        await saveSettings();
-        const res = await window.momoVoiceSub.localTestConnection();
-        lastUrlConnState = 'connected';
-        updateLocalHeaderStatus();
-        const text = res.detail ? `${res.message} ${res.detail}` : (res.message || '服务已连接');
-        showToast(text, 'ok');
-      } catch (err) {
-        lastUrlConnState = 'error';
-        updateLocalHeaderStatus();
-        const cleanMsg = cleanErrorMessage(err);
-        showToast(`连接失败: ${cleanMsg}`, 'error');
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = '测试连接';
-        }
-      }
-    });
   }
 
   // 新增音色 → 打开音色编辑器
@@ -5643,10 +5553,7 @@ function setupEvents() {
           showToast('尚未登录云端账号，启用后配音可能失败，建议先登录', 'info');
         }
       } else if (targetChannel === 'local' && !isLocalConfigured()) {
-        const tip = getLocalMode() === 'managed'
-          ? '尚未配置整合包目录，建议先选择目录并启动服务'
-          : '尚未配置本地服务地址，建议先填写';
-        showToast(tip, 'info');
+        showToast('尚未配置整合包目录，建议先选择目录并启动服务', 'info');
       }
 
       state.settings = { ...(state.settings || {}), activeChannel: targetChannel };

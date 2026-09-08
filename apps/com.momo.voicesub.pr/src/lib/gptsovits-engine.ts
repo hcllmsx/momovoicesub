@@ -402,7 +402,7 @@ export async function launchGptSoVitsService({
   rootDir: string;
   port?: number;
   pythonPath?: string;
-}): Promise<{ status: 'reused' | 'starting'; baseUrl: string; manualBat?: boolean; batPath?: string }> {
+}): Promise<{ status: 'reused' | 'starting'; baseUrl: string; manualBat?: boolean; batPath?: string; pythonLabel?: string }> {
   const baseUrl = normalizeBaseUrl(`http://127.0.0.1:${port}`);
 
   // 1. 若当前端口已有服务在运行，直接复用
@@ -503,5 +503,5 @@ export async function launchGptSoVitsService({
     } catch (_) {}
   }
 
-  return { status: 'starting', baseUrl, manualBat, batPath };
+  return { status: 'starting', baseUrl, manualBat, batPath, pythonLabel: detection.hasRuntime ? '整合包自带 Python' : '系统 Python' };
 }

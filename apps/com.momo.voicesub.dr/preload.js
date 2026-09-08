@@ -47,7 +47,6 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   listVoices: (settings) => ipcRenderer.invoke('tts:listVoices', settings),
   testConnection: (settings) => ipcRenderer.invoke('tts:testConnection', settings),
   previewVoice: (shortName) => ipcRenderer.invoke('tts:previewVoice', shortName),
-  localTestConnection: () => ipcRenderer.invoke('local:testConnection'),
   // GPT-SoVITS 整合包引擎（托管模式）
   engineDetect: (payload) => ipcRenderer.invoke('engine:detect', payload),
   engineScanModels: (payload) => ipcRenderer.invoke('engine:scanModels', payload),

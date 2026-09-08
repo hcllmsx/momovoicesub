@@ -29,13 +29,11 @@ const DEFAULT_LOCAL_ENGINE = {
 
 /**
  * 本地部署配置。当前仅支持 GPT-SoVITS 原生 API (api_v2)。
- * mode:
- *   'managed' = 插件托管进程（配置整合包根目录，由插件拉起 api_v2.py）
- *   'url'     = 连接已有服务（手动填 Base URL，如部署在带显卡的远程机器）
+ * mode 固定为 'managed' = 插件托管进程（配置整合包根目录，由插件拉起 api_v2.py）
  */
 const DEFAULT_LOCAL_TTS = {
   serviceType: 'gpt-sovits', // 'gpt-sovits'
-  mode: 'managed', // 'managed' | 'url'
+  mode: 'managed',
   engine: { ...DEFAULT_LOCAL_ENGINE },
   baseUrl: '',
   textLang: 'auto', // 'auto' | 'zh' | 'en' | 'ja' | 'ko' | 'yue'
@@ -102,7 +100,7 @@ class SettingsStore {
     // 直接丢弃音色列表，保留 Base URL 供用户改接 GPT-SoVITS 服务。
     if (rawLocal.apiType && rawLocal.apiType !== 'gptsovits') {
       merged.localTts.voices = [];
-      merged.localTts.mode = 'url';
+      merged.localTts.mode = 'managed';
     }
     // 清理已废弃字段，避免脏数据长期滞留
     delete merged.localTts.apiType;
@@ -113,9 +111,8 @@ class SettingsStore {
     if (!['gpt-sovits'].includes(merged.localTts.serviceType)) {
       merged.localTts.serviceType = 'gpt-sovits';
     }
-    if (!['managed', 'url'].includes(merged.localTts.mode)) {
-      merged.localTts.mode = 'url';
-    }
+    // URL 接入方式已移除，固定为插件托管
+    merged.localTts.mode = 'managed';
     if (!Array.isArray(merged.localTts.voices)) {
       merged.localTts.voices = [];
     }

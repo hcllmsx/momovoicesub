@@ -3446,41 +3446,12 @@ $("openBuyPlan")?.addEventListener('click', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 let lastEngineInfo = { running: false, port: 9880, pid: null as any, state: 'stopped', errorMsg: '' };
-let lastUrlConnState: 'idle' | 'testing' | 'connected' | 'error' = 'idle';
 let scannedModels: ScannedModel[] = [];
 let editingVoiceId: string | null = null;
 let enginePollTimer: any = null;
 
-/** 读取当前接入方式：'managed' = 插件托管本地整合包；'url' = 连接已有服务 */
-function getLocalMode(): 'managed' | 'url' {
-  const sel = $("localModeSelect") as any;
-  return sel?.value === 'url' ? 'url' : 'managed';
-}
-
-function setLocalMode(mode: 'managed' | 'url') {
-  const sel = $("localModeSelect") as any;
-  if (sel) sel.value = mode;
-  applyLocalModeVisibility();
-}
-
-function applyLocalModeVisibility() {
-  const isManaged = getLocalMode() === 'managed';
-  const managedBox = $("localManagedBox");
-  const urlBox = $("localUrlBox");
-  const startBtn = $("engineStartBtn");
-  const stopBtn = $("engineStopBtn");
-  const testBtn = $("testLocalConn");
-  if (managedBox) managedBox.classList.toggle('hidden', !isManaged);
-  if (urlBox) urlBox.classList.toggle('hidden', isManaged);
-  if (startBtn) startBtn.classList.toggle('hidden', !isManaged);
-  if (stopBtn) stopBtn.classList.toggle('hidden', !isManaged);
-  if (testBtn) testBtn.classList.toggle('hidden', isManaged);
-  updateLocalHeaderStatus();
-}
-
 function getLocalTextLang(): string {
-  if (getLocalMode() === 'managed') return ($("localTextLang") as any)?.value || 'auto';
-  return ($("localTextLangUrl") as any)?.value || 'auto';
+  return ($("localTextLang") as any)?.value || 'auto';
 }
 
 /** 更新卡片头部右上角的状态徽章 */
@@ -3495,47 +3466,26 @@ function updateLocalHeaderStatus(stateStr?: string, portNum?: number) {
   }
   badge.classList.remove('hidden');
 
-  const isManaged = getLocalMode() === 'managed';
-  if (isManaged) {
-    if (lastEngineInfo.state === 'starting') {
-      badge.className = 'header-engine-badge status-starting';
-      badge.textContent = '启动中...';
-      badge.title = '正在启动本地服务并探测接口';
-    } else if (lastEngineInfo.state === 'stopping') {
-      badge.className = 'header-engine-badge status-starting';
-      badge.textContent = '停止中...';
-      badge.title = '正在停止本地服务';
-    } else if (lastEngineInfo.state === 'error') {
-      badge.className = 'header-engine-badge status-error';
-      badge.textContent = '启动失败';
-      badge.title = lastEngineInfo.errorMsg || '服务启动失败';
-    } else if (lastEngineInfo.running) {
-      badge.className = 'header-engine-badge status-running';
-      badge.textContent = `运行中: ${lastEngineInfo.port || 9880}`;
-      badge.title = `服务运行中 (端口: ${lastEngineInfo.port || 9880})`;
-    } else {
-      badge.className = 'header-engine-badge';
-      badge.textContent = '未启动';
-      badge.title = '本地服务未启动';
-    }
+  if (lastEngineInfo.state === 'starting') {
+    badge.className = 'header-engine-badge status-starting';
+    badge.textContent = '启动中...';
+    badge.title = '正在启动本地服务并探测接口';
+  } else if (lastEngineInfo.state === 'stopping') {
+    badge.className = 'header-engine-badge status-starting';
+    badge.textContent = '停止中...';
+    badge.title = '正在停止本地服务';
+  } else if (lastEngineInfo.state === 'error') {
+    badge.className = 'header-engine-badge status-error';
+    badge.textContent = '启动失败';
+    badge.title = lastEngineInfo.errorMsg || '服务启动失败';
+  } else if (lastEngineInfo.running) {
+    badge.className = 'header-engine-badge status-running';
+    badge.textContent = `运行中: ${lastEngineInfo.port || 9880}`;
+    badge.title = `服务运行中 (端口: ${lastEngineInfo.port || 9880})`;
   } else {
-    if (lastUrlConnState === 'testing') {
-      badge.className = 'header-engine-badge status-starting';
-      badge.textContent = '测试中...';
-      badge.title = '正在测试连接...';
-    } else if (lastUrlConnState === 'connected') {
-      badge.className = 'header-engine-badge status-running';
-      badge.textContent = '已连接';
-      badge.title = ($("localBaseUrl") as any)?.value?.trim() || '服务正常';
-    } else if (lastUrlConnState === 'error') {
-      badge.className = 'header-engine-badge status-error';
-      badge.textContent = '未连接';
-      badge.title = '连接失败，请确认服务已启动且端口正确';
-    } else {
-      badge.className = 'header-engine-badge';
-      badge.textContent = '未测试';
-      badge.title = '点击测试连接验证服务状态';
-    }
+    badge.className = 'header-engine-badge';
+    badge.textContent = '未启动';
+    badge.title = '本地服务未启动';
   }
 
   syncEngineButtonsUI();
@@ -3543,10 +3493,8 @@ function updateLocalHeaderStatus(stateStr?: string, portNum?: number) {
 
 /** 同步本地托管模式下的启动/停止按钮状态 */
 function syncEngineButtonsUI() {
-  const isManaged = getLocalMode() === 'managed';
   const startBtn = $("engineStartBtn") as any;
   const stopBtn = $("engineStopBtn") as any;
-  if (!isManaged) return;
 
   const isRunning = Boolean(lastEngineInfo.running);
   const isStarting = lastEngineInfo.state === 'starting';
@@ -3630,62 +3578,57 @@ async function updateChannelEnableButtons() {
   applyChannelCapabilityUI(isLocalChannelActive());
 }
 
-/** 探测并显示整合包信息 */
-async function detectLocalEngine(rootDir: string) {
+/** 探测并显示整合包信息：成功本次会话内常驻绿色提示（重开插件不回显），错误持久显示在目录下方 */
+async function detectLocalEngine(rootDir: string, opts?: { notifySuccess?: boolean; hideSuccess?: boolean }) {
   const resultEl = $("localDetectResult");
   if (!resultEl) return;
-  if (!rootDir) {
-    resultEl.classList.add("hidden");
+  if (!rootDir || !rootDir.trim()) {
+    resultEl.className = "detect-result hidden";
     resultEl.textContent = "";
     return;
   }
   try {
     const det = await engineDetect(rootDir);
-    resultEl.classList.remove("hidden");
     if (det.ok) {
-      resultEl.className = "detect-result detect-success";
-      resultEl.textContent = `已识别 GPT-SoVITS 整合包（${det.hasRuntime ? '自带 Python 环境' : '系统 Python'}）`;
+      if (opts?.hideSuccess) {
+        // 页面加载回显时不显示成功状态（与 DR 版一致：成功只在本次会话内常驻）
+        resultEl.className = "detect-result hidden";
+        resultEl.textContent = "";
+      } else {
+        resultEl.className = "detect-result ok";
+        resultEl.textContent = `✔ 已识别到正确的 GPT-SoVITS 整合包（${det.hasRuntime ? '自带 Python' : '系统 Python'}）`
+          + (det.versions?.length ? `，可用权重版本：${det.versions.join(' / ')}` : '');
+      }
+      if (opts?.notifySuccess) {
+        showToast(`已识别到正确的 GPT-SoVITS 整合包（${det.hasRuntime ? '自带 Python' : '系统 Python'}）`, "success");
+      }
     } else {
-      resultEl.className = "detect-result detect-error";
-      resultEl.textContent = `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${(det.issues || []).join('；') || '缺少必要脚本'}）`;
+      // 把探测问题压缩成短语，避免整段长文案
+      const shortIssues = [...new Set((det.issues || []).map(i => i.includes('Python') ? '未找到 Python 解释器' : '缺少 api_v2.py / webui.py 脚本'))];
+      resultEl.className = "detect-result error";
+      resultEl.textContent = `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${shortIssues.join('；') || '缺少必要脚本'}）`;
     }
   } catch (e: any) {
-    resultEl.className = "detect-result detect-error";
+    resultEl.className = "detect-result error";
     resultEl.textContent = `探测失败：${e.message || e}`;
   }
 }
 
 /** 探测本地服务是否可连通 */
-async function checkLocalServiceStatus(silent: boolean = true) {
+async function checkLocalServiceStatus() {
   const settings = await settingsStore.load();
-  const isManaged = getLocalMode() === 'managed';
-  let url = '';
-  if (isManaged) {
-    const port = parseInt(($("localPort") as any)?.value || String(settings.localTts?.engine?.port || 9880), 10);
-    url = `http://127.0.0.1:${port}`;
-  } else {
-    url = ($("localBaseUrl") as any)?.value?.trim() || settings.localTts?.baseUrl || '';
-  }
-  if (!url) return;
+  const port = parseInt(($("localPort") as any)?.value || String(settings.localTts?.engine?.port || 9880), 10);
+  const url = `http://127.0.0.1:${port}`;
   try {
     const res = await probeGptSoVits(url);
-    if (isManaged) {
-      lastEngineInfo.running = Boolean(res.ok && res.ready);
-      lastEngineInfo.port = parseInt(($("localPort") as any)?.value || '9880', 10);
-      lastEngineInfo.state = lastEngineInfo.running ? 'running' : 'stopped';
-    } else {
-      lastUrlConnState = (res.ok && res.ready) ? 'connected' : (silent ? 'idle' : 'error');
-    }
-    updateLocalHeaderStatus();
+    lastEngineInfo.running = Boolean(res.ok && res.ready);
+    lastEngineInfo.port = port;
+    lastEngineInfo.state = lastEngineInfo.running ? 'running' : 'stopped';
   } catch {
-    if (isManaged) {
-      lastEngineInfo.running = false;
-      lastEngineInfo.state = 'stopped';
-    } else {
-      lastUrlConnState = silent ? 'idle' : 'error';
-    }
-    updateLocalHeaderStatus();
+    lastEngineInfo.running = false;
+    lastEngineInfo.state = 'stopped';
   }
+  updateLocalHeaderStatus();
 }
 
 /** 将本地设置回填至表单 */
@@ -3694,48 +3637,36 @@ async function loadLocalSettingsToForm() {
   const local = (settings.localTts || DEFAULT_LOCAL_TTS) as any;
   const serviceTypeSel = $("localServiceType") as any;
   if (serviceTypeSel) serviceTypeSel.value = local.serviceType || 'gpt-sovits';
-  setLocalMode(local.mode === 'url' ? 'url' : 'managed');
 
   const rootDirInput = $("localRootDir") as any;
   if (rootDirInput) rootDirInput.value = local.engine?.rootDir || '';
   const portInput = $("localPort") as any;
   if (portInput) portInput.value = String(local.engine?.port || 9880);
-  const baseUrlInput = $("localBaseUrl") as any;
-  if (baseUrlInput) baseUrlInput.value = local.baseUrl || '';
   const textLangManaged = $("localTextLang") as any;
   if (textLangManaged) textLangManaged.value = local.textLang || 'auto';
-  const textLangUrl = $("localTextLangUrl") as any;
-  if (textLangUrl) textLangUrl.value = local.textLang || 'auto';
 
   renderLocalVoicesList();
-  applyLocalModeVisibility();
 
-  if (local.engine?.rootDir) {
-    detectLocalEngine(local.engine.rootDir);
-  }
-  checkLocalServiceStatus(true);
+  detectLocalEngine(local.engine?.rootDir || '', { hideSuccess: true });
+  checkLocalServiceStatus();
 }
 
 /** 保存本地设置 */
 async function saveLocalSettings() {
   const settings = await settingsStore.load();
-  const mode = getLocalMode();
   const serviceType = ($("localServiceType") as any)?.value || 'gpt-sovits';
   const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
   const port = parseInt(($("localPort") as any)?.value || '9880', 10);
   const textLang = getLocalTextLang();
-  const rawUrl = ($("localBaseUrl") as any)?.value?.trim() || '';
-  const baseUrl = mode === 'managed' ? `http://127.0.0.1:${port}` : rawUrl;
 
   const localTts: LocalTtsSettings = {
     serviceType: 'gpt-sovits',
-    mode,
-    baseUrl,
+    mode: 'managed',
+    baseUrl: `http://127.0.0.1:${port}`,
     textLang,
     engine: {
       rootDir,
       port,
-      pythonPath: settings.localTts?.engine?.pythonPath || '',
       script: settings.localTts?.engine?.script || 'api_v2.py'
     },
     voices: (settings.localTts?.voices || []) as any
@@ -3743,6 +3674,7 @@ async function saveLocalSettings() {
 
   await settingsStore.save({ localTts });
   showToast("本地部署设置已保存", "success");
+  detectLocalEngine(rootDir, { notifySuccess: true });
   await updateChannelEnableButtons();
   if (isLocalChannelActive()) {
     await syncLocalVoices();
@@ -4283,6 +4215,7 @@ async function saveVoiceFromEditor() {
   const targetVoiceId = editingVoiceId || `local_${Date.now().toString(36)}`;
 
   // —— 参考音频校验：GPT-SoVITS 要求 3~10 秒且可解析时长的 WAV ——
+  // 参考音频始终从本地选择并归档到插件安全目录（两种接入模式一致）
   let finalRefAudioPath = refAudioPath;
   const audioBuffer = await readAudioFileBuffer(refAudioPath);
   let wavInfo: ReturnType<typeof getWavInfo> | null = null;
@@ -4374,16 +4307,20 @@ function bindLocalTtsEvents() {
       if (folder && folder.nativePath) {
         const rootDirInput = $("localRootDir") as any;
         if (rootDirInput) rootDirInput.value = folder.nativePath;
-        detectLocalEngine(folder.nativePath);
+        detectLocalEngine(folder.nativePath, { notifySuccess: true });
       }
     } catch (e: any) {
       console.warn('[browseRootDir] 取消或失败:', e);
     }
   });
 
-  // 模式切换
-  $("localModeSelect")?.addEventListener('change', () => {
-    applyLocalModeVisibility();
+  // 手动输入路径时实时探测（防抖 400ms）
+  let rootDirDetectTimer: any = null;
+  $("localRootDir")?.addEventListener('input', () => {
+    if (rootDirDetectTimer) clearTimeout(rootDirDetectTimer);
+    rootDirDetectTimer = setTimeout(() => {
+      detectLocalEngine((($("localRootDir") as any)?.value || '').trim(), { notifySuccess: true });
+    }, 400);
   });
 
   // 启动本地服务
@@ -4424,7 +4361,7 @@ function bindLocalTtsEvents() {
       }
 
       if ((launchRes as any).manualBat) {
-        showToast("已在整合包目录生成「momo_start_api_v2.bat」并打开文件夹，请双击运行它，插件正在等待连接...", "info");
+        showToast(`已在整合包目录生成「momo_start_api_v2.bat」（使用${launchRes.pythonLabel || '本地 Python'}）并打开文件夹，请双击运行它，插件正在等待连接...`, "info");
       } else {
         showToast("已唤起启动脚本，正在等待本地服务初始化就绪...", "info");
       }
@@ -4504,42 +4441,9 @@ function bindLocalTtsEvents() {
       }
       if (checkCount >= 10) {
         clearInterval(stopCheckTimer);
-        await checkLocalServiceStatus(true);
+        await checkLocalServiceStatus();
       }
     }, 2000);
-  });
-
-  // URL 模式下测试连接
-  $("testLocalConn")?.addEventListener('click', async () => {
-    const rawUrl = ($("localBaseUrl") as any)?.value?.trim() || '';
-    if (!rawUrl) {
-      showToast("请输入服务地址（URL）", "error");
-      return;
-    }
-    const testBtn = $("testLocalConn") as any;
-    if (testBtn) testBtn.setAttribute('disabled', 'true');
-    lastUrlConnState = 'testing';
-    updateLocalHeaderStatus();
-    showToast("正在测试与 GPT-SoVITS 服务连接...", "info");
-
-    try {
-      const probe = await probeGptSoVits(rawUrl);
-      if (probe.ok && probe.ready) {
-        lastUrlConnState = 'connected';
-        updateLocalHeaderStatus();
-        showToast("连接成功，GPT-SoVITS 服务正常响应", "success");
-      } else {
-        lastUrlConnState = 'error';
-        updateLocalHeaderStatus();
-        showToast(`连接失败：${probe.error || '服务未就绪'}`, "error");
-      }
-    } catch (e: any) {
-      lastUrlConnState = 'error';
-      updateLocalHeaderStatus();
-      showToast(`连接失败：${e.message || e}`, "error");
-    } finally {
-      if (testBtn) testBtn.removeAttribute('disabled');
-    }
   });
 
   // 保存本地部署设置
@@ -5235,7 +5139,7 @@ function renderSubtitleList() {
     // 连读按钮：第一行没有"上一句"可连
     // UXP 对原生 <button> 的 click 事件不可靠（见 CLAUDE.md），统一用 div + role/tabindex + mousedown 阻止抢焦点
     const linkCell = idx > 0
-      ? `<div class="sub-link-btn" role="button" tabindex="0" data-id="${item.id}" title="点击与上一句连读：合并为一句话配音，语气更连贯">🔗</div>`
+      ? `<div class="sub-link-btn" role="button" tabindex="0" data-id="${item.id}" title="点击与上一句连读：合并为一句话配音，语气更连贯；Shift+点击：连读到本行为止（不并入已有连读组）">🔗</div>`
       : `<span class="sub-link-placeholder"></span>`;
     html += `
       <div class="sub-item-row" id="sub-row-${item.id}">
@@ -5258,20 +5162,35 @@ function renderSubtitleList() {
   setDisableAllBtnLabel(false);
 
   // 连读按钮：切换本行是否与上一行合并为同一句话
+  // Shift+点击：连读到本行为止 —— 把本行及上方连续可连的行全部打上连读标记
   // UXP 不允许原生 button + 直接监听 click（事件不可靠），用 div + mousedown preventDefault
   wrap.querySelectorAll(".sub-link-btn").forEach(btn => {
     const btnEl = btn as any;
-    const toggle = () => {
+    const toggle = (e: any) => {
       if (btnEl.getAttribute("aria-disabled") === "true") return;
       const id = parseInt(btnEl.getAttribute("data-id") || "0", 10);
-      if (state.linkedIds.has(id)) state.linkedIds.delete(id);
-      else state.linkedIds.add(id);
+      if (e && e.shiftKey) {
+        const idx = state.subtitleItems.findIndex(it => it.id === id);
+        for (let k = idx; k >= 1; k--) {
+          // 本行已有连读标记：它属于上方某个已有连读组，到此为止，不并入
+          if (state.linkedIds.has(state.subtitleItems[k].id)) break;
+          // 关键：上一行已有连读标记时必须停止——再给本行打标记会把上一行的组整个吸收进来
+          if (state.linkedIds.has(state.subtitleItems[k - 1].id)) break;
+          // 相邻两行都必须已勾选才能连；遇到第一个不可连的位置即停止
+          if (!isSubRowChecked(state.subtitleItems[k - 1].id) || !isSubRowChecked(state.subtitleItems[k].id)) break;
+          state.linkedIds.add(state.subtitleItems[k].id);
+        }
+      } else if (state.linkedIds.has(id)) {
+        state.linkedIds.delete(id);
+      } else {
+        state.linkedIds.add(id);
+      }
       refreshLinkGroupVisuals();
     };
     btnEl.addEventListener("mousedown", (e: any) => { e.preventDefault(); });
-    btnEl.addEventListener("click", (e: any) => { e.preventDefault(); toggle(); });
+    btnEl.addEventListener("click", (e: any) => { e.preventDefault(); toggle(e); });
     btnEl.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(null); }
     });
   });
 
@@ -5287,6 +5206,13 @@ function renderSubtitleList() {
 // 连读分组左侧色条 class：颜色定义在 CSS，JS 只切换 class（UXP 对 inline style 的
 // borderLeftColor 赋值不可靠，且不支持 transparent 关键字）。同组同色、相邻组异色，按组序号轮换。
 const LINK_GROUP_CLASSES = ["link-group-0", "link-group-1", "link-group-2", "link-group-3", "link-group-4"];
+
+/** 读取某行字幕的勾选状态（sp-checkbox 未升级时回退读 checked 属性） */
+function isSubRowChecked(id: number): boolean {
+  const cb = document.querySelector(`.sub-row-checkbox[data-id="${id}"]`) as any;
+  if (!cb) return false;
+  return typeof cb.checked === "boolean" ? cb.checked : cb.hasAttribute("checked");
+}
 
 /**
  * 依据「当前勾选状态 + 连读标记」刷新每行的分组视觉（左侧色条、按钮高亮）。
@@ -5338,7 +5264,9 @@ function refreshLinkGroupVisuals() {
       btn.setAttribute("aria-disabled", prevChecked ? "false" : "true");
       btn.title = !prevChecked
         ? "上一行未勾选，无法连读"
-        : (linked ? "已与上一句连读，点击断开" : "点击与上一句连读：合并为一句话配音，语气更连贯");
+        : (linked
+          ? "已与上一句连读，点击断开"
+          : "点击与上一句连读：合并为一句话配音，语气更连贯；Shift+点击：连读到本行为止（不并入已有连读组）");
     }
     if (size > 1) groupIdx++;
     groupStart = i + 1;

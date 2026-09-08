@@ -449,11 +449,6 @@ function registerIpcHandlers() {
     };
   });
 
-  registerLoggedHandler('local:testConnection', async () => {
-    if (!localTtsProvider) throw new Error('LocalTtsProvider 未初始化');
-    return localTtsProvider.testConnection();
-  });
-
   // ── GPT-SoVITS 引擎（托管模式）─────────────────────────────────────────
 
   registerLoggedHandler('engine:detect', async (_event, { rootDir, pythonPath } = {}) => {

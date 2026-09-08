@@ -408,25 +408,18 @@
                       <option value="gpt-sovits" selected>GPT-SoVITS</option>
                     </select>
                   </div>
-                  <div class="setting-col-mode">
-                    <label>接入方式</label>
-                    <select id="localModeSelect" class="select-input">
-                      <option value="managed" selected>插件托管（本地整合包）</option>
-                      <option value="url">连接已有服务（URL）</option>
-                    </select>
-                  </div>
                 </div>
 
                 <!-- ── 托管模式：配置整合包目录，由插件拉起 api_v2.py ── -->
                 <div id="localManagedBox" class="local-mode-box">
                   <div class="local-tts-row">
                     <div class="setting-col-root-dir">
-                      <label>GPT-SoVITS 整合包目录</label>
+                      <label>请选择 GPT-SoVITS 整合包目录：</label>
+                      <div class="field-hint">模型训练请在整合包自带的 webui（go-webui.bat）中完成，本插件只使用训练产物。</div>
                       <div class="input-with-btn">
                         <input id="localRootDir" type="text" placeholder="例如 D:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604">
                         <button type="button" id="browseRootDir" class="btn btn-xs btn-secondary">浏览…</button>
                       </div>
-                      <div class="field-hint">训练请在整合包自带的 webui（go-webui.bat）中完成，插件只负责使用训练产物。</div>
                     </div>
                   </div>
 
@@ -476,29 +469,7 @@
                   </div>
                 </div>
 
-                <!-- ── URL 模式：连到已有服务（如装在带显卡的远程机器）── -->
-                <div id="localUrlBox" class="local-mode-box hidden">
-                  <div class="local-tts-row">
-                    <div class="setting-col-base-url">
-                      <label>服务地址 (Base URL)</label>
-                      <input id="localBaseUrl" type="text" placeholder="http://127.0.0.1:9880 或远程地址亦可">
-                    </div>
-                    <div class="setting-col-lang">
-                      <label>文本语言</label>
-                      <select id="localTextLangUrl" class="select-input">
-                        <option value="auto">自动识别 (auto)</option>
-                        <option value="zh">中文 (zh)</option>
-                        <option value="en">英文 (en)</option>
-                        <option value="ja">日文 (ja)</option>
-                        <option value="ko">韩文 (ko)</option>
-                        <option value="yue">粤语 (yue)</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="field-hint">需自行在目标机器上启动 <code>api_v2.py</code>（默认端口 9880）。注意不要填 webui 的 9874 端口。</div>
-                </div>
-
-                <!-- ── 音色管理（两种模式共用）── -->
+                <!-- ── 音色管理 ── -->
                 <div class="local-voices-section">
                   <div class="local-voices-header">
                     <span class="local-section-title">音色库</span>
@@ -518,7 +489,6 @@
               <div class="card-footer settings-actions">
                 <button type="button" id="engineStartBtn" class="btn btn-secondary">▶ 启动服务</button>
                 <button type="button" id="engineStopBtn" class="btn btn-secondary" disabled>■ 停止服务</button>
-                <button type="button" id="testLocalConn" class="btn btn-secondary hidden">测试连接</button>
                 <button id="saveLocalSettings" class="btn btn-primary">保存设置</button>
                 <button class="btn btn-secondary channel-enable-btn" data-enable-channel="local">启用此通道</button>
               </div>

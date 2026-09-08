@@ -18,7 +18,6 @@ export interface VoiceInfo {
 export interface LocalTtsEngineSettings {
   rootDir: string;
   port: number;
-  pythonPath: string;
   script: string;
 }
 
@@ -41,7 +40,7 @@ export interface LocalTtsVoice {
 
 export interface LocalTtsSettings {
   serviceType: 'gpt-sovits';
-  mode: 'managed' | 'url';
+  mode: 'managed';
   engine: LocalTtsEngineSettings;
   baseUrl: string;
   textLang: string;
@@ -55,7 +54,6 @@ export const DEFAULT_LOCAL_TTS: LocalTtsSettings = {
   engine: {
     rootDir: '',
     port: 9880,
-    pythonPath: '',
     script: 'api_v2.py'
   },
   baseUrl: 'http://127.0.0.1:9880',
@@ -145,12 +143,11 @@ export class SettingsStore {
     const rawLocal = (settings as any)?.localTts || {};
     merged.localTts = {
       serviceType: rawLocal.serviceType || 'gpt-sovits',
-      // 缺省为 'managed'（插件托管），与 DR 版习惯一致：仅显式 'url' 才视为连接已有服务
-      mode: rawLocal.mode === 'url' ? 'url' : 'managed',
+      // URL 接入方式已移除，固定为插件托管（旧配置中的 url 一并降级）
+      mode: 'managed',
       engine: {
         rootDir: rawLocal.engine?.rootDir || '',
         port: Number(rawLocal.engine?.port) || 9880,
-        pythonPath: rawLocal.engine?.pythonPath || '',
         script: rawLocal.engine?.script || 'api_v2.py'
       },
       baseUrl: rawLocal.baseUrl || 'http://127.0.0.1:9880',

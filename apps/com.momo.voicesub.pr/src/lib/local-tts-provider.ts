@@ -282,7 +282,7 @@ export class LocalTtsProvider {
   }
 
   async getConfig(): Promise<{
-    mode: 'managed' | 'url';
+    mode: 'managed';
     engine: any;
     baseUrl: string;
     textLang: string;
@@ -292,12 +292,11 @@ export class LocalTtsProvider {
     const localTts = settings?.localTts || {};
     const engine = localTts.engine || {};
 
-    const baseUrl = localTts.mode === 'managed'
-      ? normalizeBaseUrl(`http://127.0.0.1:${engine.port || 9880}`)
-      : normalizeBaseUrl(localTts.baseUrl);
+    // 仅支持插件托管：服务固定监听 127.0.0.1:<port>
+    const baseUrl = normalizeBaseUrl(`http://127.0.0.1:${engine.port || 9880}`);
 
     return {
-      mode: localTts.mode === 'managed' ? 'managed' : 'url',
+      mode: 'managed',
       engine,
       baseUrl,
       textLang: localTts.textLang || 'auto',

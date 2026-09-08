@@ -3133,6 +3133,11 @@ font-weight: 500;
   color: #e57373;
 }
 
+/* 整合包目录下的说明文字相对标题缩进，作为次级说明呈现 */
+#localManagedBox .field-hint {
+  padding-left: 10px;
+}
+
 .local-mode-box {
   display: flex;
   flex-direction: column;

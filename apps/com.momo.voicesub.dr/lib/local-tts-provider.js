@@ -256,9 +256,7 @@ class GptSoVitsAdapter {
  * LocalTtsProvider
  * 仅支持 GPT-SoVITS 原生协议 (api_v2)，管理本地音色与合成缓存。
  *
- * baseUrl 的来源由 localTts.mode 决定：
- *   'managed' → 由插件托管的进程提供，地址恒为 http://127.0.0.1:<engine.port>
- *   'url'     → 用户手填的远程/本机地址
+ * baseUrl 由插件托管的进程提供，地址恒为 http://127.0.0.1:<engine.port>
  */
 class LocalTtsProvider {
   constructor({ getSettings, cacheDir, fetchImpl }) {
@@ -274,13 +272,11 @@ class LocalTtsProvider {
     const localTts = settings?.localTts || {};
     const engine = localTts.engine || {};
 
-    // managed 模式下 baseUrl 由端口推导（插件托管的服务固定监听 127.0.0.1）
-    const baseUrl = localTts.mode === 'managed'
-      ? normalizeBaseUrl(`http://127.0.0.1:${engine.port || 9880}`)
-      : normalizeBaseUrl(localTts.baseUrl);
+    // 仅支持插件托管：服务固定监听 127.0.0.1:<port>
+    const baseUrl = normalizeBaseUrl(`http://127.0.0.1:${engine.port || 9880}`);
 
     return {
-      mode: localTts.mode === 'managed' ? 'managed' : 'url',
+      mode: 'managed',
       engine,
       baseUrl,
       textLang: localTts.textLang || 'auto',
@@ -323,39 +319,6 @@ class LocalTtsProvider {
    */
   resetWeightCache() {
     this.gptsovitsAdapter.resetWeightCache();
-  }
-
-  /**
-   * 测试服务连通性。
-   *
-   * 注意：GPT-SoVITS 的 api_v2 服务不提供"音色列表"接口，
-   * 音色是「GPT权重 + SoVITS权重 + 参考音频 + 参考文本」的组合，由本插件本地维护。
-   * 因此这里同时报告两件互不相关的事，措辞必须分开，避免误导。
-   */
-  async testConnection() {
-    const config = await this._getConfig();
-    if (!config.baseUrl) {
-      throw new Error(config.mode === 'managed'
-        ? '未配置 GPT-SoVITS 整合包目录或端口。'
-        : '未配置本地服务地址 (Base URL)。');
-    }
-
-    const probe = await probeGptSoVits({
-      baseUrl: config.baseUrl,
-      fetchImpl: this.fetchImpl
-    });
-
-    return {
-      ok: true,
-      baseUrl: config.baseUrl,
-      endpoints: probe.endpoints,
-      // 服务端音色数对 GPT-SoVITS 恒为 0（服务端无此概念），这里报的是本地已入库的音色数
-      count: config.voices.length,
-      message: `GPT-SoVITS 服务已连接（${config.baseUrl}）。`,
-      detail: config.voices.length
-        ? `本地音色库共 ${config.voices.length} 个音色。`
-        : '本地音色库为空：点击下方「+ 新增音色」，选择已训练的模型并指定参考音频即可开始配音。'
-    };
   }
 
   /**

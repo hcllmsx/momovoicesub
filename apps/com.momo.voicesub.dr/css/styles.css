@@ -4374,6 +4374,11 @@ z-index: 1100 !important;
   font-size: 10px;
 }
 
+/* 整合包目录下的说明文字相对标题缩进，作为次级说明呈现（与 PR 版一致） */
+#localManagedBox .field-hint {
+  padding-left: 10px;
+}
+
 /* 目录探测结果 */
 .detect-result {
   padding: 8px 10px;
