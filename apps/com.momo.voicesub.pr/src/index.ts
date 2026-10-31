@@ -3541,7 +3541,7 @@ async function showWeightMigrationDialog(opts: {
     const result = await showUxPDialog(dialog, {
       title: "自动迁移模型权重",
       resize: "none",
-      width: 360,
+      width: 520,
       height: 420
     });
     return result === 'ok';
