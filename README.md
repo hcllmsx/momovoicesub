@@ -181,73 +181,9 @@ powershell -ExecutionPolicy Bypass -File .\installer\build.ps1
 
 ## 版本发布流程
 
-项目以 `VERSION` 文件作为版本号唯一真相源，DR 和 PR 各自独立版本号。发布新版本时需按以下步骤同步版本号并验证构建：
+项目根目录的 `VERSION` 用于构建时写入 DR / PR 插件元数据。正式版本以 GitHub 上发布的 `v<版本号>` tag 为准：更新 `VERSION` 并完成构建验证后，推送对应 tag 即触发 Release 工作流。官网版本标签与插件内检查更新均以最新正式 Release tag 为准，未发布的 `VERSION` 不会提前提示更新。
 
-### 1. 修改版本号
-
-编辑 `VERSION` 文件：
-
-```text
-com.momo.voicesub.dr.version=26.8.2
-com.momo.voicesub.pr.version=26.7.31
-```
-
-### 2. 同步版本号到插件（必须本地执行）
-
-```powershell
-# DR 版：同步 VERSION → manifest.xml
-powershell -ExecutionPolicy Bypass -File .\scripts\dr-install.ps1
-
-# PR 版：同步 VERSION → manifest.json，并构建 dist-dev/
-powershell -ExecutionPolicy Bypass -File .\scripts\pr-install.ps1
-```
-
-> ⚠️ 这一步是必须的。GitHub Actions 不会帮你同步 `package.json` / `manifest`，如果这两个文件没同步，安装包里的插件版本就是旧的。
-
-### 3. 本地验证打包（推荐）
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\installer\build.ps1
-```
-
-这一步会：
-
-- 从 `VERSION` 读取版本号，**自动同步到 `dr-setup.iss` 和 `pr-setup.iss`** 的 `#define MyAppVersion` 行
-- 构建 PR 插件 `dist/`
-- 准备 `installer/payload/`（DR 和 PR 分别打包）
-- 调用 Inno Setup 编译产出两个 exe 到 `_output/`
-
-> 💡 `.iss` 文件里的版本号即使没手动同步，`build.ps1` 也会在构建时自动改写，GitHub Actions 同样会执行这个同步。但本地先跑一遍可以提前发现构建错误、验证 payload 完整性，并保持 git 仓库干净（同步后的 `.iss` 一并 commit）。
-
-### 4. 提交并推送
-
-```powershell
-git add VERSION apps/ installer/dr-setup.iss installer/pr-setup.iss
-git commit -m "release: v26.8.2 / v26.7.31"
-git push
-```
-
-### 5. 打标签触发 GitHub Actions 自动发布
-
-```powershell
-git tag v26.8.2
-git push origin v26.8.2
-```
-
-推送 `v*` 标签后，`.github/workflows/release.yml` 会自动在 `windows-latest` 上：
-
-1. `npm ci` + `npm run build` 构建 PR 插件
-2. `choco install innosetup` 安装 Inno Setup
-3. `installer/build.ps1` 读取 `VERSION` → 准备 payload → 同步 `.iss` 版本号 → ISCC 编译
-4. 产出 `momovoicesub-dr-setup-v*.exe` 和 `momovoicesub-pr-setup-v*.exe`
-5. 自动创建 GitHub Release 并上传两个安装包
-
-> 也可通过 Actions 页面 `workflow_dispatch` 手动触发，仅构建产出 artifact 供测试，不会发布 Release。
-
-### 关于 .iss 文件
-
-`dr-setup.iss` / `pr-setup.iss` 是 Inno Setup 的**源代码**，不是构建产物，必须纳入 git。`build.ps1` 只自动改写其中的版本号那一行，其余 200+ 行（`[Setup]` 配置、`[Files]` 打包规则、`[Code]` 段的达芬奇检测 / 卸载弹窗 UI 等）都是手工编写的编译指令，GitHub Actions 离了它无法打包。
-
+安装包仍按官网「下载客户端」弹窗所示渠道获取：通过 B 站私信或 QQ 群公告查看网盘下载指引。GitHub Release 用于发布版本说明，不直接提供安装包下载。
 ## 本地开发与云端环境
 
 DR 版插件根据 manifest Id 自动判断运行环境：

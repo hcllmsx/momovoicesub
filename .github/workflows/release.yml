@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Prepare release notes
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          if ($version -notmatch '^\d+(\.\d+)+$') {
+            throw "Tag must use v<CalVer>, received: $env:RELEASE_TAG"
+          }
+
+          $changelog = Get-Content -Raw -Encoding UTF8 'CHANGELOG.md'
+          $escapedVersion = [regex]::Escape($version)
+          $pattern = '(?ms)^##\s+\[?v?' + $escapedVersion + '\]?.*?\r?\n(.*?)(?=^##\s+|\z)'
+          if ($changelog -notmatch $pattern) {
+            throw "CHANGELOG.md has no entry for v$version"
+          }
+
+          $notes = $matches[1].Trim()
+          $lines = @(
+            '### 更新内容',
+            $notes,
+            '---',
+            '### 获取方式',
+            '请前往默默配音助手官网，点击“下载客户端”，按弹窗中的 B 站私信或 QQ 群公告指引获取网盘下载信息。'
+          )
+          $body = $lines -join "`n`n"
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'release_notes.txt'), $body, [System.Text.Encoding]::UTF8)
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: '默默配音助手 ${{ github.ref_name }}'
+          body_path: release_notes.txt
+          generate_release_notes: false

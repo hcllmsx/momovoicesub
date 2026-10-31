@@ -5029,8 +5029,6 @@ async function openCacheFolder() {
 
 // ─── 检查更新 ───
 
-const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/hcllmsx/momovoicesub/main/VERSION';
-
 /** 比较两个版本号字符串（格式：主.次.修订），返回 1 表示 a > b，-1 表示 a < b，0 表示相等 */
 function compareVersion(a, b) {
   const pa = a.split('.').map(Number);
