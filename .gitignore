@@ -10,6 +10,10 @@ apps/com.momo.voicesub.dr/WorkflowIntegration.node
 *.log
 _temp/
 
+# 本地开发菜单脚本（公开仓按约定不纳入版本控制）
+1-run_menu.bat
+build_menu.ps1
+
 # Premiere Pro UXP Plugin
 apps/com.momo.voicesub.pr/node_modules/
 apps/com.momo.voicesub.pr/dist/
