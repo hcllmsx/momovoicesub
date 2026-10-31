@@ -3554,14 +3554,14 @@ font-weight: 500;
 }
 .weight-migration-detail {
   margin: 2px 0 0;
-  line-height: 1.3;
+  line-height: 1.8;
 }
 .weight-migration-body {
-  padding: 8px 24px 8px;
+  padding: 8px 24px 16px;
 }
 .weight-migration-message {
   margin-bottom: 2px;
-  line-height: 1.3;
+  line-height: 1.6;
 }
 .weight-migration-actions {
   margin-top: 12px;
