@@ -3506,37 +3506,48 @@ async function showConfirmDialog(opts: {
   return result === 'ok';
 }
 
-/** 模型迁移使用独立弹窗，底部按钮放在 mm-dialog-footer 中避免通用确认框的 UXP 裁切。 */
-async function showWeightMigrationDialog(
-  weightCount: number,
-  voiceNames: string[],
-  sourceRoots: string[]
-): Promise<boolean> {
-  const dialog = $("weightMigrationDialog") as any;
-  const message = $("weightMigrationMessage");
-  const detail = $("weightMigrationDetail");
-  const cancelBtn = $("weightMigrationCancel") as any;
-  const confirmBtn = $("weightMigrationConfirm") as any;
-  if (!dialog || !message || !detail || !cancelBtn || !confirmBtn) return false;
+/** 独立 UXP dialog 实例；沿用确认框 DOM/CSS，只隔离原生窗口尺寸状态。 */
+async function showWeightMigrationDialog(opts: {
+  message: string;
+  detail: string;
+}): Promise<boolean> {
+  // 每次创建全新的 dialog，避免 UXP 宿主复用旧实例的原生窗口边界尺寸。
+  const dialog = document.createElement('dialog') as any;
+  dialog.className = 'mm-dialog';
+  dialog.innerHTML = `
+    <div class="mm-dialog-body weight-migration-body">
+      <p class="confirm-message weight-migration-message"></p>
+      <p class="confirm-detail weight-migration-detail"></p>
+      <div class="confirm-actions weight-migration-actions">
+        <sp-button variant="secondary" quiet>取消</sp-button>
+        <sp-button variant="primary">立即自动迁移</sp-button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(dialog);
 
-  message.textContent = `检测到 ${weightCount} 个已训练模型权重仍在旧整合包目录，\n是否迁移到当前整合包？`;
-  detail.textContent = `关联音色：${voiceNames.join("、")}\n旧整合包位置：${sourceRoots.join("；")}\n\n迁移时相同模型自动复用，不重复占用空间。`;
+  try {
+    const message = dialog.querySelector('.weight-migration-message');
+    const detail = dialog.querySelector('.weight-migration-detail');
+    const [cancelBtn, confirmBtn] = Array.from(dialog.querySelectorAll('sp-button')) as any[];
+    if (!message || !detail || !cancelBtn || !confirmBtn) return false;
 
-  const bindClose = (button: any, value: string) => {
-    if (button._clickHandler) button.removeEventListener('click', button._clickHandler);
-    button._clickHandler = () => dialog.close(value);
-    button.addEventListener('click', button._clickHandler);
-  };
-  bindClose(cancelBtn, 'cancel');
-  bindClose(confirmBtn, 'ok');
+    message.textContent = opts.message;
+    detail.textContent = opts.detail;
 
-  const result = await showUxPDialog(dialog, {
-    title: "自动迁移模型权重",
-    resize: "none",
-    width: 520,
-    height: 380
-  });
-  return result === 'ok';
+    cancelBtn.addEventListener('click', () => dialog.close('cancel'));
+    confirmBtn.addEventListener('click', () => dialog.close('ok'));
+
+    const result = await showUxPDialog(dialog, {
+      title: "自动迁移模型权重",
+      resize: "none",
+      width: 360,
+      height: 420
+    });
+    return result === 'ok';
+  } finally {
+    if (dialog.parentNode) dialog.parentNode.removeChild(dialog);
+  }
 }
 
 // 退出登录
@@ -4152,7 +4163,10 @@ async function checkAndPromptWeightMigration(targetRootDir?: string): Promise<vo
 
     const voiceNames = [...new Set(check.migratableItems.flatMap(i => i.voiceNames || []))];
     const sourceRoots = [...new Set(check.migratableItems.map(i => i.sourceRoot).filter(Boolean))];
-    const confirmed = await showWeightMigrationDialog(check.migratableItems.length, voiceNames, sourceRoots);
+    const confirmed = await showWeightMigrationDialog({
+      message: `检测到 ${check.migratableItems.length} 个已训练模型权重仍在旧整合包目录，是否迁移到当前整合包？`,
+      detail: `关联音色：${voiceNames.join("、")}\n旧整合包位置：${sourceRoots.join("；")}\n迁移时相同模型自动复用，不重复占用空间。`
+    });
     if (!confirmed) return;
 
     showToast("正在将模型权重迁移到新整合包，请稍候...", "info");
