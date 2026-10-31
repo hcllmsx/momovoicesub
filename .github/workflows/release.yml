@@ -38,7 +38,7 @@ jobs:
             $notes,
             '---',
             '### 获取方式',
-            '请前往默默配音助手官网，点击“下载客户端”，按弹窗中的 B 站私信或 QQ 群公告指引获取网盘下载信息。'
+            '请前往 [默默配音助手官网](https://momovoicesub.sxrec.com/)，点击“下载客户端”，按弹窗中的 B 站私信或 QQ 群公告指引获取网盘下载信息。'
           )
           $body = $lines -join "`n`n"
           [System.IO.File]::WriteAllText((Join-Path $PWD 'release_notes.txt'), $body, [System.Text.Encoding]::UTF8)
