@@ -704,6 +704,18 @@
     </div>
   </dialog>
 
+  <!-- 模型权重迁移确认弹窗：沿用词条编辑弹窗的 body + footer 结构 -->
+  <dialog id="weightMigrationDialog" class="mm-dialog">
+    <div class="mm-dialog-body">
+      <p id="weightMigrationMessage" class="weight-migration-message"></p>
+      <p id="weightMigrationDetail" class="weight-migration-detail"></p>
+    </div>
+    <div class="mm-dialog-footer weight-migration-footer">
+      <sp-button variant="secondary" id="weightMigrationCancel">取消</sp-button>
+      <sp-button variant="primary" id="weightMigrationConfirm">立即自动迁移</sp-button>
+    </div>
+  </dialog>
+
   <!-- 版本更新提示弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘） -->
   <dialog id="updateDialog" class="mm-dialog">
     <div class="mm-dialog-body">

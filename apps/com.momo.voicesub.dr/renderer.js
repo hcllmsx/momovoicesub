@@ -4961,7 +4961,6 @@ async function deleteUnusedCache() {
   log('开始清理未使用缓存...');
   await runCacheAction({
     action: () => window.momoVoiceSub.deleteUnusedCurrentProjectCache(),
-    confirmMessage: '确定删除当前项目中所有未使用的配音缓存吗？',
     successMessage: (result) => result.conservative
       ? `扫描 ${result.scanned} 个缓存，但有 ${result.unresolved} 个片段无法确认，已保留全部`
       : `扫描 ${result.scanned} 个缓存，删除 ${result.deleted} 个，保留 ${result.kept} 个`
@@ -4972,7 +4971,7 @@ async function deleteCurrentProjectCache() {
   log('准备删除当前项目缓存...');
   await runCacheAction({
     action: () => window.momoVoiceSub.deleteCurrentProjectCache(),
-    confirmMessage: '确定删除当前项目的所有配音缓存吗？',
+    confirmMessage: '删除当前项目的所有配音缓存后，该项目时间线中已插入的配音素材将变为离线。确定继续吗？',
     successMessage: (result) => `已删除当前项目缓存 ${result.deleted} 个文件。`
   });
 }
@@ -4981,7 +4980,7 @@ async function deleteAllProjectCache() {
   log('准备删除全部项目缓存...');
   await runCacheAction({
     action: () => window.momoVoiceSub.deleteAllProjectCache(),
-    confirmMessage: '确定删除所有项目的配音缓存吗？\n（不会删除试听缓存）',
+    confirmMessage: '删除所有项目的配音缓存后，时间线中已插入的配音素材将变为离线。试听缓存不会被删除。确定继续吗？',
     successMessage: (result) => `已删除所有项目缓存 ${result.deleted} 个文件。`
   });
 }

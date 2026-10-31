@@ -3552,8 +3552,25 @@ font-weight: 500;
 .confirm-actions > * + * {
   margin-left: 10px;
 }
-.confirm-actions.confirm-actions-start {
-  justify-content: flex-start;
+/* ─── 模型权重迁移确认弹窗（独立 footer，参照其他 UXP 弹窗） ─── */
+.weight-migration-message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 700;
+  color: var(--text-color);
+  white-space: pre-line;
+}
+.weight-migration-detail {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.weight-migration-footer > * + * {
+  margin-left: 10px;
 }
 
 /* ── 通道启用状态按钮（使用中）：绿色边框与绿色文字 ── */

@@ -2760,6 +2760,15 @@ async function deleteCurrentProjectCache() {
       showToast("未检测到活动项目，无法删除当前项目缓存", "error");
       return;
     }
+    const confirmed = await showConfirmDialog({
+      title: "删除当前项目缓存",
+      message: "确定删除当前项目的所有配音缓存吗？",
+      detail: "删除后，此项目时间线中已插入的配音素材将变为离线。",
+      confirmText: "删除缓存",
+      danger: true
+    });
+    if (!confirmed) return;
+
     showToast("正在删除当前项目缓存...", "info");
     const deleted = await ttsProvider.deleteProjectCacheFolder(state.projectName);
     if (deleted === 0) {
@@ -2782,6 +2791,15 @@ async function deleteCurrentProjectCache() {
  */
 async function deleteAllCache() {
   try {
+    const confirmed = await showConfirmDialog({
+      title: "删除全部缓存",
+      message: "确定删除所有项目的配音缓存吗？",
+      detail: "删除后，所有项目时间线中已插入的配音素材将变为离线。试听缓存不会被删除。",
+      confirmText: "删除全部缓存",
+      danger: true
+    });
+    if (!confirmed) return;
+
     showToast("正在删除全部缓存...", "info");
     const deleted = await ttsProvider.deleteAllCacheFiles();
     if (deleted === 0) {
@@ -3445,7 +3463,6 @@ async function showConfirmDialog(opts: {
   width?: number;
   height?: number;
   hideCancel?: boolean;
-  actionsAlignStart?: boolean;
 }): Promise<boolean> {
   const dialog = $("confirmDialog") as any;
   if (!dialog) return false;
@@ -3457,11 +3474,6 @@ async function showConfirmDialog(opts: {
 
   if (msgEl) msgEl.textContent = opts.message;
   if (detailEl) detailEl.textContent = opts.detail || '';
-  const actionsEl = dialog.querySelector('.confirm-actions');
-  if (actionsEl) {
-    if (opts.actionsAlignStart) actionsEl.classList.add('confirm-actions-start');
-    else actionsEl.classList.remove('confirm-actions-start');
-  }
   if (okBtn) {
     okBtn.textContent = opts.confirmText || '确认';
     // danger 模式下用负面色调（sp-button 无 negative variant，用 attr 辅助 CSS）
@@ -3491,6 +3503,39 @@ async function showConfirmDialog(opts: {
     height: opts.height
   });
 
+  return result === 'ok';
+}
+
+/** 模型迁移使用独立弹窗，底部按钮放在 mm-dialog-footer 中避免通用确认框的 UXP 裁切。 */
+async function showWeightMigrationDialog(
+  weightCount: number,
+  voiceNames: string[],
+  sourceRoots: string[]
+): Promise<boolean> {
+  const dialog = $("weightMigrationDialog") as any;
+  const message = $("weightMigrationMessage");
+  const detail = $("weightMigrationDetail");
+  const cancelBtn = $("weightMigrationCancel") as any;
+  const confirmBtn = $("weightMigrationConfirm") as any;
+  if (!dialog || !message || !detail || !cancelBtn || !confirmBtn) return false;
+
+  message.textContent = `检测到 ${weightCount} 个已训练模型权重仍在旧整合包目录，\n是否迁移到当前整合包？`;
+  detail.textContent = `关联音色：${voiceNames.join("、")}\n旧整合包位置：${sourceRoots.join("；")}\n\n迁移时相同模型自动复用，不重复占用空间。`;
+
+  const bindClose = (button: any, value: string) => {
+    if (button._clickHandler) button.removeEventListener('click', button._clickHandler);
+    button._clickHandler = () => dialog.close(value);
+    button.addEventListener('click', button._clickHandler);
+  };
+  bindClose(cancelBtn, 'cancel');
+  bindClose(confirmBtn, 'ok');
+
+  const result = await showUxPDialog(dialog, {
+    title: "自动迁移模型权重",
+    resize: "none",
+    width: 520,
+    height: 380
+  });
   return result === 'ok';
 }
 
@@ -4105,16 +4150,9 @@ async function checkAndPromptWeightMigration(targetRootDir?: string): Promise<vo
     const check = inspectMissingWeights({ voices, rootDir, previousRootDir });
     if (!check.migratableItems.length) return;
 
-    const confirmed = await showConfirmDialog({
-      title: "自动迁移模型权重",
-      // UXP 对话框内的 flex 子项有时不会按可用宽度换行；显式分行避免标题正文被横向裁切。
-      message: `检测到 ${check.migratableItems.length} 个已训练模型权重仍在旧整合包目录，\n是否迁移到当前整合包？`,
-      confirmText: "立即自动迁移",
-      actionsAlignStart: true,
-      // 固定高度，避免确认弹窗离屏测量低估按钮区域。
-      width: 520,
-      height: 340
-    });
+    const voiceNames = [...new Set(check.migratableItems.flatMap(i => i.voiceNames || []))];
+    const sourceRoots = [...new Set(check.migratableItems.map(i => i.sourceRoot).filter(Boolean))];
+    const confirmed = await showWeightMigrationDialog(check.migratableItems.length, voiceNames, sourceRoots);
     if (!confirmed) return;
 
     showToast("正在将模型权重迁移到新整合包，请稍候...", "info");
