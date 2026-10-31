@@ -60,6 +60,13 @@ function toWinPath(p: string): string {
   return normSlash(p).replace(/\//g, "\\");
 }
 
+function fileUrlForPath(p: string): string {
+  const normalized = normSlash(p);
+  return /^[a-zA-Z]:\//.test(normalized)
+    ? `file:///${normalized}`
+    : `file://${normalized}`;
+}
+
 function statSyncSafe(target: string): { exists: boolean; size: number; isDir: boolean; isFile: boolean } {
   const fs = safeGetFs();
   if (!fs) return { exists: false, size: 0, isDir: false, isFile: false };
@@ -324,12 +331,14 @@ export async function installOrReuseWeight({
   rootDir,
   relPath,
   fingerprint,
-  bytes
+  bytes,
+  copyFromPath = ""
 }: {
   rootDir: string;
   relPath: string;
   fingerprint: string;
   bytes: Uint8Array;
+  copyFromPath?: string;
 }): Promise<{ relPath: string; action: "reused" | "installed"; renamed: boolean }> {
   const fs = safeGetFs();
   const normRel = normSlash(relPath);
@@ -389,9 +398,44 @@ export async function installOrReuseWeight({
   }
 
   const finalAbsPath = pathJoin(targetDir, finalFileName);
+  let directCopyError = "";
+  if (copyFromPath) {
+    try {
+      const localFileSystem = (uxp.storage as any).localFileSystem;
+      const sourceEntry = await localFileSystem.getEntryWithUrl(fileUrlForPath(copyFromPath));
+      // 目标权重子目录可能尚不存在；不要依赖被忽略错误的 fs.mkdirSync，
+      // 通过已存在的新整合包根目录显式创建它。
+      const rootFolderEntry = await localFileSystem.getEntryWithUrl(fileUrlForPath(rootDir));
+      let targetFolderEntry: any;
+      try {
+        targetFolderEntry = await rootFolderEntry.getEntry(dirName);
+      } catch (_) {
+        try {
+          targetFolderEntry = await rootFolderEntry.createFolder(dirName);
+        } catch (createError) {
+          // 兼容并发创建或 UXP 返回“已存在”的情况。
+          targetFolderEntry = await rootFolderEntry.getEntry(dirName).catch(() => { throw createError; });
+        }
+      }
+      const copiedEntry = await sourceEntry.copyTo(targetFolderEntry);
+      if (copiedEntry.name !== finalFileName) {
+        await copiedEntry.moveTo(targetFolderEntry, { newName: finalFileName });
+      }
+      return {
+        relPath: `${dirName}/${finalFileName}`,
+        action: "installed",
+        renamed: finalFileName !== fileName
+      };
+    } catch (e: any) {
+      directCopyError = e?.message || String(e);
+      console.warn("[Momo] UXP direct model copy failed, trying binary write fallback:", directCopyError);
+    }
+  }
+
   const ok = await writeBinaryFile(finalAbsPath, bytes);
   if (!ok) {
-    throw new Error(`无法写入模型权重文件到整合包目录：${toWinPath(finalAbsPath)}`);
+    const reason = directCopyError ? `（UXP 直接复制失败：${directCopyError}）` : "";
+    throw new Error(`无法写入模型权重文件到整合包目录：${toWinPath(finalAbsPath)}${reason}`);
   }
 
   return {
@@ -859,12 +903,15 @@ export async function migrateMissingWeights({
 
   for (const item of inspection.migratableItems) {
     const fileInfo = computeFileFingerprint(item.sourceAbsPath);
-    if (!fileInfo || !fileInfo.bytes) continue;
+    if (!fileInfo || !fileInfo.bytes || !fileInfo.bytes.byteLength) {
+      throw new Error(`无法读取旧整合包中的模型权重：${toWinPath(item.sourceAbsPath)}`);
+    }
     const res = await installOrReuseWeight({
       rootDir,
       relPath: item.relPath,
       fingerprint: fileInfo.fingerprint,
-      bytes: fileInfo.bytes
+      bytes: fileInfo.bytes,
+      copyFromPath: item.sourceAbsPath
     });
     updatedPathMap[item.relPath] = res.relPath;
     if (res.action === "reused") reusedCount++;

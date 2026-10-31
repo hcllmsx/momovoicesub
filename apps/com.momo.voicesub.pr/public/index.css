@@ -3555,6 +3555,8 @@ font-weight: 500;
 .weight-migration-detail {
   margin: 2px 0 0;
   line-height: 1.8;
+  max-height: 240px;
+  overflow-y: auto;
 }
 .weight-migration-body {
   padding: 8px 24px 16px;

@@ -24,6 +24,7 @@ import {
   parseAndInstallVoicePackage,
   inspectMissingWeights,
   migrateMissingWeights,
+  normalizeWeightRelPath,
   readBinaryFile,
   writeBinaryFile
 } from "./lib/voice-package";
@@ -3383,7 +3384,7 @@ $("openPrivacy")?.addEventListener('click', (e: Event) => {
  * UXP 的 <dialog> 未 showModal 时不可见（scrollHeight 恒为 0），
  * 因此用离屏克隆容器测量：克隆节点保留原样式上下文，换行与高度计算与真实弹窗一致。
  */
-function measureDialogContentHeight(dialog: any, width: number): number {
+function measureDialogContentHeight(dialog: any, width: number, useVisibleHeight = false): number {
   let probe: any = null;
   try {
     probe = document.createElement("div");
@@ -3406,8 +3407,11 @@ function measureDialogContentHeight(dialog: any, width: number): number {
     // 会让测量值严重偏低 → 宿主窗口开得太小 → 内容被裁。测量时要的是自然高度。
     const bodyClone = probe.querySelector('.mm-dialog-body') as HTMLElement | null;
     if (bodyClone) bodyClone.style.height = 'auto';
-    // UXP 下 scrollHeight 偶有漏算（居父容器 scroller），取两者较大值更保险
-    return Math.max(probe.scrollHeight || 0, probe.offsetHeight || 0);
+    // 普通内容取 scrollHeight 兜底；若内容区本身可滚动，则只按可见布局高度测量，
+    // 避免把滚动区域内部的全部文字高度重复算进原生窗口高度。
+    return useVisibleHeight
+      ? (probe.offsetHeight || probe.scrollHeight || 0)
+      : Math.max(probe.scrollHeight || 0, probe.offsetHeight || 0);
   } catch (_) {
     return 0;
   } finally {
@@ -3429,6 +3433,8 @@ async function showUxPDialog(dialog: any, opts: {
   title: string;
   width?: number;
   height?: number;
+  maxHeight?: number;
+  measureVisibleHeight?: boolean;
   resize?: "none" | "both";
 }): Promise<string> {
   const width = Math.max(280, opts.width || 420);
@@ -3440,14 +3446,16 @@ async function showUxPDialog(dialog: any, opts: {
   // 没给才实测——确认弹窗这种文案长度千变万化的场景就靠它。
   let height = opts.height || 0;
   if (!height) {
-    const contentH = measureDialogContentHeight(dialog, width);
+    const contentH = measureDialogContentHeight(dialog, width, opts.measureVisibleHeight);
     height = contentH > 0 ? contentH + TITLE_BAR_H + EXTRA_H : DEFAULT_H;
   }
+  if (opts.maxHeight) height = Math.min(height, opts.maxHeight);
 
   return await dialog.uxpShowModal({
     title: opts.title,
     resize: opts.resize || "none",
-    size: { width, height }
+    size: { width, height },
+    ...(opts.maxHeight ? { maxSize: { width, height: opts.maxHeight } } : {})
   });
 }
 
@@ -3542,7 +3550,8 @@ async function showWeightMigrationDialog(opts: {
       title: "自动迁移模型权重",
       resize: "none",
       width: 520,
-      height: 420
+      maxHeight: 520,
+      measureVisibleHeight: true
     });
     return result === 'ok';
   } finally {
@@ -4175,15 +4184,21 @@ async function checkAndPromptWeightMigration(targetRootDir?: string): Promise<vo
       const pathMap = migRes.updatedPathMap || {};
       let updated = false;
       for (const v of voices) {
-        if (v.gptWeightsPath && pathMap[v.gptWeightsPath]) {
-          v.gptWeightsPath = pathMap[v.gptWeightsPath];
+        const gptTargetPath = v.gptWeightsPath
+          ? pathMap[v.gptWeightsPath] || pathMap[normalizeWeightRelPath(v.gptWeightsPath, "gpt", v.modelVersion)]
+          : "";
+        const sovitsTargetPath = v.sovitsWeightsPath
+          ? pathMap[v.sovitsWeightsPath] || pathMap[normalizeWeightRelPath(v.sovitsWeightsPath, "sovits", v.modelVersion)]
+          : "";
+        if (gptTargetPath) {
+          v.gptWeightsPath = gptTargetPath;
           updated = true;
         }
-        if (v.sovitsWeightsPath && pathMap[v.sovitsWeightsPath]) {
-          v.sovitsWeightsPath = pathMap[v.sovitsWeightsPath];
+        if (sovitsTargetPath) {
+          v.sovitsWeightsPath = sovitsTargetPath;
           updated = true;
         }
-        v.sourceRootDir = rootDir;
+        if (gptTargetPath || sovitsTargetPath) v.sourceRootDir = rootDir;
       }
       if (updated) {
         const localTts: LocalTtsSettings = {
@@ -4202,7 +4217,8 @@ async function checkAndPromptWeightMigration(targetRootDir?: string): Promise<vo
       );
     }
   } catch (err) {
-    console.warn("[Momo] 迁移检测失败:", err);
+    console.error("[Momo] 模型权重迁移失败:", err);
+    showToast(`模型权重迁移失败：${(err as any)?.message || err}`, "error");
   }
 }
 
