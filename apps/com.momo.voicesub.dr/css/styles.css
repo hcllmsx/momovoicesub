@@ -138,6 +138,59 @@ button:disabled {
   border-top-color: var(--accent);
 }
 
+/* ═══════════════════════════════════════════════
+   通用加载指示器（.ui-spinner）
+   ═══════════════════════════════════════════════ */
+.ui-spinner {
+  display: none;
+  box-sizing: border-box;
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: var(--ink-secondary);
+  flex: 0 0 auto;
+  align-self: center;
+  vertical-align: middle;
+}
+
+.ui-spinner.is-active {
+  display: inline-block;
+  animation: btnSpin 0.7s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════
+   本地部署：启动服务按钮
+   ═══════════════════════════════════════════════ */
+
+/* 图标槽：固定宽度，▶ 与加载圈同位替换，避免加载态下按钮宽度抖动
+   （DR 的 .btn 已有 gap:5px，槽本身不再加右边距） */
+.engine-start-icon-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.engine-start-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.engine-start-label {
+  line-height: 1;
+}
+
+/* 「停止服务」按钮前的方块图标（需与 ▶ 图标视觉等重） */
+.stop-btn-icon {
+  font-size: 18px;
+  line-height: 1;
+  vertical-align: -2px;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -4162,15 +4215,20 @@ z-index: 1100 !important;
 
 /* ═══ 自定义确认对话框 ═══ */
 .confirm-dialog-panel {
-  width: 360px;
+  width: 420px;
   max-width: 90vw;
+}
+
+/* 宽版确认弹窗：文案长、含多行路径（如模型权重迁移） */
+.confirm-dialog-panel.wide {
+  width: 560px;
 }
 
 .confirm-dialog-body {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: 22px 20px 18px 20px;
+  padding: 24px 24px 16px 24px;
 }
 
 .confirm-dialog-icon {
@@ -4195,28 +4253,37 @@ z-index: 1100 !important;
 .confirm-dialog-content {
   flex: 1;
   min-width: 0;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
 .confirm-dialog-message {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--ink);
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
+/* 详情区做成浅色信息块：长路径/多行说明更易读，也与正文拉开层级 */
 .confirm-dialog-detail {
-  margin-top: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
   font-size: 12px;
-  color: var(--muted);
-  line-height: 1.5;
+  color: var(--ink-secondary);
+  line-height: 1.7;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  word-break: break-all; /* 长路径不会撑破弹窗 */
+  white-space: pre-wrap; /* 保留文案中手写的换行符 */
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding: 0 20px 18px 20px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--line);
 }
 
 .confirm-dialog-actions .btn {

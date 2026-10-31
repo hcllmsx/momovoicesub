@@ -19,6 +19,14 @@ import { PremiereAdapter, SubtitleItem } from "./adapter/premiere-adapter";
 import { promptLangToLocale } from "./lib/preview-text";
 import { getWavInfo } from "./lib/wav";
 import { arrayBufferToBase64, base64ToArrayBuffer } from "./lib/base64";
+import {
+  buildVoicePackageBuffer,
+  parseAndInstallVoicePackage,
+  inspectMissingWeights,
+  migrateMissingWeights,
+  readBinaryFile,
+  writeBinaryFile
+} from "./lib/voice-package";
 import polyphonicBuiltin from "./lib/polyphonic-builtin.json";
 
 declare const require: any;
@@ -881,10 +889,11 @@ async function showUpdateDialog({ currentVersion, latestVersion, downloadUrl }: 
   }
 
   try {
-    await dialog.uxpShowModal({
+    await showUxPDialog(dialog, {
       title: '发现新版本可用',
       resize: 'none',
-      size: { width: 380, height: 180 },
+      width: 380,
+      height: 180
     });
   } catch (e) {
     console.warn('打开更新弹窗异常:', e);
@@ -920,10 +929,11 @@ async function showQrcodeModalDialog() {
   if (!qrcodeDialog) return;
 
   try {
-    await qrcodeDialog.uxpShowModal({
+    await showUxPDialog(qrcodeDialog, {
       title: "QQ 交流群二维码",
       resize: "none",
-      size: { width: 360, height: 400 }
+      width: 360,
+      height: 400
     });
   } catch (e) {
     console.warn("打开二维码弹窗异常:", e);
@@ -974,10 +984,11 @@ async function showAboutDialog() {
   }
 
   try {
-    await dialog.uxpShowModal({
+    // 不传显式高度：关于弹窗内容会随版本/链接变化，交给实测才能保证完整且不贴边
+    await showUxPDialog(dialog, {
       title: "关于 & 交流反馈",
       resize: "none",
-      size: { width: 480, height: 320 }
+      width: 480
     });
   } catch (e) {
     console.warn("打开关于弹窗异常:", e);
@@ -3310,10 +3321,11 @@ async function showLoginDialog() {
     submitBtn.addEventListener('click', handler);
   }
 
-  await dialog.uxpShowModal({
+  await showUxPDialog(dialog, {
     title: '登录 MoMoVoiceSub',
     resize: 'none',
-    size: { width: 380, height: 360 }
+    width: 380,
+    height: 360
   });
 }
 
@@ -3346,6 +3358,81 @@ $("openPrivacy")?.addEventListener('click', (e: Event) => {
   openExternalUrl(WEB_PUBLIC_URL + '/privacy', '打开隐私政策');
 });
 
+// ─── UXP 模态弹窗尺寸统一处理 ───
+
+/**
+ * 测量 <dialog> 内容在指定宽度下的实际高度。
+ * UXP 的 <dialog> 未 showModal 时不可见（scrollHeight 恒为 0），
+ * 因此用离屏克隆容器测量：克隆节点保留原样式上下文，换行与高度计算与真实弹窗一致。
+ */
+function measureDialogContentHeight(dialog: any, width: number): number {
+  let probe: any = null;
+  try {
+    probe = document.createElement("div");
+    probe.className = dialog.className || "mm-dialog";
+    probe.style.cssText = [
+      "position:absolute",
+      "left:-99999px",
+      "top:0",
+      `width:${width}px`,
+      "height:auto",
+      "box-sizing:border-box",
+      "visibility:hidden",
+      "pointer-events:none"
+    ].join(";");
+    for (const child of Array.from(dialog.children) as Element[]) {
+      probe.appendChild(child.cloneNode(true));
+    }
+    document.body.appendChild(probe);
+    // .mm-dialog-body 若声明了 height:100%，在离屏 probe 里（父级高度 auto）可能被解析成 0，
+    // 会让测量值严重偏低 → 宿主窗口开得太小 → 内容被裁。测量时要的是自然高度。
+    const bodyClone = probe.querySelector('.mm-dialog-body') as HTMLElement | null;
+    if (bodyClone) bodyClone.style.height = 'auto';
+    // UXP 下 scrollHeight 偶有漏算（居父容器 scroller），取两者较大值更保险
+    return Math.max(probe.scrollHeight || 0, probe.offsetHeight || 0);
+  } catch (_) {
+    return 0;
+  } finally {
+    if (probe && probe.parentNode) probe.parentNode.removeChild(probe);
+  }
+}
+
+/**
+ * UXP 模态弹窗统一入口。
+ *
+ * 关键约束：<dialog> 由 UXP 宿主原生渲染，可见尺寸只取决于 uxpShowModal 的 size。
+ * 千万不要给 dialog 写内联 width / display:flex / height——宿主渲染尺寸与之叠加，
+ * 内容会溢出可见区被裁（典型症状：右侧文字被切掉、底部按钮只露一半）。
+ *
+ * 因此这里只做一件事：按 size.width 离屏实测内容高度，把 size.height 算准。
+ * 高度不足是弹窗内容被裁的唯一原因；宽度由调用方显式传入，不让内容撑宽。
+ */
+async function showUxPDialog(dialog: any, opts: {
+  title: string;
+  width?: number;
+  height?: number;
+  resize?: "none" | "both";
+}): Promise<string> {
+  const width = Math.max(280, opts.width || 420);
+  const TITLE_BAR_H = 56; // UXP 原生标题栏（标题 + ✕）含上下留白
+  const EXTRA_H = 36;     // 测量/字体渲染误差安全余量，也给底部留出呼吸空间
+  const DEFAULT_H = 190;
+
+  // 调用方显式给了高度就用调用方的（这些弹窗在 f1ffc0b 基线已验证显示正常）；
+  // 没给才实测——确认弹窗这种文案长度千变万化的场景就靠它。
+  let height = opts.height || 0;
+  if (!height) {
+    const contentH = measureDialogContentHeight(dialog, width);
+    height = contentH > 0 ? contentH + TITLE_BAR_H + EXTRA_H : DEFAULT_H;
+  }
+
+  return await dialog.uxpShowModal({
+    title: opts.title,
+    resize: opts.resize || "none",
+    size: { width, height }
+  });
+}
+
 // ─── 通用确认对话框 ───
 
 /** 显示确认对话框，返回用户是否点击了"确认" */
@@ -3358,6 +3445,7 @@ async function showConfirmDialog(opts: {
   width?: number;
   height?: number;
   hideCancel?: boolean;
+  actionsAlignStart?: boolean;
 }): Promise<boolean> {
   const dialog = $("confirmDialog") as any;
   if (!dialog) return false;
@@ -3369,6 +3457,11 @@ async function showConfirmDialog(opts: {
 
   if (msgEl) msgEl.textContent = opts.message;
   if (detailEl) detailEl.textContent = opts.detail || '';
+  const actionsEl = dialog.querySelector('.confirm-actions');
+  if (actionsEl) {
+    if (opts.actionsAlignStart) actionsEl.classList.add('confirm-actions-start');
+    else actionsEl.classList.remove('confirm-actions-start');
+  }
   if (okBtn) {
     okBtn.textContent = opts.confirmText || '确认';
     // danger 模式下用负面色调（sp-button 无 negative variant，用 attr 辅助 CSS）
@@ -3390,15 +3483,12 @@ async function showConfirmDialog(opts: {
   bindBtn(okBtn, () => dialog.close('ok'));
   bindBtn(cancelBtn, () => dialog.close('cancel'));
 
-  const dlgWidth = opts.width || 420;
-  // 根据 detail 字数智能适配弹窗高度，防止文字换行溢出裁切按钮
-  const extraH = opts.detail && opts.detail.length > 50 ? 60 : 0;
-  const dlgHeight = opts.height || (190 + extraH);
-
-  const result = await dialog.uxpShowModal({
+  // 高度交由 showUxPDialog 按内容实测自适应（旧的「按字数估算」会导致内容/按钮被裁切）
+  const result = await showUxPDialog(dialog, {
     title: opts.title || '确认操作',
     resize: 'none',
-    size: { width: dlgWidth, height: dlgHeight }
+    width: opts.width || 420,
+    height: opts.height
   });
 
   return result === 'ok';
@@ -3456,6 +3546,8 @@ function getLocalTextLang(): string {
 
 /** 更新卡片头部右上角的状态徽章 */
 function updateLocalHeaderStatus(stateStr?: string, portNum?: number) {
+  // 按钮状态（禁用/加载图标）需始终同步：下方徽标会因切页签提前 return
+  syncEngineButtonsUI();
   const badge = $("localHeaderEngineStatus");
   if (!badge) return;
 
@@ -3487,8 +3579,92 @@ function updateLocalHeaderStatus(stateStr?: string, portNum?: number) {
     badge.textContent = '未启动';
     badge.title = '本地服务未启动';
   }
+}
 
-  syncEngineButtonsUI();
+// ── 通用加载指示器（.ui-spinner）──
+// UXP（Premiere）宿主对动画刷新不稳定：先用 JS 定时器驱动 transform，
+// 若读回计算样式发现宿主并未应用（transform 始终是初始矩阵），自动降级为字符帧旋转。
+interface SpinnerState { timer: any; deg: number; frame: number; useFrames: boolean; }
+const spinnerStates = new WeakMap<HTMLElement, SpinnerState>();
+const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
+
+/** 开始旋转 .ui-spinner */
+function startSpinner(el: any) {
+  if (!el) return;
+  if (spinnerStates.has(el)) return;
+  const glyph = el.querySelector(".ui-spinner-glyph");
+  const state: SpinnerState = { timer: null, deg: 0, frame: 0, useFrames: false };
+  spinnerStates.set(el, state);
+  el.classList.add("is-active");
+
+  state.timer = setInterval(() => {
+    state.deg = (state.deg + 24) % 360;
+    el.style.transform = `rotate(${state.deg}deg)`;
+
+    // 自检：读回计算样式，角度始终为 0 说明宿主不刷新 transform → 改用字符帧
+    if (!state.useFrames) {
+      let applied = "";
+      try {
+        applied = window.getComputedStyle ? window.getComputedStyle(el).transform : "";
+      } catch (_) { }
+      const m = applied && applied !== "none" ? applied.match(/matrix\(([^)]+)\)/) : null;
+      const a = m ? parseFloat(m[1].split(",")[0]) : 1;
+      const b = m ? parseFloat(m[1].split(",")[1]) : 0;
+      const deg = Math.round((Math.atan2(b, a) * 180) / Math.PI);
+      if (state.deg >= 24 && Math.abs(deg) < 1) {
+        state.useFrames = true;
+        el.classList.add("spin-frames");
+        el.style.transform = "";
+      }
+    }
+    if (state.useFrames && glyph) {
+      state.frame = (state.frame + 1) % SPINNER_FRAMES.length;
+      glyph.textContent = SPINNER_FRAMES[state.frame];
+    }
+  }, 60);
+}
+
+/** 停止旋转并复位 .ui-spinner */
+function stopSpinner(el: any) {
+  if (!el) return;
+  const state = spinnerStates.get(el);
+  if (state && state.timer) clearInterval(state.timer);
+  spinnerStates.delete(el);
+  el.classList.remove("is-active", "spin-frames");
+  el.style.transform = "";
+  const glyph = el.querySelector(".ui-spinner-glyph");
+  if (glyph) glyph.textContent = "";
+}
+
+// ── sp-button 按钮内的文本帧加载器 ──
+// sp-button 由 UXP 原生 Shadow DOM 渲染：内部子元素的样式/动画更新不会被宿主重绘，
+// 但按钮自身的 textContent 更新会正常刷新。
+// 所以「▶ 启动服务」按钮的加载态不用 .ui-spinner，而是把首个字符换成帧字符。
+const BTN_SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
+const btnTextSpinnerTimers = new WeakMap<any, any>();
+
+/** 把按钮文本的首字符换为旋转帧（如「▶ 启动服务」→「◐ 启动服务」） */
+function startBtnTextSpinner(btn: any, label: string) {
+  if (!btn) return;
+  // 已在旋转就直接返回：状态轮询会反复调 syncEngineButtonsUI，
+  // 每次都重建定时器会让帧序列卡回第一帧
+  if (btnTextSpinnerTimers.get(btn)) return;
+  let frame = 0;
+  btn.textContent = `${BTN_SPINNER_FRAMES[0]} ${label}`;
+  const timer = setInterval(() => {
+    frame = (frame + 1) % BTN_SPINNER_FRAMES.length;
+    btn.textContent = `${BTN_SPINNER_FRAMES[frame]} ${label}`;
+  }, 120);
+  btnTextSpinnerTimers.set(btn, timer);
+}
+
+/** 停止文本帧并还原为静态图标 */
+function stopBtnTextSpinner(btn: any, idleText: string) {
+  if (!btn) return;
+  const timer = btnTextSpinnerTimers.get(btn);
+  if (timer) clearInterval(timer);
+  btnTextSpinnerTimers.delete(btn);
+  if (btn.textContent !== idleText) btn.textContent = idleText;
 }
 
 /** 同步本地托管模式下的启动/停止按钮状态 */
@@ -3501,12 +3677,23 @@ function syncEngineButtonsUI() {
   const isStopping = lastEngineInfo.state === 'stopping';
 
   if (startBtn) {
-    if (isRunning || isStarting || isStopping) {
-      startBtn.setAttribute('disabled', 'true');
-      startBtn.disabled = true;
-    } else {
+    if (isStarting) {
+      // 启动中：保持可交互外观（宿主对 disabled 元素的文本更新可能不重绘），
+      // 靠点击处理器的状态守卫防重复触发；文本首字符切成旋转帧。
       startBtn.removeAttribute('disabled');
       startBtn.disabled = false;
+      startBtnTextSpinner(startBtn, '启动服务');
+    } else {
+      stopBtnTextSpinner(startBtn, '▶ 启动服务');
+      // 运行中/停止中：用 sp-button 原生 disabled 置灰
+      const startDisabled = isRunning || isStopping;
+      if (startDisabled) {
+        startBtn.setAttribute('disabled', 'true');
+        startBtn.disabled = true;
+      } else {
+        startBtn.removeAttribute('disabled');
+        startBtn.disabled = false;
+      }
     }
   }
 
@@ -3579,7 +3766,7 @@ async function updateChannelEnableButtons() {
 }
 
 /** 探测并显示整合包信息：成功本次会话内常驻绿色提示（重开插件不回显），错误持久显示在目录下方 */
-async function detectLocalEngine(rootDir: string, opts?: { notifySuccess?: boolean; hideSuccess?: boolean }) {
+async function detectLocalEngine(rootDir: string, opts?: { notifySuccess?: boolean; hideSuccess?: boolean; onDetected?: () => void }) {
   const resultEl = $("localDetectResult");
   if (!resultEl) return;
   if (!rootDir || !rootDir.trim()) {
@@ -3599,18 +3786,22 @@ async function detectLocalEngine(rootDir: string, opts?: { notifySuccess?: boole
         resultEl.textContent = `✔ 已识别到正确的 GPT-SoVITS 整合包（${det.hasRuntime ? '自带 Python' : '系统 Python'}）`
           + (det.versions?.length ? `，可用权重版本：${det.versions.join(' / ')}` : '');
       }
+      opts?.onDetected?.(); // 已识别出结果，立即结束“浏览…”按钮的加载态
       if (opts?.notifySuccess) {
         showToast(`已识别到正确的 GPT-SoVITS 整合包（${det.hasRuntime ? '自带 Python' : '系统 Python'}）`, "success");
+        await checkAndPromptWeightMigration(rootDir);
       }
     } else {
       // 把探测问题压缩成短语，避免整段长文案
       const shortIssues = [...new Set((det.issues || []).map(i => i.includes('Python') ? '未找到 Python 解释器' : '缺少 api_v2.py / webui.py 脚本'))];
       resultEl.className = "detect-result error";
       resultEl.textContent = `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${shortIssues.join('；') || '缺少必要脚本'}）`;
+      opts?.onDetected?.();
     }
   } catch (e: any) {
     resultEl.className = "detect-result error";
     resultEl.textContent = `探测失败：${e.message || e}`;
+    opts?.onDetected?.();
   }
 }
 
@@ -3704,7 +3895,7 @@ async function readAudioFileBuffer(filePath: string): Promise<ArrayBuffer | null
   }
 }
 
-// ─── 本地音色导入导出（与 DR 版互通，参考音频以 base64 内嵌 JSON）───
+// ─── 本地音色导入导出（与 DR 版互通：.mvpkg 内嵌参考音频 + 去重后的 GPT/SoVITS 模型权重，兼容旧版 .json）───
 
 async function exportLocalVoices(voices: any[]): Promise<void> {
   if (!voices.length) {
@@ -3712,55 +3903,49 @@ async function exportLocalVoices(voices: any[]): Promise<void> {
     return;
   }
   try {
-    showToast(`正在导出 ${voices.length} 个音色...`, "info");
-    const items: any[] = [];
-    let missingAudio = 0;
-    for (const v of voices) {
-      const entry: any = {
-        id: v.id,
-        name: v.name || v.id,
-        avatarType: v.avatarType || (v.gender === 'Male' ? 'man' : 'woman'),
-        emotion: v.emotion || '通用',
-        gender: v.gender || '',
-        avatar: v.avatar || '',
-        modelName: v.modelName || '',
-        modelVersion: v.modelVersion || '',
-        gptWeightsPath: v.gptWeightsPath || '',
-        sovitsWeightsPath: v.sovitsWeightsPath || '',
-        promptText: v.promptText || '',
-        promptLang: v.promptLang || 'zh'
-      };
-      if (v.refAudioPath) {
-        const buf = await readAudioFileBuffer(v.refAudioPath);
-        if (buf) {
-          const extMatch = String(v.refAudioPath).match(/\.([A-Za-z0-9]+)\s*$/);
-          entry.refAudioExt = extMatch ? extMatch[1].toLowerCase() : 'wav';
-          entry.refAudioBase64 = arrayBufferToBase64(buf);
-        }
-      }
-      if (!entry.refAudioBase64) missingAudio++;
-      items.push(entry);
-    }
+    const settings = await settingsStore.load();
+    const rootDir = (($("localRootDir") as any)?.value?.trim() || settings.localTts?.engine?.rootDir || '').trim();
 
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const defaultName = voices.length === 1 && voices[0]?.name
+      ? `momovoicesub-local-voice-${String(voices[0].name).replace(/[<>:"/\\|?*]/g, "_")}.mvpkg`
+      : `momovoicesub-local-voices-${timestamp}.mvpkg`;
     // @ts-ignore
     const file = await uxp.storage.localFileSystem.getFileForSaving(
-      `momovoicesub-local-voices-${timestamp}.json`,
-      { types: ["json"] }
+      defaultName,
+      { types: ["mvpkg"] }
     );
     if (!file) return;
-    const payload = {
-      type: "momovoicesub-local-voices",
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      voices: items
-    };
-    await file.write(JSON.stringify(payload), { format: uxp.storage.formats.utf8 });
-    showToast(missingAudio
-      ? `已导出 ${items.length} 个音色（${missingAudio} 个参考音频读取失败，未内嵌，导入后需手动重选）`
-      : `已导出 ${items.length} 个音色（含参考音频）`, "success");
+
+    showToast(`正在打包导出 ${voices.length} 个音色（含模型权重与参考音频）...`, "info");
+    const pkg = await buildVoicePackageBuffer({
+      voices,
+      rootDir,
+      readAudioBytes: (p: string) => readAudioFileBuffer(p)
+    });
+
+    const nativePath = (file as any).nativePath || "";
+    let written = false;
+    if (nativePath) {
+      written = await writeBinaryFile(nativePath, pkg.buffer);
+    }
+    if (!written) {
+      await file.write(pkg.buffer.buffer as any, { format: (uxp.storage as any).formats.binary });
+    }
+
+    const weightNote = typeof pkg.packedWeightsCount === "number"
+      ? `，内嵌 ${pkg.packedWeightsCount} 个模型权重文件`
+      : "";
+    const warnParts: string[] = [];
+    if (pkg.missingAudio) warnParts.push(`${pkg.missingAudio} 个参考音频未找到`);
+    if (pkg.missingWeights) warnParts.push(`${pkg.missingWeights} 个模型权重未找到`);
+    showToast(
+      `已导出 ${pkg.count} 个音色（含参考音频${weightNote}）` +
+      (warnParts.length ? `；注意：${warnParts.join("、")}` : ""),
+      warnParts.length ? "info" : "success"
+    );
   } catch (err: any) {
     console.error("[Momo] 导出本地音色失败:", err);
     showToast(err?.message || "导出失败", "error");
@@ -3770,49 +3955,72 @@ async function exportLocalVoices(voices: any[]): Promise<void> {
 async function importLocalVoices(): Promise<void> {
   try {
     // @ts-ignore
-    const file = await uxp.storage.localFileSystem.getFileForOpening({ types: ["json"] });
+    const file = await uxp.storage.localFileSystem.getFileForOpening({ types: ["mvpkg", "json"] });
     if (!file || !file.isFile) return;
-    const content = await file.read({ format: uxp.storage.formats.utf8 });
-    let data: any;
-    try {
-      data = JSON.parse(content);
-    } catch (_) {
-      showToast("导入文件不是有效的 JSON 格式", "error");
+
+    const settings = await settingsStore.load();
+    const rootDir = (($("localRootDir") as any)?.value?.trim() || settings.localTts?.engine?.rootDir || '').trim();
+
+    showToast("正在读取并安装音色包...", "info");
+    let fileBytes: Uint8Array | null = null;
+    const nativePath = (file as any).nativePath || "";
+    if (nativePath) {
+      fileBytes = readBinaryFile(nativePath);
+    }
+    if (!fileBytes) {
+      const ab = await file.read({ format: (uxp.storage as any).formats.binary });
+      if (ab) fileBytes = new Uint8Array(ab as ArrayBuffer);
+    }
+    if (!fileBytes) {
+      showToast("无法读取导入文件", "error");
       return;
     }
-    const items = (data && Array.isArray(data.voices) ? data.voices : [])
-      .filter((v: any) => v && v.name && v.refAudioBase64);
+
+    const saveRefAudio = async (voiceId: string, ext: string, audioBytes: Uint8Array): Promise<string> => {
+      try {
+        const lfs = (uxp.storage.localFileSystem as any);
+        const dataFolder = await lfs.getDataFolder();
+        let assetsFolder: any;
+        try {
+          assetsFolder = await dataFolder.getEntry("voice_assets");
+        } catch (_) {
+          assetsFolder = await dataFolder.createFolder("voice_assets");
+        }
+        const outFile = await assetsFolder.createEntry(`${voiceId}.${ext}`, { overwrite: true });
+        const ab = audioBytes.byteOffset === 0 && audioBytes.byteLength === audioBytes.buffer.byteLength
+          ? audioBytes.buffer
+          : audioBytes.buffer.slice(audioBytes.byteOffset, audioBytes.byteOffset + audioBytes.byteLength);
+        await outFile.write(ab, { format: (uxp.storage as any).formats.binary });
+        return (outFile as any).nativePath || "";
+      } catch (e) {
+        console.error("[Momo] 导入音色写参考音频失败:", e);
+        return "";
+      }
+    };
+
+    const parseRes = await parseAndInstallVoicePackage({
+      fileBytes,
+      rootDir,
+      saveRefAudio
+    });
+    if (!parseRes.ok) {
+      showToast(parseRes.error || "导入失败", "error");
+      return;
+    }
+
+    const items = parseRes.voices || [];
     if (!items.length) {
       showToast("导入文件中没有有效的本地音色（缺少参考音频数据）", "info");
       return;
     }
-    const ok = await showConfirmDialog({
-      title: "导入本地音色",
-      message: `将导入 ${items.length} 个音色（含参考音频）`,
-      detail: "若有与本机同名音色，将会另存为副本，不会覆盖现有音色。",
-      confirmText: "确认导入"
-    });
-    if (!ok) return;
 
-    showToast(`正在导入 ${items.length} 个音色...`, "info");
-    const settings = await settingsStore.load();
     const voices = (settings.localTts?.voices || []).slice();
     const existingNames = new Set(voices.map(v => v.name));
-    let fsMod: any = null;
-    try { fsMod = require('fs'); } catch (_) { /* fs 不可用时跳过权重检测 */ }
-    // UXP 的 fs 实现不含 existsSync（仅有 readFileSync 等部分 API），需先检测可用性；
-    // 不支持时跳过权重检测（视为存在），避免导入失败
-    const pathExists = (p: string): boolean => {
-      try {
-        if (fsMod && typeof fsMod.existsSync === 'function') return !!fsMod.existsSync(p);
-      } catch (_) { /* ignore */ }
-      return true;
-    };
-
-    let added = 0, renamed = 0, failed = 0;
+    let added = 0, renamed = 0;
     const weightMissing: string[] = [];
+
     for (const item of items) {
-      // 同名自动另建副本：xxx (导入) → xxx (导入2) → ...
+      if (!item.refAudioPath) continue;
       let name = String(item.name);
       if (existingNames.has(name)) {
         renamed++;
@@ -3825,53 +4033,26 @@ async function importLocalVoices(): Promise<void> {
         name = candidate;
       }
 
-      const avatarType = item.avatarType && AVATAR_CONFIG[item.avatarType] ? item.avatarType : 'woman';
+      const avatarType = item.avatarType && AVATAR_CONFIG[item.avatarType] ? item.avatarType : "woman";
       const avatarCfg = AVATAR_CONFIG[avatarType] || AVATAR_CONFIG.woman;
-      const newId = `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-
-      // 参考音频写入插件安全目录 voice_assets/
-      let archivedPath = '';
-      try {
-        const lfs = (uxp.storage.localFileSystem as any);
-        const dataFolder = await lfs.getDataFolder();
-        let assetsFolder: any;
-        try {
-          assetsFolder = await dataFolder.getEntry('voice_assets');
-        } catch (_) {
-          assetsFolder = await dataFolder.createFolder('voice_assets');
-        }
-        const ext = String(item.refAudioExt || 'wav').replace(/[^A-Za-z0-9]/g, '') || 'wav';
-        const outFile = await assetsFolder.createEntry(`${newId}.${ext}`, { overwrite: true });
-        await outFile.write(base64ToArrayBuffer(item.refAudioBase64), { format: (uxp.storage as any).formats.binary });
-        archivedPath = (outFile as any).nativePath || '';
-      } catch (err: any) {
-        console.error("[Momo] 导入音色写参考音频失败:", err);
-      }
-      if (!archivedPath) {
-        failed++;
-        continue;
-      }
-
-      // 权重路径存在性检测（本机不存在时提示导入后重选）
-      const gptOk = !item.gptWeightsPath || pathExists(item.gptWeightsPath);
-      const sovitsOk = !item.sovitsWeightsPath || pathExists(item.sovitsWeightsPath);
-      if (!gptOk || !sovitsOk) weightMissing.push(name);
+      if (item.weightsMissing) weightMissing.push(name);
 
       voices.push({
-        id: newId,
+        id: item.id || `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
         name,
         avatarType,
-        emotion: item.emotion || '通用',
+        emotion: item.emotion || "通用",
         gender: item.gender || avatarCfg.gender,
         avatar: item.avatar || avatarCfg.img,
-        modelName: item.modelName || '',
-        modelVersion: item.modelVersion || '',
-        gptWeightsPath: item.gptWeightsPath || '',
-        sovitsWeightsPath: item.sovitsWeightsPath || '',
-        refAudioPath: archivedPath,
-        promptText: item.promptText || '',
-        promptLang: item.promptLang || 'zh'
-      });
+        modelName: item.modelName || "",
+        modelVersion: item.modelVersion || "",
+        gptWeightsPath: item.gptWeightsPath || "",
+        sovitsWeightsPath: item.sovitsWeightsPath || "",
+        refAudioPath: item.refAudioPath,
+        sourceRootDir: rootDir || item.sourceRootDir || "",
+        promptText: item.promptText || "",
+        promptLang: item.promptLang || "zh"
+      } as any);
       existingNames.add(name);
       added++;
     }
@@ -3882,20 +4063,94 @@ async function importLocalVoices(): Promise<void> {
     }
     const localTts: LocalTtsSettings = {
       ...(settings.localTts || DEFAULT_LOCAL_TTS),
-      serviceType: 'gpt-sovits',
+      serviceType: "gpt-sovits",
       voices: voices as any
     };
     await settingsStore.save({ localTts });
     renderLocalVoicesList();
     state.localVoices = await syncLocalVoices();
     updateVoiceTriggers();
-    if (state.currentTab === 'voices') renderVoicesPage();
-    showToast(`已导入 ${added} 个音色${renamed ? `（${renamed} 个同名另存为副本）` : ''}` +
-      (weightMissing.length ? `；${weightMissing.length} 个音色的模型权重路径在本机不存在，请打开音色编辑重新选择` : ''), "success");
-    if (failed) showToast(`${failed} 个音色导入失败（参考音频写入失败）`, "error");
+    if (state.currentTab === "voices") renderVoicesPage();
+    if (rootDir) {
+      await scanModelsIntoEditor().catch(() => {});
+    }
+
+    const weightSummaryParts: string[] = [];
+    if ((parseRes.installedWeights || 0) > 0) weightSummaryParts.push(`自动安装模型权重 ${parseRes.installedWeights} 个`);
+    if ((parseRes.reusedWeights || 0) > 0) weightSummaryParts.push(`复用本机已有相同权重 ${parseRes.reusedWeights} 个`);
+    const weightSummary = weightSummaryParts.length ? `（${weightSummaryParts.join("，")}）` : "";
+
+    showToast(
+      `已导入 ${added} 个音色${renamed ? `（${renamed} 个同名另存为副本）` : ""}${weightSummary}` +
+      (weightMissing.length ? `；${weightMissing.length} 个音色的模型权重路径在本机不存在，请打开音色编辑重新选择` : ""),
+      "success"
+    );
   } catch (err: any) {
     console.error("[Momo] 导入本地音色失败:", err);
     showToast(err?.message || "导入失败", "error");
+  }
+}
+
+/**
+ * 检测当前配置的音色是否有模型权重留在旧整合包中，若有则弹窗提示一键迁移到当前整合包
+ */
+async function checkAndPromptWeightMigration(targetRootDir?: string): Promise<void> {
+  const settings = await settingsStore.load();
+  const rootDir = (targetRootDir || ($("localRootDir") as any)?.value || settings.localTts?.engine?.rootDir || "").trim();
+  const voices = (settings.localTts?.voices || []) as any[];
+  if (!rootDir || !voices.length) return;
+
+  try {
+    const previousRootDir = settings.localTts?.engine?.rootDir || "";
+    const check = inspectMissingWeights({ voices, rootDir, previousRootDir });
+    if (!check.migratableItems.length) return;
+
+    const confirmed = await showConfirmDialog({
+      title: "自动迁移模型权重",
+      // UXP 对话框内的 flex 子项有时不会按可用宽度换行；显式分行避免标题正文被横向裁切。
+      message: `检测到 ${check.migratableItems.length} 个已训练模型权重仍在旧整合包目录，\n是否迁移到当前整合包？`,
+      confirmText: "立即自动迁移",
+      actionsAlignStart: true,
+      // 固定高度，避免确认弹窗离屏测量低估按钮区域。
+      width: 520,
+      height: 340
+    });
+    if (!confirmed) return;
+
+    showToast("正在将模型权重迁移到新整合包，请稍候...", "info");
+    const migRes = await migrateMissingWeights({ voices, rootDir, previousRootDir });
+    if (migRes.ok) {
+      const pathMap = migRes.updatedPathMap || {};
+      let updated = false;
+      for (const v of voices) {
+        if (v.gptWeightsPath && pathMap[v.gptWeightsPath]) {
+          v.gptWeightsPath = pathMap[v.gptWeightsPath];
+          updated = true;
+        }
+        if (v.sovitsWeightsPath && pathMap[v.sovitsWeightsPath]) {
+          v.sovitsWeightsPath = pathMap[v.sovitsWeightsPath];
+          updated = true;
+        }
+        v.sourceRootDir = rootDir;
+      }
+      if (updated) {
+        const localTts: LocalTtsSettings = {
+          ...(settings.localTts || DEFAULT_LOCAL_TTS),
+          serviceType: "gpt-sovits",
+          voices: voices as any
+        };
+        await settingsStore.save({ localTts });
+        renderLocalVoicesList();
+      }
+      await scanModelsIntoEditor().catch(() => {});
+      showToast(
+        `模型迁移完成：新复制 ${migRes.migratedCount || 0} 个权重` +
+        (migRes.reusedCount ? `，复用已有 ${migRes.reusedCount} 个` : ""),
+        "success"
+      );
+    }
+  } catch (err) {
+    console.warn("[Momo] 迁移检测失败:", err);
   }
 }
 
@@ -4181,10 +4436,11 @@ async function openVoiceEditor(voice?: any) {
   }
 
   if (typeof dialog.uxpShowModal === 'function') {
-    await dialog.uxpShowModal({
+    await showUxPDialog(dialog, {
       title: voice ? '编辑音色' : '新增音色',
       resize: 'both',
-      size: { width: 580, height: 540 }
+      width: 580,
+      height: 540
     });
   } else if (typeof dialog.showModal === 'function') {
     dialog.showModal();
@@ -4271,6 +4527,7 @@ async function saveVoiceFromEditor() {
     gptWeightsPath,
     sovitsWeightsPath,
     refAudioPath: finalRefAudioPath,
+    sourceRootDir: ($("localRootDir") as any)?.value?.trim() || '',
     promptText: ($("voicePromptText") as any)?.value?.trim() || '',
     promptLang: ($("voicePromptLang") as any)?.value || 'zh'
   };
@@ -4301,16 +4558,25 @@ async function saveVoiceFromEditor() {
 
 function bindLocalTtsEvents() {
   // 浏览整合包目录
+  // 选目录对话框关闭 → 整合包结构探测可能耗时数秒，期间「浏览…」按钮显示加载圈，
+  // 识别结果（"已识别到正确的 GPT-SoVITS 整合包…"）一旦出现即停止并隐藏。
   $("browseRootDir")?.addEventListener('click', async () => {
+    const spinner = $("browseRootSpinner") as any;
+    startSpinner(spinner);
     try {
       const folder = await (uxp.storage.localFileSystem as any).getFolder();
       if (folder && folder.nativePath) {
         const rootDirInput = $("localRootDir") as any;
         if (rootDirInput) rootDirInput.value = folder.nativePath;
-        detectLocalEngine(folder.nativePath, { notifySuccess: true });
+        await detectLocalEngine(folder.nativePath, {
+          notifySuccess: true,
+          onDetected: () => stopSpinner(spinner),
+        });
       }
     } catch (e: any) {
       console.warn('[browseRootDir] 取消或失败:', e);
+    } finally {
+      stopSpinner(spinner);
     }
   });
 
@@ -4325,20 +4591,21 @@ function bindLocalTtsEvents() {
 
   // 启动本地服务
   $("engineStartBtn")?.addEventListener('click', async () => {
+    // 启动中/停止中直接忽略重复点击（启动中没有置 disabled，为了让文本帧动画能刷新）
+    if (lastEngineInfo.state === 'starting' || lastEngineInfo.state === 'stopping') return;
     const rootDir = ($("localRootDir") as any)?.value?.trim() || '';
     if (!rootDir) {
       showToast("请先选择 GPT-SoVITS 整合包目录", "error");
       return;
     }
     const port = parseInt(($("localPort") as any)?.value || '9880', 10);
-    const startBtn = $("engineStartBtn") as any;
-    if (startBtn) startBtn.setAttribute('disabled', 'true');
     lastEngineInfo.state = 'starting';
     lastEngineInfo.port = port;
     updateLocalHeaderStatus();
     showToast("正在启动本地服务...", "info");
 
     try {
+      await checkAndPromptWeightMigration(rootDir);
       // 先探测端口是否已经在运行
       const probe = await probeGptSoVits(`http://127.0.0.1:${port}`);
       if (probe.ok && probe.ready) {
@@ -4346,7 +4613,6 @@ function bindLocalTtsEvents() {
         lastEngineInfo.state = 'running';
         updateLocalHeaderStatus();
         showToast("本地服务已就绪（复用已有实例）", "success");
-        if (startBtn) startBtn.removeAttribute('disabled');
         return;
       }
 
@@ -4902,10 +5168,11 @@ async function showDictEntryDialog(editChar?: string, existingEntries?: any[]) {
     saveBtn.addEventListener("click", handler);
   }
 
-  await dialog.uxpShowModal({
+  await showUxPDialog(dialog, {
     title: editChar ? `编辑「${editChar}」` : "添加词条",
     resize: "none",
-    size: { width: 460, height: 380 }
+    width: 460,
+    height: 380
   });
 }
 
@@ -5573,10 +5840,11 @@ async function showPauseDialog(): Promise<string | null> {
     optionsContainer.appendChild(btn);
   }
 
-  const result = await dialog.uxpShowModal({
+  const result = await showUxPDialog(dialog, {
     title: "设定停顿",
     resize: "none",
-    size: { width: 380, height: 160 }
+    width: 380,
+    height: 160
   });
 
   return (result === "reasonCanceled" || result === "cancel" || result === undefined) ? null : result;
@@ -5653,10 +5921,11 @@ async function showPolyDialog(char: string, dict: any[]): Promise<string | null>
     customInput.addEventListener("keydown", keyHandler);
   }
 
-  const result = await dialog.uxpShowModal({
+  const result = await showUxPDialog(dialog, {
     title: `选择「${char}」的读音`,
     resize: "none",
-    size: { width: 420, height: 340 }
+    width: 420,
+    height: 340
   });
 
   return (result === "reasonCanceled" || result === "cancel" || result === undefined) ? null : result;
@@ -6082,10 +6351,11 @@ async function showBatchDialog(rows: any[], isSubtitleMode: boolean): Promise<bo
     confirmBtn.addEventListener("click", handler);
   }
 
-  const result = await dialog.uxpShowModal({
+  const result = await showUxPDialog(dialog, {
     title: dialogTitle,
     resize: "both",
-    size: { width: 520, height: 380 }
+    width: 520,
+    height: 380
   });
 
   return result === "confirm";

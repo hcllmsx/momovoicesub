@@ -344,15 +344,17 @@ function setResult(id, message, kind = '', autoCloseMs = 0) {
  * @param {string} [options.confirmText='确定'] - 确认按钮文字
  * @param {string} [options.cancelText='取消'] - 取消按钮文字
  * @param {boolean} [options.danger=false] - 是否为危险操作（确认按钮显示红色）
+ * @param {boolean} [options.hideCancel=false] - 是否隐藏取消按钮
+ * @param {boolean} [options.wide=false] - 是否使用宽版弹窗（文案长、含多行路径时）
  * @returns {Promise<boolean>} 用户点击确定返回 true，取消返回 false
  */
-function showConfirmDialog({ message, detail, confirmText = '确定', cancelText = '取消', danger = false, hideCancel = false } = {}) {
+function showConfirmDialog({ message, detail, confirmText = '确定', cancelText = '取消', danger = false, hideCancel = false, wide = false } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'popup-overlay confirm-dialog-overlay';
 
     const panel = document.createElement('div');
-    panel.className = 'popup-panel popup-sm confirm-dialog-panel';
+    panel.className = wide ? 'popup-panel confirm-dialog-panel wide' : 'popup-panel confirm-dialog-panel';
 
     const iconWrap = document.createElement('div');
     iconWrap.className = danger ? 'confirm-dialog-icon danger' : 'confirm-dialog-icon';
@@ -3598,17 +3600,26 @@ async function exportLocalVoices(voices, scope) {
     showToast('当前没有可导出的本地音色', 'error');
     return;
   }
-  showToast(`正在导出 ${list.length} 个音色...`, 'ok');
+  const rootDir = $('localRootDir')?.value.trim() || state.settings?.localTts?.engine?.rootDir || '';
+  showToast(`正在打包导出 ${list.length} 个音色（含模型权重与参考音频）...`, 'ok');
   try {
-    const res = await window.momoVoiceSub.exportLocalVoices({ voices: list, scope });
+    const res = await window.momoVoiceSub.exportLocalVoices({ voices: list, scope, rootDir });
     if (!res || res.canceled) return;
     if (!res.ok) {
       showToast(res.error || '导出失败', 'error');
       return;
     }
-    showToast(res.missingAudio
-      ? `已导出 ${res.count} 个音色（${res.missingAudio} 个参考音频读取失败，未内嵌，导入后需手动重选）`
-      : `已导出 ${res.count} 个音色（含参考音频）`, 'ok');
+    const weightNote = typeof res.packedWeightsCount === 'number'
+      ? `，内嵌 ${res.packedWeightsCount} 个模型权重文件`
+      : '';
+    const warnParts = [];
+    if (res.missingAudio) warnParts.push(`${res.missingAudio} 个参考音频未找到`);
+    if (res.missingWeights) warnParts.push(`${res.missingWeights} 个模型权重未找到`);
+    showToast(
+      `已导出 ${res.count} 个音色（含参考音频${weightNote}）` +
+      (warnParts.length ? `；注意：${warnParts.join('、')}` : ''),
+      warnParts.length ? 'info' : 'ok'
+    );
   } catch (error) {
     showToast('导出失败：' + cleanErrorMessage(error), 'error');
   }
@@ -3616,7 +3627,8 @@ async function exportLocalVoices(voices, scope) {
 
 async function importLocalVoicesFromFile() {
   try {
-    const readRes = await window.momoVoiceSub.importLocalVoices();
+    const rootDir = $('localRootDir')?.value.trim() || state.settings?.localTts?.engine?.rootDir || '';
+    const readRes = await window.momoVoiceSub.importLocalVoices({ rootDir });
     if (!readRes || readRes.canceled) return;
     if (!readRes.ok) {
       showToast(readRes.error || '导入文件无效', 'error');
@@ -3627,16 +3639,15 @@ async function importLocalVoicesFromFile() {
       showToast('导入文件中没有有效的本地音色（缺少参考音频数据）', 'error');
       return;
     }
-    if (!confirm(`将导入 ${items.length} 个音色（含参考音频）。若有与本机同名音色，将会另存为副本，不会覆盖。是否继续？`)) return;
 
-    showToast(`正在导入 ${items.length} 个音色...`, 'ok');
     const voices = (state.settings?.localTts?.voices || []).slice();
     const existingNames = new Set(voices.map(v => v.name));
     let renamed = 0;
-    const pending = [];
-    const audioJobs = [];
+    let added = 0;
+    const weightMissing = [];
 
     for (const item of items) {
+      if (!item.refAudioPath) continue;
       // 同名自动另建副本：xxx (导入) → xxx (导入2) → ...
       let name = String(item.name);
       if (existingNames.has(name)) {
@@ -3651,11 +3662,10 @@ async function importLocalVoicesFromFile() {
       }
       const avatarType = item.avatarType && AVATAR_CONFIG[item.avatarType] ? item.avatarType : 'woman';
       const avatarCfg = AVATAR_CONFIG[avatarType] || AVATAR_CONFIG.woman;
-      const newId = `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-      audioJobs.push({ voiceId: newId, base64: item.refAudioBase64, ext: item.refAudioExt || 'wav' });
       existingNames.add(name);
-      pending.push({
-        id: newId,
+
+      voices.push({
+        id: item.id || `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
         name,
         avatarType,
         emotion: item.emotion || '通用',
@@ -3665,31 +3675,12 @@ async function importLocalVoicesFromFile() {
         modelVersion: item.modelVersion || '',
         gptWeightsPath: item.gptWeightsPath || '',
         sovitsWeightsPath: item.sovitsWeightsPath || '',
+        refAudioPath: item.refAudioPath,
+        sourceRootDir: rootDir || item.sourceRootDir || '',
         promptText: item.promptText || '',
-        promptLang: item.promptLang || 'zh',
-        weightsMissing: !!item.weightsMissing
+        promptLang: item.promptLang || 'zh'
       });
-    }
-
-    // 参考音频写入插件安全目录 voice_assets/
-    const writeRes = await window.momoVoiceSub.saveRefAudios(audioJobs);
-    const pathMap = {};
-    if (writeRes?.ok && Array.isArray(writeRes.results)) {
-      writeRes.results.forEach(r => { if (r.ok) pathMap[r.voiceId] = r.refAudioPath; });
-    }
-
-    let added = 0, failed = 0;
-    const weightMissing = [];
-    for (const p of pending) {
-      const refAudioPath = pathMap[p.id];
-      if (!refAudioPath) { failed++; continue; }
-      voices.push({
-        id: p.id, name: p.name, avatarType: p.avatarType, emotion: p.emotion,
-        gender: p.gender, avatar: p.avatar, modelName: p.modelName, modelVersion: p.modelVersion,
-        gptWeightsPath: p.gptWeightsPath, sovitsWeightsPath: p.sovitsWeightsPath,
-        refAudioPath, promptText: p.promptText, promptLang: p.promptLang
-      });
-      if (p.weightsMissing) weightMissing.push(p.name);
+      if (item.weightsMissing) weightMissing.push(name);
       added++;
     }
 
@@ -3701,11 +3692,86 @@ async function importLocalVoicesFromFile() {
     await saveSettings();
     renderLocalVoicesList();
     populateVoices();
-    showToast(`已导入 ${added} 个音色${renamed ? `（${renamed} 个同名另存为副本）` : ''}` +
-      (weightMissing.length ? `；${weightMissing.length} 个音色的模型权重路径在本机不存在，请打开音色编辑重新选择` : ''), failed ? 'error' : 'ok');
-    if (failed) showToast(`${failed} 个音色导入失败（参考音频写入失败）`, 'error');
+    if (rootDir) {
+      await scanModelsIntoEditor().catch(() => {});
+    }
+
+    const weightSummaryParts = [];
+    if (readRes.installedWeights > 0) weightSummaryParts.push(`自动安装模型权重 ${readRes.installedWeights} 个`);
+    if (readRes.reusedWeights > 0) weightSummaryParts.push(`复用本机已有相同权重 ${readRes.reusedWeights} 个`);
+    const weightSummary = weightSummaryParts.length ? `（${weightSummaryParts.join('，')}）` : '';
+
+    showToast(
+      `已导入 ${added} 个音色${renamed ? `（${renamed} 个同名另存为副本）` : ''}${weightSummary}` +
+      (weightMissing.length ? `；${weightMissing.length} 个音色的模型权重在本机不存在，请打开音色编辑重新选择` : ''),
+      'ok'
+    );
   } catch (error) {
     showToast('导入失败：' + cleanErrorMessage(error), 'error');
+  }
+}
+
+/**
+ * 检测当前配置的音色是否有模型权重留在旧整合包中，若有则弹窗提示一键迁移到当前整合包
+ */
+async function checkAndPromptWeightMigration(targetRootDir) {
+  const rootDir = (targetRootDir || $('localRootDir')?.value || '').trim();
+  const voices = state.settings?.localTts?.voices || [];
+  if (!rootDir || !voices.length || !window.momoVoiceSub?.engineInspectMissingWeights) return;
+
+  try {
+    const previousRootDir = state.settings?.localTts?.engine?.rootDir || '';
+    const check = await window.momoVoiceSub.engineInspectMissingWeights({
+      voices,
+      rootDir,
+      previousRootDir
+    });
+    if (!check || !Array.isArray(check.migratableItems) || !check.migratableItems.length) return;
+
+    const voiceNames = [...new Set(check.migratableItems.flatMap(i => i.voiceNames || []))];
+    const sourceRoots = [...new Set(check.migratableItems.map(i => i.sourceRoot).filter(Boolean))];
+    const confirmed = await showConfirmDialog({
+      message: `检测到 ${check.migratableItems.length} 个已训练模型权重仍在旧整合包目录，是否自动迁移到当前整合包？`,
+      detail: `关联音色：${voiceNames.join('、')}\n旧整合包位置：${sourceRoots.join('；')}\n\n确认后将自动把对应的 GPT (.ckpt) 与 SoVITS (.pth) 权重复制到新整合包对应目录（相同模型会自动复用，不重复占用空间）。`,
+      confirmText: '立即自动迁移',
+      cancelText: '暂不迁移',
+      wide: true
+    });
+    if (!confirmed) return;
+
+    showToast('正在将模型权重迁移到新整合包，请稍候...', 'ok');
+    const migRes = await window.momoVoiceSub.engineMigrateMissingWeights({
+      voices,
+      rootDir,
+      previousRootDir
+    });
+    if (migRes?.ok) {
+      const pathMap = migRes.updatedPathMap || {};
+      let updated = false;
+      for (const v of voices) {
+        if (v.gptWeightsPath && pathMap[v.gptWeightsPath]) {
+          v.gptWeightsPath = pathMap[v.gptWeightsPath];
+          updated = true;
+        }
+        if (v.sovitsWeightsPath && pathMap[v.sovitsWeightsPath]) {
+          v.sovitsWeightsPath = pathMap[v.sovitsWeightsPath];
+          updated = true;
+        }
+        v.sourceRootDir = rootDir;
+      }
+      if (updated) {
+        await saveSettings();
+        renderLocalVoicesList();
+      }
+      await scanModelsIntoEditor().catch(() => {});
+      showToast(
+        `模型迁移完成：新复制 ${migRes.migratedCount || 0} 个权重` +
+        (migRes.reusedCount ? `，复用已有 ${migRes.reusedCount} 个` : ''),
+        'ok'
+      );
+    }
+  } catch (err) {
+    console.warn('[checkAndPromptWeightMigration] 迁移检测失败:', err);
   }
 }
 
@@ -3724,7 +3790,28 @@ function cleanErrorMessage(err) {
 
 let lastEngineInfo = { running: false, port: 9880, pid: null, state: 'stopped', errorMsg: '' };
 
+/**
+ * 设置「启动服务」按钮的加载态：
+ * 本地服务启动过程中，按钮左侧的 ▶ 图标切换为旋转的加载圈。
+ * 加载态用按钮内的 .engine-start-icon-slot：▶ 图标位置替换为旋转加载圈（槽宽固定，按钮宽度不抖动）。
+ */
+function setEngineStartLoading(loading) {
+  const btn = $('engineStartBtn');
+  if (!btn) return;
+  // 启动中：按钮内的 ▶ 图标位置替换为旋转加载圈（图标槽宽度固定，按钮宽度不抖动）
+  const icon = $('engineStartIcon');
+  if (icon) icon.style.display = loading ? 'none' : '';
+  const spinner = $('engineStartSpinner');
+  if (spinner) spinner.classList.toggle('is-active', loading);
+}
+
+function syncEngineStartBtnState() {
+  setEngineStartLoading(lastEngineInfo.state === 'starting');
+}
+
 function updateLocalHeaderStatus() {
+  // 按钮加载态需与引擎状态同步（徽标会因切换页签提前 return，按钮态不能被跳过）
+  syncEngineStartBtnState();
   const badge = $('localHeaderEngineStatus');
   if (!badge) return;
 
@@ -3847,7 +3934,10 @@ async function detectRootDir({ silent = false } = {}) {
           + (res.versions?.length ? `，可用权重版本：${escHtml(res.versions.join(' / '))}` : '')
         : `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${shortEngineIssues(res.issues).join('；') || '缺少必要脚本'}）`;
     }
-    if (res.ok && !silent) showToast(`已识别到正确的 GPT-SoVITS 整合包（${res.hasRuntime ? '自带 Python' : '系统 Python'}）`, 'ok');
+    if (res.ok && !silent) {
+      showToast(`已识别到正确的 GPT-SoVITS 整合包（${res.hasRuntime ? '自带 Python' : '系统 Python'}）`, 'ok');
+      await checkAndPromptWeightMigration(rootDir);
+    }
     return res;
   } catch (err) {
     if (box) {
@@ -3860,31 +3950,46 @@ async function detectRootDir({ silent = false } = {}) {
 
 function bindLocalEngineControls() {
   $('browseRootDir')?.addEventListener('click', async () => {
-    const res = await window.momoVoiceSub.engineBrowseFolder();
-    if (res?.canceled) return;
-    if ($('localRootDir')) $('localRootDir').value = res.rootDir || '';
-    // 解释器路径始终跟随新选的整合包目录（留空表示该目录未探测到解释器）
-    if ($('localPythonPath')) $('localPythonPath').value = res?.detection?.pythonPath || '';
-    // 浏览回来的探测结果已在主进程算好，直接渲染，省一次 IPC
-    const box = $('localDetectResult');
-    if (box && res?.detection) {
-      const d = res.detection;
-      box.className = `detect-result ${d.ok ? 'ok' : 'error'}`;
-      box.innerHTML = d.ok
-        ? `✔ 已识别到正确的 GPT-SoVITS 整合包（${d.hasRuntime ? '自带 Python' : '系统 Python'}）`
-          + (d.versions?.length ? `，可用权重版本：${escHtml(d.versions.join(' / '))}` : '')
-        : `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${shortEngineIssues(d.issues).join('；') || '缺少必要脚本'}）`;
-      if (d.ok) showToast(`已识别到正确的 GPT-SoVITS 整合包（${d.hasRuntime ? '自带 Python' : '系统 Python'}）`, 'ok');
+    // 选目录 + 探测整合包结构耗时较长，期间按钮显示加载圈
+    const spinner = $('browseRootSpinner');
+    spinner?.classList.add('is-active');
+    try {
+      const res = await window.momoVoiceSub.engineBrowseFolder();
+      if (res?.canceled) return;
+      if ($('localRootDir')) $('localRootDir').value = res.rootDir || '';
+      // 解释器路径始终跟随新选的整合包目录（留空表示该目录未探测到解释器）
+      if ($('localPythonPath')) $('localPythonPath').value = res?.detection?.pythonPath || '';
+      // 浏览回来的探测结果已在主进程算好，直接渲染，省一次 IPC
+      const box = $('localDetectResult');
+      if (box && res?.detection) {
+        const d = res.detection;
+        box.className = `detect-result ${d.ok ? 'ok' : 'error'}`;
+        box.innerHTML = d.ok
+          ? `✔ 已识别到正确的 GPT-SoVITS 整合包（${d.hasRuntime ? '自带 Python' : '系统 Python'}）`
+            + (d.versions?.length ? `，可用权重版本：${escHtml(d.versions.join(' / '))}` : '')
+          : `未在该目录识别到有效的 GPT-SoVITS 整合包结构（${shortEngineIssues(d.issues).join('；') || '缺少必要脚本'}）`;
+        // 识别结果已展示 → 结束加载圈（不再等迁移弹窗关闭）
+        spinner?.classList.remove('is-active');
+        if (d.ok) {
+          showToast(`已识别到正确的 GPT-SoVITS 整合包（${d.hasRuntime ? '自带 Python' : '系统 Python'}）`, 'ok');
+          await checkAndPromptWeightMigration(res.rootDir);
+        }
+      }
+      updateSaveButton();
+      await scanModelsIntoEditor();
+    } finally {
+      spinner?.classList.remove('is-active');
     }
-    updateSaveButton();
-    await scanModelsIntoEditor();
   });
 
   $('localRootDir')?.addEventListener('change', () => detectRootDir());
 
   $('engineStartBtn')?.addEventListener('click', async () => {
     const btn = $('engineStartBtn');
+    // 点击后立即显示加载圈（权重迁移、落盘等前置步骤耗时较长）
+    setEngineStartLoading(true);
     try {
+      await checkAndPromptWeightMigration($('localRootDir')?.value.trim() || '');
       // 先落盘，保证主进程读到的是最新的 engine 配置
       await saveSettings();
       btn.disabled = true;
@@ -4203,6 +4308,7 @@ async function saveVoiceFromEditor() {
     gptWeightsPath,
     sovitsWeightsPath,
     refAudioPath: finalRefAudioPath,
+    sourceRootDir: $('localRootDir')?.value.trim() || '',
     promptText: $('voicePromptText')?.value.trim() || '',
     promptLang: $('voicePromptLang')?.value || 'zh'
   };

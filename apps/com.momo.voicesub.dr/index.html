@@ -418,7 +418,7 @@
                       <div class="field-hint">模型训练请在整合包自带的 webui（go-webui.bat）中完成，本插件只使用训练产物。</div>
                       <div class="input-with-btn">
                         <input id="localRootDir" type="text" placeholder="例如 D:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604">
-                        <button type="button" id="browseRootDir" class="btn btn-xs btn-secondary">浏览…</button>
+                        <button type="button" id="browseRootDir" class="btn btn-xs btn-secondary">浏览…<span class="ui-spinner" id="browseRootSpinner"><span class="ui-spinner-glyph"></span></span></button>
                       </div>
                     </div>
                   </div>
@@ -487,8 +487,14 @@
               </div>
 
               <div class="card-footer settings-actions">
-                <button type="button" id="engineStartBtn" class="btn btn-secondary">▶ 启动服务</button>
-                <button type="button" id="engineStopBtn" class="btn btn-secondary" disabled>■ 停止服务</button>
+                <button type="button" id="engineStartBtn" class="btn btn-secondary">
+                  <span class="engine-start-icon-slot">
+                    <span class="engine-start-icon" id="engineStartIcon">▶</span>
+                    <span class="ui-spinner" id="engineStartSpinner"><span class="ui-spinner-glyph"></span></span>
+                  </span>
+                  <span class="engine-start-label">启动服务</span>
+                </button>
+                <button type="button" id="engineStopBtn" class="btn btn-secondary" disabled><span class="stop-btn-icon">■</span> 停止服务</button>
                 <button id="saveLocalSettings" class="btn btn-primary">保存设置</button>
                 <button class="btn btn-secondary channel-enable-btn" data-enable-channel="local">启用此通道</button>
               </div>

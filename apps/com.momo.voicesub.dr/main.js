@@ -16,7 +16,8 @@ const NODE_TOO_OLD = NODE_MAJOR < MIN_NODE_MAJOR;
 let path, fs, WorkflowIntegration, SettingsStore, AzureTtsProvider, ResolveAdapter,
     CloudClient, CloudStore, CloudTtsProvider, LocalTtsProvider, DelegatingTtsProvider,
     GptSoVitsEngine, gptSoVitsDetect, scanGptSoVitsModels, scanGptSoVitsRefAudios,
-    lookupGptSoVitsPromptText, promptLangToLocale, packageInfo;
+    lookupGptSoVitsPromptText, promptLangToLocale, packageInfo,
+    exportVoicePackage, importVoicePackage, inspectMissingWeights, migrateMissingWeights;
 
 if (!NODE_TOO_OLD) {
   path = require('path');
@@ -47,6 +48,12 @@ if (!NODE_TOO_OLD) {
     scanReferenceAudios: scanGptSoVitsRefAudios,
     lookupPromptText: lookupGptSoVitsPromptText
   } = require('./lib/gptsovits-engine'));
+  ({
+    exportVoicePackage,
+    importVoicePackage,
+    inspectMissingWeights,
+    migrateMissingWeights
+  } = require('./lib/voice-package'));
   ({ promptLangToLocale } = require('./lib/preview-text'));
   packageInfo = require('./package.json');
 }
@@ -579,105 +586,100 @@ function registerIpcHandlers() {
     }
   });
 
-  // ── 本地音色导入导出（与 PR 版互通，参考音频以 base64 内嵌 JSON）──
+  // ── 本地音色导入导出（与 PR 版互通：.mvpkg 内嵌参考音频 + 去重后的 GPT/SoVITS 模型权重，兼容旧版 .json）──
 
-  // 导出本地音色：读取每个音色的参考音频转 base64，弹保存对话框写入 JSON
-  registerLoggedHandler('voice:exportVoices', async (_event, { voices, scope } = {}) => {
+  registerLoggedHandler('voice:exportVoices', async (_event, { voices, scope, rootDir } = {}) => {
     const list = Array.isArray(voices) ? voices : [];
     if (!list.length) return { ok: false, error: '没有可导出的音色' };
     if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true };
 
-    const audioToBase64 = (filePath) => {
-      try {
-        // 注意：顶层 fs 是 fs/promises 封装，同步 API 需直接 require('fs')
-        const _fsSync = require('fs');
-        const buf = _fsSync.readFileSync(filePath);
-        const m = String(filePath).match(/\.([A-Za-z0-9]+)\s*$/);
-        return { base64: buf.toString('base64'), ext: m ? m[1].toLowerCase() : 'wav' };
-      } catch (_) {
-        return null;
-      }
-    };
-
-    const items = [];
-    let missingAudio = 0;
-    for (const v of list) {
-      const item = {
-        id: v.id,
-        name: v.name || v.id,
-        avatarType: v.avatarType || (v.gender === 'Male' ? 'man' : 'woman'),
-        emotion: v.emotion || '通用',
-        gender: v.gender || '',
-        avatar: v.avatar || '',
-        modelName: v.modelName || '',
-        modelVersion: v.modelVersion || '',
-        gptWeightsPath: v.gptWeightsPath || '',
-        sovitsWeightsPath: v.sovitsWeightsPath || '',
-        promptText: v.promptText || '',
-        promptLang: v.promptLang || 'zh'
-      };
-      if (v.refAudioPath) {
-        const audio = audioToBase64(v.refAudioPath);
-        if (audio) {
-          item.refAudioExt = audio.ext;
-          item.refAudioBase64 = audio.base64;
-        }
-      }
-      if (!item.refAudioBase64) missingAudio++;
-      items.push(item);
-    }
+    const settings = await settingsStore.load();
+    const effectiveRootDir = rootDir || settings?.localTts?.engine?.rootDir || '';
 
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     const defaultName = scope === 'single' && list[0].name
-      ? `momovoicesub-local-voice-${String(list[0].name).replace(/[<>:"/\\|?*]/g, '_')}.json`
-      : `momovoicesub-local-voices-${timestamp}.json`;
+      ? `momovoicesub-local-voice-${String(list[0].name).replace(/[<>:"/\\|?*]/g, '_')}.mvpkg`
+      : `momovoicesub-local-voices-${timestamp}.mvpkg`;
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: scope === 'single' ? '导出本地音色' : '导出全部本地音色',
+      title: scope === 'single' ? '导出本地音色包（含模型与参考音频）' : '导出全部本地音色包（含模型与参考音频）',
       defaultPath: defaultName,
-      filters: [{ name: 'JSON 文件', extensions: ['json'] }]
+      filters: [{ name: '默默音色包 (.mvpkg)', extensions: ['mvpkg'] }]
     });
     if (result.canceled || !result.filePath) return { canceled: true };
 
-    const payload = {
-      type: 'momovoicesub-local-voices',
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      voices: items
-    };
-    await fs.writeFile(result.filePath, JSON.stringify(payload), 'utf8');
-    return { ok: true, count: items.length, missingAudio, filePath: result.filePath };
+    try {
+      const exportRes = exportVoicePackage({
+        filePath: result.filePath,
+        voices: list,
+        rootDir: effectiveRootDir
+      });
+      sendLog(`已导出音色包: ${result.filePath}（${exportRes.count} 个音色，内嵌 ${exportRes.packedWeightsCount} 个模型权重文件）`);
+      return exportRes;
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
+    }
   });
 
-  // 导入本地音色第一步：选择 JSON 文件并解析，返回音色数据（含 base64 参考音频）
-  // 顺便检测 GPT/SoVITS 权重路径在本机是否存在，供导入端提示用户重选
-  registerLoggedHandler('voice:importVoices', async () => {
+  registerLoggedHandler('voice:importVoices', async (_event, { rootDir } = {}) => {
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
     const result = await dialog.showOpenDialog(win, {
-      title: '选择音色导出文件',
-      filters: [{ name: 'JSON 文件', extensions: ['json'] }],
+      title: '选择音色包文件（支持 .mvpkg 与旧版 .json）',
+      filters: [{ name: '默默音色包 (.mvpkg / .json)', extensions: ['mvpkg', 'json'] }],
       properties: ['openFile']
     });
     if (result.canceled || !result.filePaths || !result.filePaths.length) {
       return { canceled: true };
     }
-    let data;
+
+    const settings = await settingsStore.load();
+    const effectiveRootDir = rootDir || settings?.localTts?.engine?.rootDir || '';
+    const dataDir = getAppDataDir();
+    const assetsDir = path.join(dataDir, 'voice_assets');
+
     try {
-      data = JSON.parse(await fs.readFile(result.filePaths[0], 'utf8'));
-    } catch (e) {
-      return { ok: false, error: '导入文件不是有效的 JSON 格式' };
-    }
-    const raw = (data && Array.isArray(data.voices)) ? data.voices : [];
-    const _fsSync = require('fs'); // 同步 API（顶层 fs 为 promises 封装）
-    const items = raw
-      .filter(v => v && v.name && v.refAudioBase64)
-      .map(v => {
-        const gptExists = v.gptWeightsPath ? _fsSync.existsSync(v.gptWeightsPath) : true;
-        const sovitsExists = v.sovitsWeightsPath ? _fsSync.existsSync(v.sovitsWeightsPath) : true;
-        return { ...v, weightsMissing: !(gptExists && sovitsExists) };
+      const importRes = importVoicePackage({
+        filePath: result.filePaths[0],
+        rootDir: effectiveRootDir,
+        assetsDir
       });
-    return { ok: true, count: items.length, voices: items };
+      if (importRes.ok) {
+        sendLog(`已解析并导入音色包: ${importRes.count} 个音色（新安装权重 ${importRes.installedWeights || 0} 个，复用已有权重 ${importRes.reusedWeights || 0} 个）`);
+      }
+      return importRes;
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
+  // 检测并迁移旧整合包中的自定义模型权重到当前整合包
+  registerLoggedHandler('engine:inspectMissingWeights', async (_event, { voices, rootDir, previousRootDir } = {}) => {
+    const settings = await settingsStore.load();
+    const effectiveVoices = Array.isArray(voices) ? voices : (settings?.localTts?.voices || []);
+    const effectiveRoot = rootDir || settings?.localTts?.engine?.rootDir || '';
+    const prevRoot = previousRootDir || settings?.localTts?.engine?.rootDir || '';
+    return inspectMissingWeights({
+      voices: effectiveVoices,
+      rootDir: effectiveRoot,
+      previousRootDir: prevRoot
+    });
+  });
+
+  registerLoggedHandler('engine:migrateMissingWeights', async (_event, { voices, rootDir, previousRootDir } = {}) => {
+    const settings = await settingsStore.load();
+    const effectiveVoices = Array.isArray(voices) ? voices : (settings?.localTts?.voices || []);
+    const effectiveRoot = rootDir || settings?.localTts?.engine?.rootDir || '';
+    const prevRoot = previousRootDir || settings?.localTts?.engine?.rootDir || '';
+    const res = migrateMissingWeights({
+      voices: effectiveVoices,
+      rootDir: effectiveRoot,
+      previousRootDir: prevRoot
+    });
+    if (res.ok) {
+      sendLog(`模型权重迁移完成：新复制 ${res.migratedCount} 个，复用已有 ${res.reusedCount} 个`);
+    }
+    return res;
   });
 
   // 导入本地音色第二步：把 base64 参考音频写入插件安全目录 voice_assets/

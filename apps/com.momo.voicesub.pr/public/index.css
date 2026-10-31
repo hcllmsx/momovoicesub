@@ -2007,6 +2007,11 @@ sp-button[variant="secondary"] {
   background-color: var(--bg-color);
 }
 
+/* 注意：<dialog> 由 UXP 宿主原生渲染，尺寸完全由 uxpShowModal 的 size 决定。
+   这里绝不能写 display/width/height——一旦写死宽度，就会与宿主渲染尺寸叠加，
+   导致内容溢出宿主可见区被裁（右侧文字被切、底部按钮只露一半）。
+   JS 侧 showUxPDialog 只负责算准 size.height，不碰 dialog 的任何布局样式。 */
+
 /* 弹窗标题栏由 uxpShowModal 的 title 原生渲染（UXP 陷阱 #14），无自绘 header/close 样式 */
 
 .mm-dialog-body {
@@ -2702,11 +2707,12 @@ font-weight: 500;
 
 .about-dialog-body {
   box-sizing: border-box;
-  padding: 16px 20px 20px;
+  padding: 16px 24px 22px;
   display: flex;
   flex-direction: column;
   width: 100%;
-  min-height: 100vh;
+  /* 不声明 min-height:100vh：那会让内容区被顶到宿主窗口底部、标题贴边，
+     同时使内容高度超出 size.height 被裁。改为按内容自然高。 */
 }
 
 .about-dialog-body > * + * {
@@ -3101,6 +3107,17 @@ font-weight: 500;
   border-color: var(--accent-color);
 }
 
+/* 「浏览…」按钮识别整合包期间的加载指示 */
+.local-browse-btn > .ui-spinner {
+  margin-left: 6px;
+}
+
+/* 「浏览…」文字：与加载圈保持同一水平中线（UXP 下 flex 可能不生效，
+   vertical-align:middle 作为行内布局回退） */
+.browse-btn-label {
+  vertical-align: middle;
+}
+
 .select-input {
   padding: 4px 8px;
   font-size: 12px;
@@ -3306,6 +3323,53 @@ font-weight: 500;
   margin-left: 8px;
 }
 
+/* ── 通用加载指示器（.ui-spinner） ──
+   UXP 宿主不刷新 CSS animation，旋转由 JS 定时器驱动（见 startSpinner）；
+   若读回 computed transform 发现角度恒为 0（宿主未应用），
+   自动降级为字符帧旋转（◐◓◑◒），保证任何环境下都能看到“转圈”效果。 */
+.ui-spinner {
+  display: none;
+  box-sizing: border-box;
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  transform-origin: 50% 50%;
+  color: var(--text-color);
+  flex: 0 0 auto;
+  align-self: center; /* flex 容器内垂直居中 */
+  vertical-align: middle; /* UXP 下 flex 可能不生效时的行内回退，保证与文字同水平居中 */
+}
+
+.ui-spinner.is-active {
+  display: inline-block;
+}
+
+/* 降级模式：隐藏边框圆环，改用字符帧 */
+.ui-spinner.spin-frames {
+  border-color: transparent;
+}
+
+.ui-spinner.spin-frames .ui-spinner-glyph {
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+/* ── 本地部署：启动服务按钮的加载帧 ──
+   启动按钮保持 sp-button（样式/禁用置灰由宿主原生提供）。
+   sp-button 是 Shadow DOM，内部子元素的样式/动画不被宿主重绘，
+   但 textContent 更新会正常刷新——因此加载圈用字符帧写在按钮文本里（▶ 位置替换为 ◐◓◑◒）。 */
+
+/* 「停止服务」按钮前的方块图标（需与 ▶ 图标视觉等重） */
+.stop-btn-icon {
+  font-size: 18px;
+  line-height: 1;
+  vertical-align: -2px;
+}
+
 /* ── 本地音色编辑弹窗样式 ── */
 .local-editor-dialog-body {
   display: flex;
@@ -3446,13 +3510,15 @@ font-weight: 500;
   margin: 0;
 }
 
+/* 正文区靠内容自然排布（不再声明 height:100% / justify-content:space-between）：
+   那两个声明会把按钮行顶到弹窗下边框，看起来像要被裁。
+   左右内边距比普通卡片大（34px）：宿主窗口的内容区比 size.width 窄约一个字，
+   18px 的内边距会让每行末尾的字落在裁切带里，必须预留右侧安全区。 */
 .mm-dialog-body {
   box-sizing: border-box;
-  padding: 14px 18px 18px;
+  padding: 16px 34px 20px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  height: 100%;
 }
 
 .confirm-message {
@@ -3461,6 +3527,8 @@ font-weight: 500;
   color: var(--text-color);
   margin: 0 0 8px 0;
   line-height: 1.4;
+  overflow-wrap: anywhere; /* 长英文/路径也能正常换行，不会撑破弹窗 */
+  white-space: pre-line; /* UXP 下 flex 子项偶尔不自动折行，保留调用方显式分行 */
 }
 
 .confirm-detail {
@@ -3469,6 +3537,8 @@ font-weight: 500;
   margin: 0 0 16px 0;
   line-height: 1.5;
   word-break: break-all;
+  white-space: pre-wrap; /* 保留文案中手写的换行符 */
+  overflow-wrap: anywhere;
 }
 
 .confirm-actions {
@@ -3476,9 +3546,14 @@ font-weight: 500;
   justify-content: flex-end;
   align-items: center;
   margin-top: 10px;
+  flex-shrink: 0; /* UXP 高度受限时保留按钮行，避免 flex 将其压到可视区外 */
+  min-height: 32px;
 }
 .confirm-actions > * + * {
   margin-left: 10px;
+}
+.confirm-actions.confirm-actions-start {
+  justify-content: flex-start;
 }
 
 /* ── 通道启用状态按钮（使用中）：绿色边框与绿色文字 ── */

@@ -170,16 +170,42 @@ export class GptSoVitsAdapter {
   }): Promise<void> {
     const normUrl = normalizeBaseUrl(baseUrl);
     if (gptWeightsPath && gptWeightsPath !== this.lastWeights.gpt) {
+      let res: Response;
       try {
-        await this.fetchImpl(`${normUrl}/set_gpt_weights?weights_path=${encodeURIComponent(gptWeightsPath)}`);
-        this.lastWeights.gpt = gptWeightsPath;
-      } catch {}
+        res = await this.fetchImpl(`${normUrl}/set_gpt_weights?weights_path=${encodeURIComponent(gptWeightsPath)}`);
+      } catch (err: any) {
+        throw new Error(`切换 GPT 模型权重失败（无法连接本地服务）：${err?.message || err}`);
+      }
+      if (res && !res.ok) {
+        let errDetail = '';
+        try {
+          const json = await res.json();
+          errDetail = json.Exception || json.message || JSON.stringify(json);
+        } catch {
+          errDetail = await res.text().catch(() => '');
+        }
+        throw new Error(`加载 GPT 模型权重失败（${gptWeightsPath}）：${errDetail || res.statusText}。若刚更换了整合包目录，请先迁移模型文件或重新选择模型。`);
+      }
+      this.lastWeights.gpt = gptWeightsPath;
     }
     if (sovitsWeightsPath && sovitsWeightsPath !== this.lastWeights.sovits) {
+      let res: Response;
       try {
-        await this.fetchImpl(`${normUrl}/set_sovits_weights?weights_path=${encodeURIComponent(sovitsWeightsPath)}`);
-        this.lastWeights.sovits = sovitsWeightsPath;
-      } catch {}
+        res = await this.fetchImpl(`${normUrl}/set_sovits_weights?weights_path=${encodeURIComponent(sovitsWeightsPath)}`);
+      } catch (err: any) {
+        throw new Error(`切换 SoVITS 模型权重失败（无法连接本地服务）：${err?.message || err}`);
+      }
+      if (res && !res.ok) {
+        let errDetail = '';
+        try {
+          const json = await res.json();
+          errDetail = json.Exception || json.message || JSON.stringify(json);
+        } catch {
+          errDetail = await res.text().catch(() => '');
+        }
+        throw new Error(`加载 SoVITS 模型权重失败（${sovitsWeightsPath}）：${errDetail || res.statusText}。若刚更换了整合包目录，请先迁移模型文件或重新选择模型。`);
+      }
+      this.lastWeights.sovits = sovitsWeightsPath;
     }
   }
 

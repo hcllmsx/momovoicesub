@@ -48,6 +48,40 @@ export function utf8Encode(str: string): Uint8Array {
 }
 
 /**
+ * 将 UTF-8 Uint8Array 解码为 JS 字符串（兼容无全局 TextDecoder 的 UXP 环境）。
+ */
+export function utf8Decode(bytes: Uint8Array): string {
+  try {
+    if (typeof TextDecoder !== 'undefined') {
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+  } catch (_) {}
+  let out = '';
+  let i = 0;
+  const len = bytes.length;
+  while (i < len) {
+    const c = bytes[i++];
+    if (c < 0x80) {
+      out += String.fromCharCode(c);
+    } else if ((c & 0xe0) === 0xc0 && i < len) {
+      const c2 = bytes[i++] & 0x3f;
+      out += String.fromCharCode(((c & 0x1f) << 6) | c2);
+    } else if ((c & 0xf0) === 0xe0 && i + 1 < len) {
+      const c2 = bytes[i++] & 0x3f;
+      const c3 = bytes[i++] & 0x3f;
+      out += String.fromCharCode(((c & 0x0f) << 12) | (c2 << 6) | c3);
+    } else if ((c & 0xf8) === 0xf0 && i + 2 < len) {
+      const c2 = bytes[i++] & 0x3f;
+      const c3 = bytes[i++] & 0x3f;
+      const c4 = bytes[i++] & 0x3f;
+      const codePoint = (((c & 0x07) << 18) | (c2 << 12) | (c3 << 6) | c4) - 0x10000;
+      out += String.fromCharCode(0xd800 + (codePoint >> 10), 0xdc00 + (codePoint & 0x3ff));
+    }
+  }
+  return out;
+}
+
+/**
  * 左旋转（circular left shift）。
  */
 function rotl(n: number, s: number): number {
@@ -55,7 +89,7 @@ function rotl(n: number, s: number): number {
 }
 
 /**
- * 将 Uint8Array 4 字节小端序组合成 32 位无符号整数。
+ * 将 Uint8Array 4 字节大端序组合成 32 位无符号整数。
  */
 function bytesToUint32(bytes: Uint8Array, offset: number): number {
   return (
@@ -77,12 +111,9 @@ function uint32ToBytes(value: number, out: Uint8Array, offset: number): void {
 }
 
 /**
- * 计算 SHA-1 摘要并返回十六进制字符串。
- * 与 Web Crypto `crypto.subtle.digest('SHA-1', ...)` + 转 hex 等价。
+ * 对任意二进制 Uint8Array 计算 SHA-1 摘要并返回 40 字符小写十六进制字符串。
  */
-export function sha1Hex(value: string): string {
-  const msg = utf8Encode(value);
-
+export function sha1Bytes(msg: Uint8Array): string {
   // 填充：0x80 + 0x00... + 8 字节大端序长度（位）
   const originalBitLength = msg.length * 8;
   // 需要让总长度 ≡ 56 (mod 64)，再加 8 字节长度
@@ -91,8 +122,7 @@ export function sha1Hex(value: string): string {
   const padded = new Uint8Array(paddedLen);
   padded.set(msg, 0);
   padded[msg.length] = 0x80;
-  // 最后 8 字节：原始位长度（64 位大端序，这里高 32 位为 0，因为我们处理的输入都很短）
-  // 为支持超长输入，高 32 位也得算
+  // 最后 8 字节：原始位长度（64 位大端序）
   const highBits = Math.floor(originalBitLength / 0x100000000);
   const lowBits = originalBitLength >>> 0;
   uint32ToBytes(highBits, padded, paddedLen - 8);
@@ -168,6 +198,14 @@ export function sha1Hex(value: string): string {
     hex += out[i].toString(16).padStart(2, '0');
   }
   return hex;
+}
+
+/**
+ * 计算 SHA-1 摘要并返回十六进制字符串。
+ * 与 Web Crypto `crypto.subtle.digest('SHA-1', ...)` + 转 hex 等价。
+ */
+export function sha1Hex(value: string): string {
+  return sha1Bytes(utf8Encode(value));
 }
 
 export { sha1Hex as sha1 };

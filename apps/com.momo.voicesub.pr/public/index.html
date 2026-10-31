@@ -463,7 +463,7 @@
                         <div class="field-hint">模型训练请在整合包自带的 webui（go-webui.bat）中完成，本插件只使用训练产物。</div>
                         <div class="input-with-btn">
                           <input id="localRootDir" class="native-input" type="text" placeholder="例如 D:\GPT-SoVITS\GPT-SoVITS-v2pro-20250604">
-                          <div class="local-browse-btn" id="browseRootDir" role="button" tabindex="0">浏览…</div>
+                          <div class="local-browse-btn" id="browseRootDir" role="button" tabindex="0"><span class="browse-btn-label">浏览…</span><span class="ui-spinner" id="browseRootSpinner"><span class="ui-spinner-glyph"></span></span></div>
                         </div>
                       </div>
                     </div>
@@ -507,8 +507,10 @@
                 </div>
 
                 <div class="setting-actions local-setting-actions">
+                  <!-- 启动服务：保持 sp-button（样式与禁用置灰由宿主原生提供）。
+                       sp-button 是 Shadow DOM，内部子元素不重绘，所以加载圈用字符帧写进按钮文本（▶ → ◐◓◑◒） -->
                   <sp-button variant="secondary" id="engineStartBtn">▶ 启动服务</sp-button>
-                  <sp-button variant="secondary" id="engineStopBtn" disabled>■ 停止服务</sp-button>
+                  <sp-button variant="secondary" id="engineStopBtn" disabled><span class="stop-btn-icon">■</span> 停止服务</sp-button>
                   <sp-button variant="primary" id="saveLocalSettingsBtn">保存设置</sp-button>
                   <sp-button variant="secondary" class="channel-enable-btn" data-enable-channel="local">启用此通道</sp-button>
                 </div>
@@ -689,6 +691,8 @@
   </dialog>
 
   <!-- 确认弹窗（标题栏由 uxpShowModal 的 title 原生渲染，勿在 HTML 内自绘，避免双标题） -->
+  <!-- 按钮行放在 .mm-dialog-body 内部（.confirm-actions）：正文与按钮同属一个流式容器，
+       高度不够时整体可见，不会出现按钮行被单独裁出一半 -->
   <dialog id="confirmDialog" class="mm-dialog">
     <div class="mm-dialog-body">
       <p class="confirm-message" id="confirmDialogMessage">确认执行此操作？</p>
