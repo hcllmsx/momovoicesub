@@ -472,7 +472,9 @@ class GptSoVitsEngine {
       let pending = '';
       stream.on('data', (chunk) => {
         pending += chunk;
-        const lines = pending.split(/\r?\n/);
+        // GPT-SoVITS 的 tqdm 会用回车符覆盖同一行进度；也按分隔符发出，
+        // 这样面板里的实时输出能同步显示最新的一帧。
+        const lines = pending.split(/[\r\n]+/);
         pending = lines.pop() || '';
         for (const line of lines) {
           if (line.trim()) this._log(classifyLogLevel(line), line);

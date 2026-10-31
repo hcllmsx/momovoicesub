@@ -449,9 +449,12 @@
                   <div class="local-tts-row">
                     <div class="setting-col-service-type">
                       <span class="setting-label">服务类型</span>
-                      <select id="localServiceType" class="select-input">
-                        <option value="gpt-sovits" selected>GPT-SoVITS</option>
-                      </select>
+                      <div class="service-type-controls">
+                        <select id="localServiceType" class="select-input">
+                          <option value="gpt-sovits" selected>GPT-SoVITS</option>
+                        </select>
+                        <sp-button id="gptSovitsKnownIssueBtn" variant="secondary">已知问题</sp-button>
+                      </div>
                     </div>
                   </div>
 

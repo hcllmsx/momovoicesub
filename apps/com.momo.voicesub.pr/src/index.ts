@@ -1042,7 +1042,7 @@ async function initPlugin() {
     // 「momoVoicesub」为指向官网主页的超链接，点击调 shell.openExternal 打开浏览器
     const appVersionEl = $("appVersion");
     if (appVersionEl) {
-      appVersionEl.innerHTML = `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） <span class="app-version-num">v${__APP_VERSION__}</span>`;
+      appVersionEl.innerHTML = `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） <span id="appVersionNumber" class="app-version-num">v${__APP_VERSION__}</span>`;
       const linkEl = $("appVersionLink");
       if (linkEl) {
         linkEl.addEventListener("click", () => {
@@ -1159,15 +1159,8 @@ async function initPlugin() {
     setTimeout(() => {
       sendStartupHeartbeat();
     }, 1500);
-    // 点击版本号手动检查更新（排除 momoVoicesub 链接点击）
-    const appVerEl = document.getElementById('appVersion');
-    if (appVerEl) {
-      appVerEl.addEventListener('click', (e: MouseEvent) => {
-        const target = e.target as HTMLElement;
-        if (target && (target.id === 'appVersionLink' || target.closest('#appVersionLink'))) return;
-        checkForUpdate(true);
-      });
-    }
+    // 只有点击版本号才手动检查更新；标题与官网链接保持普通文本/链接行为。
+    document.getElementById('appVersionNumber')?.addEventListener('click', () => checkForUpdate(true));
 
     // 初始化云端账号状态
     refreshCloudAccount().catch(err => console.error('[Momo] 云端账号初始化失败:', err));
@@ -4625,6 +4618,15 @@ async function saveVoiceFromEditor() {
 }
 
 function bindLocalTtsEvents() {
+  $("gptSovitsKnownIssueBtn")?.addEventListener('click', async () => {
+    await showConfirmDialog({
+      title: 'GPT-SoVITS 已知问题',
+      message: '不完整的短句可能无法正常读出，甚至整句漏读；可以尝试与相邻字幕连读或补充上下文。该问题不知道是谁的锅，我懒得去搞了。',
+      confirmText: '我知道了',
+      hideCancel: true,
+    });
+  });
+
   // 浏览整合包目录
   // 选目录对话框关闭 → 整合包结构探测可能耗时数秒，期间「浏览…」按钮显示加载圈，
   // 识别结果（"已识别到正确的 GPT-SoVITS 整合包…"）一旦出现即停止并隐藏。
@@ -6544,6 +6546,9 @@ $("generateSubtitles")?.addEventListener("click", async () => {
     return;
   }
 
+  const generateButton = $("generateSubtitles") as any;
+  startBtnTextSpinner(generateButton, '生成并插入字幕配音');
+  try {
   showToast(`开始生成字幕配音，共 ${groups.length} 段${linkedGroupCount > 0 ? `（含 ${linkedGroupCount} 段连读合并）` : ''}...`, "info");
 
   // ─── 批量配音前先保存项目 ───
@@ -6639,9 +6644,11 @@ $("generateSubtitles")?.addEventListener("click", async () => {
       break;
     }
   }
-
   renderSubtitleList();
   showToast("字幕配音生成结束", "success");
+  } finally {
+    stopBtnTextSpinner(generateButton, '▶ 生成并插入字幕配音');
+  }
 });
 
 // 2. 手动配音生成并插入
@@ -6678,8 +6685,11 @@ $("insertManual")?.addEventListener("click", async () => {
   const volumeSlider = $("manualVolume") as any;
   const volume = `${volumeSlider.value}%`;
 
+  const insertButton = $("insertManual") as any;
+  startBtnTextSpinner(insertButton, '生成并插入到播放头');
   showToast("正在合成音频...", "info");
 
+  try {
   // ─── 插入前先保存项目，确保工程状态一致（避免未保存时闪退） ───
   try {
     const saved = await premiereAdapter.saveProject();
@@ -6700,7 +6710,6 @@ $("insertManual")?.addEventListener("click", async () => {
     }
   }
 
-  try {
     const settings = await settingsStore.load();
     const { cleanText, annotations } = parseAnnotations(annotated);
 
@@ -6753,6 +6762,7 @@ $("insertManual")?.addEventListener("click", async () => {
     const errMsg = (err && (err.message || err.stack)) || String(err);
     showToast(`生成手动配音失败：${errMsg}`, "error");
   } finally {
+    stopBtnTextSpinner($("insertManual") as any, '▶ 生成并插入到播放头');
     // 配音流程中 PR 执行事务/保存可能导致 UXP 面板重绘，textarea value 偶发被清空，
     // 结束后立即自愈恢复，避免用户看到文字"消失"
     ensureManualTextareaValue();

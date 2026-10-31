@@ -1272,7 +1272,7 @@ body {
 .app-version-num.app-version-latest {
   color: #4caf50;
 }
-#appVersion {
+#appVersion .app-version-num {
   cursor: pointer;
 }
 
@@ -3031,6 +3031,28 @@ font-weight: 500;
 .setting-col-script > * + * {
   margin-top: 4px;
 }
+.service-type-controls {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.service-type-controls select {
+  flex: 1;
+  min-width: 0;
+}
+#gptSovitsKnownIssueBtn {
+  --spectrum-button-secondary-border-color: var(--border-color, #6e6e6e) !important;
+  --spectrum-button-secondary-border-color-hover: var(--accent-color, #6b9fff) !important;
+  --spectrum-button-secondary-background-color: transparent !important;
+  --spectrum-button-secondary-background-color-hover: rgba(255, 255, 255, 0.06) !important;
+  --spectrum-button-border-width: 1px !important;
+  border: 1px solid var(--border-color, #6e6e6e) !important;
+  border-radius: 0 !important;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  flex: 0 0 auto;
+}
 
 .setting-col-base-url {
   flex: 1.5;
@@ -3101,6 +3123,8 @@ font-weight: 500;
   user-select: none;
   -webkit-user-select: none;
   min-height: 28px;
+  line-height: 1;
+  gap: 6px;
 }
 .local-browse-btn:hover {
   background-color: #3a3a3a;
@@ -3109,13 +3133,19 @@ font-weight: 500;
 
 /* 「浏览…」按钮识别整合包期间的加载指示 */
 .local-browse-btn > .ui-spinner {
-  margin-left: 6px;
+  margin-left: 0;
+  vertical-align: middle;
+  position: relative;
+  top: -2px;
 }
 
 /* 「浏览…」文字：与加载圈保持同一水平中线（UXP 下 flex 可能不生效，
    vertical-align:middle 作为行内布局回退） */
 .browse-btn-label {
+  display: inline-flex;
+  align-items: center;
   vertical-align: middle;
+  line-height: 1;
 }
 
 .select-input {

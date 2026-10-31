@@ -291,6 +291,18 @@ function styleCn(style) { return STYLE_CN[style] || style; }
 // busy 结束时只解禁原本可用的按钮，避免 setBusy(false) 把状态性禁用一并解锁，
 // 导致服务明明在跑、"启动服务"却又能点的问题。
 let busyDisabledButtons = null;
+let activeJobLogTargetId = null;
+
+function setJobLiveLogTarget(btnId) {
+  activeJobLogTargetId = btnId || null;
+  for (const [id, logId] of [['generateSubtitles', 'subtitleLiveEngineLog'], ['insertManual', 'manualLiveEngineLog']]) {
+    const line = $(logId);
+    if (!line) continue;
+    const active = id === activeJobLogTargetId;
+    line.classList.toggle('hidden', !active);
+    line.textContent = active ? '正在等待 GPT-SoVITS 输出…' : '';
+  }
+}
 
 function setBusy(isBusy, btnId) {
   state.busy = isBusy;
@@ -312,6 +324,7 @@ function setBusy(isBusy, btnId) {
   // 优先用传入的 btnId，否则找当前 active tab 的主操作按钮
   const targetBtnId = btnId
     || (state.currentTab === 'manual' ? 'insertManual' : 'generateSubtitles');
+  setJobLiveLogTarget(isBusy ? targetBtnId : null);
   const btn = $(targetBtnId);
   if (btn) {
     if (isBusy) {
@@ -3859,6 +3872,11 @@ function setEngineLogVisible(visible) {
 function appendEngineLog(entry) {
   const box = $('engineLog');
   if (!box || !entry) return;
+  if (activeJobLogTargetId) {
+    const liveLineId = activeJobLogTargetId === 'insertManual' ? 'manualLiveEngineLog' : 'subtitleLiveEngineLog';
+    const liveLine = $(liveLineId);
+    if (liveLine) liveLine.textContent = String(entry.message || '').replace(/\s+/g, ' ').trim();
+  }
   setEngineLogVisible(true);
   const line = document.createElement('div');
   line.className = entry.level === 'error' ? 'log-error'
@@ -4916,10 +4934,20 @@ function openAddPolyEntry() {
 
 // ─── Cache ───
 
-function showConfirmPopup(message) {
+function showConfirmPopup(message, options = {}) {
   return new Promise((resolve) => {
     const popup = $('confirmPopup');
     $('confirmPopupMessage').textContent = message;
+    const header = popup.querySelector('.popup-header span');
+    const okButton = $('confirmPopupOk');
+    const cancelButton = $('confirmPopupCancel');
+    if (header) header.textContent = options.title || '操作确认';
+    if (okButton) {
+      okButton.textContent = options.confirmText || '确定删除';
+      okButton.classList.toggle('btn-danger', options.danger !== false);
+      okButton.classList.toggle('btn-primary', options.danger === false);
+    }
+    if (cancelButton) cancelButton.style.display = options.hideCancel ? 'none' : '';
     popup.classList.remove('hidden');
 
     function cleanup(result) {
@@ -5225,7 +5253,7 @@ async function refreshState() {
     const appVersionEl = $('appVersion');
     if (appVersionEl) {
       appVersionEl.innerHTML = state.appVersion
-        ? `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） <span class="app-version-num">v${state.appVersion}</span>`
+        ? `默默配音助手（<a id="appVersionLink" class="app-version-link" href="javascript:void(0)">momoVoicesub</a>） <span id="appVersionNumber" class="app-version-num">v${state.appVersion}</span>`
         : '';
       const linkEl = $('appVersionLink');
       if (linkEl) {
@@ -5233,6 +5261,7 @@ async function refreshState() {
           window.momoVoiceSub.openExternal('https://momovoicesub.sxrec.com/');
         });
       }
+      $('appVersionNumber')?.addEventListener('click', () => checkForUpdate(true));
     }
 
     showNodeWarning(appState.nodeWarning);
@@ -6087,6 +6116,10 @@ function bindAboutPopup() {
   };
 
   openBtn?.addEventListener('click', openPopup);
+  $('openAboutLink')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    openPopup();
+  });
   closeBtn?.addEventListener('click', closePopup);
 
   $('aboutOfficialSiteLink')?.addEventListener('click', () => {
@@ -6156,6 +6189,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   setupEvents();
 
+  $('gptSovitsKnownIssueBtn')?.addEventListener('click', () => {
+    showConfirmPopup(
+      '不完整的短句可能无法正常读出，甚至整句漏读；可以尝试与相邻字幕连读或补充上下文。该问题不知道是谁的锅，我懒得去搞了。',
+      { title: 'GPT-SoVITS 已知问题', confirmText: '我知道了', hideCancel: true, danger: false }
+    );
+  });
+
   const nodeWarningClose = $('nodeWarningClose');
   if (nodeWarningClose) {
     nodeWarningClose.addEventListener('click', () => {
@@ -6188,14 +6228,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => {
       sendStartupHeartbeat();
     }, 1500);
-    // 点击版本号手动检查更新（排除 momoVoicesub 链接点击）
-    const appVerEl = document.getElementById('appVersion');
-    if (appVerEl) {
-      appVerEl.addEventListener('click', (e) => {
-        if (e.target && (e.target.id === 'appVersionLink' || (e.target).closest('#appVersionLink'))) return;
-        checkForUpdate(true);
-      });
-    }
     log('插件已启动');
 
   } catch (error) {

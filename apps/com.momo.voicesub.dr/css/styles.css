@@ -1419,6 +1419,23 @@ z-index: 30;
   transition: all 0.24s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.job-live-engine-log {
+  box-sizing: border-box;
+  width: 520px;
+  max-width: min(70vw, 520px);
+  overflow: hidden;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 11px/1.35 Consolas, "Microsoft YaHei UI", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+}
+
 .floating-action-bar #generateSubtitles:hover,
 .floating-action-bar #insertManual:hover {
   transform: translateY(-2px);
@@ -1753,6 +1770,14 @@ z-index: 30;
   user-select: none;
   border-top: 1px solid var(--line);
 }
+.settings-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.footer-sep {
+  color: var(--muted);
+}
 
 /* 页脚版本号中的 GitHub 仓库超链接 */
 .app-version-link {
@@ -1799,7 +1824,7 @@ z-index: 30;
 .app-version-num.app-version-latest {
   color: #4caf50;
 }
-#appVersion {
+#appVersion .app-version-num {
   cursor: pointer;
 }
 
@@ -2195,6 +2220,16 @@ z-index: 30;
 .setting-col-service-type,
 .setting-col-mode {
   flex: 1;
+}
+.service-type-controls {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+.service-type-controls select {
+  flex: 1;
+  min-width: 0;
 }
 .setting-col-base-url {
   flex: 1.8 !important;

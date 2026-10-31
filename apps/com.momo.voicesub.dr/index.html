@@ -180,6 +180,7 @@
         </div>
 
         <div class="floating-action-bar">
+          <div id="subtitleLiveEngineLog" class="job-live-engine-log hidden" aria-live="polite"></div>
           <button id="generateSubtitles" class="btn btn-primary">▶ 生成字幕配音</button>
         </div>
       </section>
@@ -283,6 +284,7 @@
         </div>
 
         <div class="floating-action-bar">
+          <div id="manualLiveEngineLog" class="job-live-engine-log hidden" aria-live="polite"></div>
           <button id="insertManual" class="btn btn-primary">▶ 生成并插入到播放头</button>
         </div>
       </section>
@@ -404,9 +406,12 @@
                 <div class="local-tts-row">
                   <div class="setting-col-service-type">
                     <label>服务类型</label>
-                    <select id="localServiceType" class="select-input">
-                      <option value="gpt-sovits" selected>GPT-SoVITS</option>
-                    </select>
+                    <div class="service-type-controls">
+                      <select id="localServiceType" class="select-input">
+                        <option value="gpt-sovits" selected>GPT-SoVITS</option>
+                      </select>
+                      <button type="button" id="gptSovitsKnownIssueBtn" class="btn btn-xs btn-secondary">已知问题</button>
+                    </div>
                   </div>
                 </div>
 
@@ -570,7 +575,11 @@
 
           <!-- 设置页面底部版本号页脚 -->
           <div class="settings-footer">
-            <span id="appVersion"></span>
+            <div class="settings-footer-left">
+              <span id="appVersion"></span>
+              <span class="footer-sep">·</span>
+              <a id="openAboutLink" class="app-version-link" href="javascript:void(0)">关于 &amp; 反馈</a>
+            </div>
             <span id="updateStatus" class="update-status"></span>
           </div>
         </div>

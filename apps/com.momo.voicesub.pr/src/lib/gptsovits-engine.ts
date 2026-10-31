@@ -439,6 +439,7 @@ export async function launchGptSoVitsService({
     'echo 正在启动GPT-SoVITS服务，请不要关闭此窗口。',
     'echo.',
     'ping 127.0.0.1 -n 2 >nul',
+    `echo 当前启动目录：${rootWin}`,
     'echo 正在加载引擎与模型，服务启动后请保持此窗口常驻后台...',
     'echo ============================================================',
     'echo.',
