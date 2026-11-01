@@ -408,7 +408,7 @@ class GptSoVitsEngine {
 
   async start({ rootDir, pythonPath, script = 'api_v2.py', port = 9880 }) {
     if (typeof globalThis.fetch !== 'function') {
-      throw new Error('当前达芬奇内置的 Node.js 版本过低（缺少 fetch），无法使用托管模式。请升级达芬奇，或在「连接已有服务」模式下手动启动 api_v2.py 并填写地址。');
+      throw new Error('当前达芬奇内置的 Node.js 版本过低（缺少 fetch），无法启动本地 GPT-SoVITS 服务。请升级达芬奇后再试。');
     }
 
     if (this.child) {
