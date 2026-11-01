@@ -89,7 +89,7 @@ const { id: PLUGIN_ID, version: PLUGIN_VERSION } = readPluginMetaFromManifest();
 const LOGO_PATH = _path.join(__dirname, 'momovoicesub-logo.png');
 
 // 根据 manifest Id 自动切换环境：dev 版（Id 以 .dev 结尾）连本地，正式版连生产域名。
-// dr-install.ps1 安装 dev 版时会改写 manifest 的 Id 为 com.momo.voicesub.dr.dev，
+// 开发菜单安装 dev 版时会改写 manifest 的 Id 为 com.momo.voicesub.dr.dev，
 // 源码保持正式版不变，此处根据 Id 自动判断。
 const IS_DEV = PLUGIN_ID.endsWith('.dev');
 const API_BASE_URL = IS_DEV ? 'http://localhost:3000' : 'https://momovoicesub.sxrec.com';

@@ -42,12 +42,9 @@
 
 ## 安装
 
-### 方式一：使用安装器（推荐）
-
-1. 获取安装器 `momovoicesub-setup-v版本号.exe`。
-2. 双击运行，安装器会自动检测本机是否安装了 DaVinci Resolve 和 Premiere Pro。
-3. 勾选需要安装的组件（DR 版 / PR 版 / 全部）。
-4. 点击"安装"，完成后打开对应软件即可使用。
+1. 按需获取安装器：DaVinci Resolve 版 `momovoicesub-dr-setup-v版本号.exe`，Premiere Pro 版 `momovoicesub-pr-setup-v版本号.exe`。
+2. 双击运行，安装器会自动检测本机是否安装了对应的宿主。
+3. 点击"安装"，完成后打开对应软件即可使用。
 
 安装器特点：
 
@@ -56,23 +53,7 @@
 - DR 版会自动复制你当前安装的达芬奇版本的 `WorkflowIntegration.node` 依赖文件。
 - 支持从"控制面板 > 程序和功能"卸载，卸载时自动清理插件文件和注册信息。
 
-### 方式二：开发模式安装
-
-分别使用各自的脚本：
-
-```powershell
-# DaVinci Resolve 版
-powershell -ExecutionPolicy Bypass -File .\scripts\dr-install.ps1
-
-# Premiere Pro 版（开发构建用）
-powershell -ExecutionPolicy Bypass -File .\scripts\pr-install.ps1
-```
-
-PR 版开发模式还需要：
-
-1. 安装 [UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/)（UDT）。
-2. 在 Premiere Pro 中：`编辑 > 首选项 > 增效工具`，勾选"启用开发人员模式"。
-3. 重启 Premiere Pro。
+安装包通过官网「下载客户端」弹窗所示渠道获取：B 站私信或 QQ 群公告查看网盘下载指引。GitHub Release 仅发布版本说明，不直接提供安装包下载。
 
 ## 打开插件
 
@@ -150,64 +131,6 @@ PR 版开发模式还需要：
 - 删除未使用缓存（仅清理当前项目时间线未引用的）
 - 删除当前项目缓存
 - 删除全部缓存
-
-## 项目结构
-
-```text
-apps/
-  com.momo.voicesub.dr/      # DaVinci Resolve 版插件源码
-  com.momo.voicesub.pr/      # Premiere Pro UXP 版插件源码
-installer/
-  momovoicesub.iss           # Inno Setup 安装器脚本
-  build.ps1                  # 一键构建安装器
-  src/                       # 安装器依赖（中文语言包、图标、PR JSON 管理脚本）
-scripts/
-  dr-install.ps1             # DR 版开发安装脚本
-  pr-install.ps1             # PR 版开发安装脚本
-docs/                        # 截图和图标资源
-VERSION                      # 版本号（DR 和 PR 共用）
-```
-
-## 构建安装器
-
-从源码构建安装器 exe：
-
-```powershell
-# 需要 Node.js 和 Inno Setup 6
-powershell -ExecutionPolicy Bypass -File .\installer\build.ps1
-```
-
-构建产物输出到 `_output\momovoicesub-setup-<version>.exe`。
-
-## 版本发布流程
-
-项目根目录的 `VERSION` 用于构建时写入 DR / PR 插件元数据。正式版本以 GitHub 上发布的 `v<版本号>` tag 为准：更新 `VERSION` 并完成构建验证后，推送对应 tag 即触发 Release 工作流。官网版本标签与插件内检查更新均以最新正式 Release tag 为准，未发布的 `VERSION` 不会提前提示更新。
-
-安装包仍按官网「下载客户端」弹窗所示渠道获取：通过 B 站私信或 QQ 群公告查看网盘下载指引。GitHub Release 用于发布版本说明，不直接提供安装包下载。
-## 本地开发与云端环境
-
-DR 版插件根据 manifest Id 自动判断运行环境：
-
-| 环境 | manifest Id | API 地址 | Web 地址 | 适用场景 |
-|------|------------|---------|---------|---------|
-| dev 版 | `com.momo.voicesub.dr.dev` | `http://localhost:3000` | `http://localhost:3001` | 本地开发调试 |
-| 正式版 | `com.momo.voicesub.dr` | `https://momovoicesub.sxrec.com` | 同域名 | 生产环境 |
-
-`dr-install.ps1` 安装 dev 版时会自动把 manifest Id 改为 `.dev` 后缀，源码保持正式版不变。插件启动时根据 Id 是否以 `.dev` 结尾切换 API/Web 地址，无需额外配置文件。
-
-### 本地开发云端服务
-
-DR dev 版插件需要连接本地运行的云端服务才能完整测试登录、配额、TTS 合成等功能：
-
-```bash
-# 在 momovoicesub-yun 仓库
-pnpm dev:api    # 启动 API 服务 (http://localhost:3000)
-pnpm dev:web    # 启动 Web 官网 (http://localhost:3001)
-```
-
-**推荐**：本地开发使用独立的 Supabase 项目，与生产环境完全隔离，避免测试数据污染真实用户库（测试账号、设备指纹、白名单改动等互不影响）。只需在本地 `packages/api/.env` 中配置开发专用的 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` 即可，首次启动 API 会自动建表 + 种子数据。
-
-如果确实想临时连生产库排查问题，把生产环境的 Supabase 密钥填进本地 `.env` 也可以，但务必注意不要做破坏性操作。
 
 ## 许可证
 
