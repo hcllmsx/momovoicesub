@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('momoVoiceSub', {
   engineLookupPromptText: (payload) => ipcRenderer.invoke('engine:lookupPromptText', payload),
   engineBrowseFolder: () => ipcRenderer.invoke('engine:browseFolder'),
   engineBrowseAudio: (payload) => ipcRenderer.invoke('engine:browseAudio', payload),
+  engineReadAudioPreviewDataUri: (payload) => ipcRenderer.invoke('engine:readAudioPreviewDataUri', payload),
   engineArchiveRefAudio: (payload) => ipcRenderer.invoke('engine:archiveRefAudio', payload),
   engineReadAudioDuration: (payload) => ipcRenderer.invoke('engine:readAudioDuration', payload),
   exportLocalVoices: (payload) => ipcRenderer.invoke('voice:exportVoices', payload),

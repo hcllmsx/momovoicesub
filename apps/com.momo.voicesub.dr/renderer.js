@@ -2984,6 +2984,7 @@ function playPreview(shortName, triggerBtn = null) {
   }
 
   // 1. 停止当前正在播放的音频并重置所有试听按钮状态
+  stopRefAudioPreview();
   audio.pause();
   document.querySelectorAll('.vp-card-preview-btn').forEach((b) => {
     b.classList.remove('loading', 'playing');
@@ -4215,6 +4216,7 @@ function getVoiceEmotionUI() {
 }
 
 async function openVoiceEditor(voice) {
+  stopRefAudioPreview();
   if (!scannedModels.length) await scanModelsIntoEditor();
 
   editingVoiceId = voice?.id || null;
@@ -4246,6 +4248,22 @@ async function openVoiceEditor(voice) {
 function closeVoiceEditor() {
   editingVoiceId = null;
   $('localVoiceEditor')?.classList.add('hidden');
+  stopRefAudioPreview();
+}
+
+function stopRefAudioPreview() {
+  const btn = $('playRefAudio');
+  if (btn) {
+    btn.classList.remove('playing');
+    btn.disabled = false;
+    btn.textContent = '试听';
+  }
+  const audio = $('previewAudio');
+  if (audio && audio.dataset.previewType === 'refAudio') {
+    audio.pause();
+    audio.currentTime = 0;
+    delete audio.dataset.previewType;
+  }
 }
 
 /**
@@ -4381,6 +4399,7 @@ function bindLocalVoiceEditor() {
   });
 
   $('browseRefAudio')?.addEventListener('click', async () => {
+    stopRefAudioPreview();
     const rootDir = $('localRootDir')?.value.trim() || '';
     const model = currentEditorModel();
     // 优先定位到训练切片目录：与训练素材同源，音色一致性最好（基础底模无对应 logs 切片，直接定位到 output 或整合包目录）
@@ -4394,6 +4413,61 @@ function bindLocalVoiceEditor() {
     if (res?.canceled) return;
     if ($('voiceRefAudio')) $('voiceRefAudio').value = res.filePath;
     await autoFillPromptText(res.filePath);
+  });
+
+  $('playRefAudio')?.addEventListener('click', async () => {
+    const audio = $('previewAudio');
+    const btn = $('playRefAudio');
+    if (!btn || !audio) return;
+
+    if (btn.classList.contains('playing')) {
+      stopRefAudioPreview();
+      return;
+    }
+
+    const filePath = $('voiceRefAudio')?.value?.trim();
+    if (!filePath) {
+      showToast('请先选择参考音频', 'error');
+      return;
+    }
+
+    // 停止其它可能正在播放的试听
+    audio.pause();
+    document.querySelectorAll('.vp-card-preview-btn').forEach(b => b.classList.remove('loading', 'playing'));
+
+    btn.textContent = '加载…';
+    btn.disabled = true;
+
+    try {
+      const res = await window.momoVoiceSub.engineReadAudioPreviewDataUri({ filePath });
+      if (!res?.ok || !res.dataUri) {
+        showToast(res?.error || '无法读取参考音频文件', 'error');
+        btn.textContent = '试听';
+        btn.disabled = false;
+        return;
+      }
+
+      btn.disabled = false;
+      audio.src = res.dataUri;
+      audio.dataset.previewType = 'refAudio';
+
+      audio.onplaying = () => {
+        btn.classList.add('playing');
+        btn.textContent = '停止';
+      };
+      audio.onended = () => {
+        stopRefAudioPreview();
+      };
+      audio.onerror = () => {
+        stopRefAudioPreview();
+        showToast('音频播放失败', 'error');
+      };
+
+      await audio.play();
+    } catch (err) {
+      stopRefAudioPreview();
+      showToast('试听失败: ' + (err?.message || err), 'error');
+    }
   });
 }
 

@@ -4896,6 +4896,64 @@ function bindLocalTtsEvents() {
       console.warn('[browseRefAudio] 取消或失败:', e);
     }
   });
+
+  $("playRefAudio")?.addEventListener('click', async () => {
+    const refPath = ($("voiceRefAudio") as any)?.value?.trim();
+    if (!refPath) {
+      showToast("请先选择参考音频", "error");
+      return;
+    }
+    if (!uxpShell || typeof uxpShell.openPath !== 'function') {
+      showToast("当前 UXP 运行时不支持调用系统播放器，无法试听", "error");
+      return;
+    }
+
+    const btn = $("playRefAudio");
+    const oldText = btn ? btn.textContent : "试听";
+    try {
+      if (btn) btn.textContent = "准备中…";
+      showToast("正在准备参考音频试听...", "info");
+
+      const audioBuffer = await readAudioFileBuffer(refPath);
+      if (!audioBuffer || audioBuffer.byteLength === 0) {
+        showToast("无法读取参考音频文件，请检查文件是否存在", "error");
+        return;
+      }
+
+      const dataFolder = await uxp.storage.localFileSystem.getDataFolder();
+      let previewFolder: any;
+      try {
+        previewFolder = await dataFolder.getEntry('preview');
+      } catch (_) {
+        previewFolder = await dataFolder.createFolder('preview');
+      }
+
+      const lower = refPath.toLowerCase();
+      let ext = '.wav';
+      if (lower.endsWith('.mp3')) ext = '.mp3';
+      else if (lower.endsWith('.flac')) ext = '.flac';
+      else if (lower.endsWith('.m4a')) ext = '.m4a';
+      else if (lower.endsWith('.ogg')) ext = '.ogg';
+
+      const playFileName = `momo_preview${ext}`;
+      const playFile = await previewFolder.createEntry(playFileName, { overwrite: true });
+      await playFile.write(audioBuffer, { format: (uxp.storage as any).formats.binary });
+
+      const nativePath = playFile.nativePath;
+      const consentText = "默默配音助手试听参考音频。首次试听需授权一次，之后可免重复确认。";
+      const openErr = await uxpShell.openPath(nativePath, consentText);
+      if (openErr && String(openErr).length > 0) {
+        showToast(`试听打开失败：${openErr}`, "error");
+      } else {
+        showToast("已打开参考音频试听。试听下一个音频前，请先关闭当前播放器窗口，以免新内容无法自动加载。", "success");
+      }
+    } catch (e: any) {
+      console.error("[playRefAudio] 试听失败:", e);
+      showToast(`试听失败：${e?.message || e}`, "error");
+    } finally {
+      if (btn) btn.textContent = oldText;
+    }
+  });
 }
 
 // ─── 多音字字典管理 ───

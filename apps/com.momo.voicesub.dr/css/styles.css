@@ -4464,6 +4464,12 @@ z-index: 1100 !important;
   flex-shrink: 0;
 }
 
+#playRefAudio.playing {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #fff;
+}
+
 .field-hint {
   font-size: 10px;
   color: var(--muted);

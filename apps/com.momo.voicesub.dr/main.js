@@ -496,6 +496,29 @@ function registerIpcHandlers() {
     return { canceled: false, filePath: result.filePaths[0] };
   });
 
+  registerLoggedHandler('engine:readAudioPreviewDataUri', async (_event, { filePath } = {}) => {
+    if (!filePath) return { ok: false, error: '文件路径不能为空' };
+    try {
+      const _fsSync = require('fs');
+      if (!_fsSync.existsSync(filePath)) {
+        return { ok: false, error: '音频文件不存在: ' + filePath };
+      }
+      const ext = path.extname(filePath).toLowerCase();
+      let mime = 'audio/wav';
+      if (ext === '.mp3') mime = 'audio/mpeg';
+      else if (ext === '.ogg') mime = 'audio/ogg';
+      else if (ext === '.m4a' || ext === '.aac') mime = 'audio/mp4';
+      else if (ext === '.flac') mime = 'audio/flac';
+
+      const buf = _fsSync.readFileSync(filePath);
+      const base64 = buf.toString('base64');
+      return { ok: true, dataUri: `data:${mime};base64,${base64}` };
+    } catch (e) {
+      console.error('[readAudioPreviewDataUri] 读取音频失败:', e);
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
   registerLoggedHandler('engine:readAudioDuration', async (_event, { filePath } = {}) => {
     if (!filePath) return { ok: false, error: '文件路径不能为空' };
     try {
