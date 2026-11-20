@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://momovoicesub.sxrec.com http://localhost:3000 http://localhost:3001 http://127.0.0.1:* http://localhost:*">
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' https://momovoicesub.sxrec.com http://localhost:3000 http://localhost:3001 http://127.0.0.1:* http://localhost:*">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>默默配音助手</title>
   <link rel="stylesheet" href="css/styles.css">
@@ -319,7 +319,12 @@
                       <span>记住密钥</span>
                     </label>
                   </div>
-                  <input id="azureKey" type="password" placeholder="留空不修改已保存密钥">
+                  <div class="pw-wrap">
+                    <input id="azureKey" type="password" placeholder="留空不修改已保存密钥">
+                    <button type="button" class="pw-toggle" title="显示/隐藏密钥" data-pw-target="azureKey">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div class="card-footer settings-actions">
@@ -621,6 +626,7 @@
               <span>默默配音助手</span>
               <span id="aboutAppVersion" class="about-version-badge">v1.0.0</span>
             </div>
+            <div class="about-hero-meta">作者：莫莫先生 · 基于 GPL-3.0 协议开源</div>
           </div>
         </div>
 
@@ -777,11 +783,16 @@
         <form id="loginSigninForm" class="login-form" autocomplete="on">
           <label class="login-field">
             <span>邮箱</span>
-            <input id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false">
+            <input id="loginEmail" name="username" type="email" placeholder="you@example.com" autocomplete="username" spellcheck="false">
           </label>
           <label class="login-field">
             <span>密码</span>
-            <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password">
+            <div class="pw-wrap pw-wrap--login">
+              <input id="loginPassword" name="current-password" type="password" placeholder="••••••••" autocomplete="current-password">
+              <button type="button" class="pw-toggle" title="显示/隐藏密码" data-pw-target="loginPassword">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
           </label>
           <div class="login-extra-row">
             <label class="checkbox-row">

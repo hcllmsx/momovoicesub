@@ -1,5 +1,19 @@
 'use strict';
 
+// 模态弹窗防文本拖选误关：全局捕获阶段记录 mousedown 起点
+let _backdropMouseDownTarget = null;
+document.addEventListener('mousedown', (e) => {
+  _backdropMouseDownTarget = e.target;
+}, true);
+
+// 密码 / 密钥输入框明文切换
+function togglePw(id) {
+  const input = document.getElementById(id);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  input.focus();
+}
+
 const AVATAR_CONFIG = {
   woman: { value: 'woman', label: '青年女声', gender: 'Female', img: 'img/woman-default.jpg' },
   man: { value: 'man', label: '青年男声', gender: 'Male', img: 'img/man-default.jpg' },
@@ -424,7 +438,7 @@ function showConfirmDialog({ message, detail, confirmText = '确定', cancelText
 
     cancelBtn.addEventListener('click', () => close(false));
     confirmBtn.addEventListener('click', () => close(true));
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay && _backdropMouseDownTarget === overlay) close(false); });
     document.addEventListener('keydown', escHandler);
 
     // 自动聚焦确认按钮，回车直接确认
@@ -1391,7 +1405,8 @@ function createVoicePicker(container, options) {
 
     container.querySelector('[data-action="open"]').addEventListener('click', () => openModal());
     container.querySelector('.vp-modal-overlay').addEventListener('click', (e) => {
-      if (e.target === container.querySelector('.vp-modal-overlay')) closeModal();
+      const vpOverlay = container.querySelector('.vp-modal-overlay');
+      if (e.target === vpOverlay && _backdropMouseDownTarget === vpOverlay) closeModal();
     });
     container.querySelector('.vp-modal-cancel').addEventListener('click', () => cancelSelection());
     container.querySelector('.vp-modal-confirm').addEventListener('click', () => confirmSelection());
@@ -5118,16 +5133,28 @@ function compareVersion(a, b) {
 }
 
 const PROD_BASE_URL = 'https://momovoicesub.sxrec.com';
+const VERSION_PATTERN = /^\d+(\.\d+)+$/;
+const UPDATE_CHECK_TIMEOUT_MS = 6000;
 
 async function checkForUpdate(manual = false) {
   state.updateStatus = 'checking';
   renderUpdateStatus();
   try {
-    const resp = await fetch(`${PROD_BASE_URL}/api/version`, { cache: 'no-cache' });
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS) : null;
+    let resp;
+    try {
+      resp = await fetch(`${PROD_BASE_URL}/api/version`, {
+        cache: 'no-cache',
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    const remoteVersion = (data.dr_version || '').trim();
-    if (!remoteVersion) throw new Error('未找到远程 DR 版本号');
+    const remoteVersion = String(data.dr_version || '').trim().replace(/^v/i, '');
+    if (!VERSION_PATTERN.test(remoteVersion)) throw new Error(`无效的远程 DR 版本号: ${remoteVersion || '(空)'}`);
     state.updateLatestVersion = remoteVersion;
     const downloadUrl = data.download_url || PROD_BASE_URL;
     state.updateDownloadUrl = downloadUrl;
@@ -5222,7 +5249,7 @@ function showUpdateDialog({ currentVersion, latestVersion, downloadUrl }) {
     window.momoVoiceSub.openExternal(url);
     close();
   });
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && _backdropMouseDownTarget === overlay) close(); });
   document.addEventListener('keydown', escHandler);
 
   requestAnimationFrame(() => {
@@ -6148,11 +6175,16 @@ function setupEvents() {
   window.momoVoiceSub.onLog((payload) => log(payload));
 
   document.addEventListener('click', (e) => {
-    if (e.target === $('polyPopup')) $('polyPopup').classList.add('hidden');
-    if (e.target === $('pausePopup')) $('pausePopup').classList.add('hidden');
-    if (e.target === $('loginPopup')) $('loginPopup').classList.add('hidden');
-    if (e.target === $('aboutPopup')) $('aboutPopup').classList.add('hidden');
-    if (e.target === $('qrcodeZoomModal')) $('qrcodeZoomModal').classList.add('hidden');
+    const pwToggleBtn = e.target && e.target.closest ? e.target.closest('.pw-toggle[data-pw-target]') : null;
+    if (pwToggleBtn) {
+      togglePw(pwToggleBtn.getAttribute('data-pw-target'));
+      return;
+    }
+    if (e.target === $('polyPopup') && _backdropMouseDownTarget === $('polyPopup')) $('polyPopup').classList.add('hidden');
+    if (e.target === $('pausePopup') && _backdropMouseDownTarget === $('pausePopup')) $('pausePopup').classList.add('hidden');
+    if (e.target === $('loginPopup') && _backdropMouseDownTarget === $('loginPopup')) $('loginPopup').classList.add('hidden');
+    if (e.target === $('aboutPopup') && _backdropMouseDownTarget === $('aboutPopup')) $('aboutPopup').classList.add('hidden');
+    if (e.target === $('qrcodeZoomModal') && _backdropMouseDownTarget === $('qrcodeZoomModal')) $('qrcodeZoomModal').classList.add('hidden');
   });
 
   // Esc 键关闭弹窗（二维码放大、登录弹窗、关于弹窗）

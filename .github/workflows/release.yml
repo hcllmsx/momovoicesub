@@ -16,6 +16,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Prepare release notes
+        id: build_notes
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -42,10 +43,11 @@ jobs:
           )
           $body = $lines -join "`n`n"
           [System.IO.File]::WriteAllText((Join-Path $PWD 'release_notes.txt'), $body, [System.Text.Encoding]::UTF8)
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: '默默配音助手 ${{ github.ref_name }}'
+          name: '默默配音助手 v${{ steps.build_notes.outputs.version }}'
           body_path: release_notes.txt
           generate_release_notes: false

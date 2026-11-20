@@ -21,7 +21,7 @@ apps/com.momo.voicesub.pr/dist-dev/
 
 # Installer build artifacts
 installer/payload/
-_output/
+out_put/
 
 .catpaw/
 .workbuddy/

@@ -2748,6 +2748,12 @@ font-weight: 500;
   line-height: 1.3;
 }
 
+.about-hero-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted, #9aa0a6);
+}
+
 .about-version-badge {
   margin-left: 8px;
   display: inline-flex;

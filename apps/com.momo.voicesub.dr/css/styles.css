@@ -1874,6 +1874,91 @@ z-index: 30;
   box-shadow: 0 0 0 2px var(--accent-light);
 }
 
+/* 密码输入框明文切换控件（隐藏原生揭示按钮，容器绘框避免与密码管理器重叠） */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-reveal:hover {
+  display: none;
+}
+
+.pw-wrap {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.pw-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+
+.pw-wrap input,
+.settings-grid .pw-wrap input,
+.connection-settings-row .pw-wrap input,
+.login-field .pw-wrap input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  min-height: 0;
+  padding: 5px 6px 5px 9px;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  outline: none;
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.pw-wrap input:focus,
+.settings-grid .pw-wrap input:focus,
+.connection-settings-row .pw-wrap input:focus,
+.login-field .pw-wrap input:focus {
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+
+.pw-wrap--login {
+  background: var(--surface);
+}
+
+.pw-wrap--login:focus-within {
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.login-field .pw-wrap--login input {
+  padding: 8px 6px 8px 10px;
+  font-size: 13px;
+}
+
+.pw-toggle {
+  flex: none;
+  align-self: stretch;
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--muted);
+  transition: color var(--transition), background var(--transition);
+}
+
+.pw-toggle:hover {
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
 .span-2 {
   grid-column: span 2;
 }
@@ -4773,6 +4858,12 @@ z-index: 1100 !important;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.about-hero-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .about-version-badge {

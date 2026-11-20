@@ -814,16 +814,28 @@ function compareVersion(a: string, b: string): number {
 }
 
 const PROD_BASE_URL = 'https://momovoicesub.sxrec.com';
+const VERSION_PATTERN = /^\d+(\.\d+)+$/;
+const UPDATE_CHECK_TIMEOUT_MS = 6000;
 
 async function checkForUpdate(manual = false) {
   state.updateStatus = 'checking';
   renderUpdateStatus();
   try {
-    const resp = await fetch(`${PROD_BASE_URL}/api/version`, { cache: 'no-cache' } as any);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS) : null;
+    let resp: Response;
+    try {
+      resp = await fetch(`${PROD_BASE_URL}/api/version`, {
+        cache: 'no-cache',
+        ...(controller ? { signal: controller.signal } : {}),
+      } as any);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data: any = await resp.json();
-    const remoteVersion = (data.pr_version || '').trim();
-    if (!remoteVersion) throw new Error('未找到远程 PR 版本号');
+    const remoteVersion = String(data.pr_version || '').trim().replace(/^v/i, '');
+    if (!VERSION_PATTERN.test(remoteVersion)) throw new Error(`无效的远程 PR 版本号: ${remoteVersion || '(空)'}`);
     state.updateLatestVersion = remoteVersion;
     const downloadUrl = data.download_url || PROD_BASE_URL;
 
