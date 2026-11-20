@@ -4825,7 +4825,7 @@ z-index: 1100 !important;
 
 /* ═══ About & Community Popup ═══ */
 .popup-about {
-  width: 470px;
+  width: 500px;
   max-width: 92vw;
 }
 
@@ -4881,15 +4881,16 @@ z-index: 1100 !important;
 
 .about-links-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
 }
 
 .about-link-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 11px;
   background: var(--bg-sub);
   border: 1px solid var(--line);
   border-radius: var(--radius);
